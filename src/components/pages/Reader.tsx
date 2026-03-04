@@ -197,6 +197,8 @@ export default function Reader() {
   const visibleChapterRef = useRef<number | null>(null);
   const stripChaptersRef  = useRef<StripChapter[]>([]);
   const pageUrlsRef       = useRef<string[]>([]);
+  const activeChapterRef  = useRef<typeof activeChapter>(null);
+  const markReadOnNextRef = useRef(true);
   // Captured before a head-trim; useLayoutEffect restores scroll synchronously
   const scrollAnchorRef   = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
 
@@ -239,10 +241,29 @@ export default function Reader() {
   const style    = settings.pageStyle    ?? "single";
   const maxW     = settings.maxPageWidth ?? 900;
   const autoNext = settings.autoNextChapter ?? false;
+  const markReadOnNext = settings.markReadOnNext ?? true;
 
-  settingsRef.current    = settings;
-  chapterListRef.current = activeChapterList;
-  pageUrlsRef.current    = pageUrls;
+  settingsRef.current      = settings;
+  chapterListRef.current   = activeChapterList;
+  pageUrlsRef.current      = pageUrls;
+  activeChapterRef.current = activeChapter;
+  markReadOnNextRef.current = markReadOnNext;
+
+  // Mark the current chapter read when the user manually skips to another chapter.
+  // Uses refs only — safe to call from any callback without stale-closure issues.
+  // markReadOnNext gates this; autoNextChapter does NOT block it because a manual
+  // chapter-skip is always intentional regardless of the auto-advance setting.
+  const maybeMarkCurrentRead = useCallback(() => {
+    const ch = activeChapterRef.current;
+    if (!ch) return;
+    if (!markReadOnNextRef.current) return;
+    if (markedReadRef.current.has(ch.id)) return;
+    markedReadRef.current.add(ch.id);
+    gql(MARK_CHAPTER_READ, { id: ch.id, isRead: true }).catch((e) => {
+      markedReadRef.current.delete(ch.id);
+      console.error("MARK_CHAPTER_READ (manual next) failed:", e);
+    });
+  }, []);
 
   // ── UI autohide ──────────────────────────────────────────────────────────────
   const showUi = useCallback(() => {
@@ -294,8 +315,9 @@ export default function Reader() {
     fetchPages(targetId, ctrl.signal)
       .then(async (urls) => {
         if (ctrl.signal.aborted) return;
-        if (style !== "longstrip") await decodeImage(urls[0]);
-        if (ctrl.signal.aborted) return;
+        // Don't block the render on decoding — set URLs immediately so the
+        // browser can start painting the first image without waiting for the
+        // full decode. The img element's own decoding="async" handles the rest.
         setPageUrls(urls);
         setPageReady(true);
         if (style === "longstrip" && autoNext) {
@@ -532,6 +554,12 @@ export default function Reader() {
     if (style !== "longstrip" && containerRef.current) containerRef.current.scrollTop = 0;
   }, [pageNumber, style]);
 
+  // Always scroll to top when a new chapter opens — even if pageNumber stays at 1
+  // (navigating chapter→chapter while already on page 1 won't trigger the effect above).
+  useEffect(() => {
+    if (containerRef.current) containerRef.current.scrollTop = 0;
+  }, [activeChapter?.id]);
+
   // ── Preload adjacent pages ───────────────────────────────────────────────────
   useEffect(() => {
     const ahead = settings.preloadPages ?? 3;
@@ -671,26 +699,39 @@ export default function Reader() {
   }, [pageGroups, pageNumber, adjacent, activeChapterList]);
 
   const goForward = useCallback(() => {
-    if (loading || !pageUrls.length) return;
+    if (loading) return;
+    // Longstrip: bottom arrows always switch chapters, not pages
+    if (style === "longstrip") {
+      if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, activeChapterList); }
+      return;
+    }
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
+    if (!pageUrls.length) return;
     if (pageNumber < lastPage) {
       decodeImage(pageUrls[pageNumber]).then(() => setPageNumber(pageNumber + 1));
     } else if (adjacent.next) {
+      maybeMarkCurrentRead();
       setPageNumber(1); openReader(adjacent.next, activeChapterList);
     } else {
       closeReader();
     }
-  }, [loading, pageNumber, lastPage, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
+  }, [loading, style, pageNumber, lastPage, pageUrls, adjacent, activeChapterList, pageGroups, advanceGroup, maybeMarkCurrentRead]);
 
   const goBack = useCallback(() => {
-    if (loading || !pageUrls.length) return;
+    if (loading) return;
+    // Longstrip: bottom arrows always switch chapters, not pages
+    if (style === "longstrip") {
+      if (adjacent.prev) openReader(adjacent.prev, activeChapterList);
+      return;
+    }
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
+    if (!pageUrls.length) return;
     if (pageNumber > 1) {
       decodeImage(pageUrls[pageNumber - 2]).then(() => setPageNumber(pageNumber - 1));
     } else if (adjacent.prev) {
       openReader(adjacent.prev, activeChapterList);
     }
-  }, [loading, pageNumber, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
+  }, [loading, style, pageNumber, pageUrls, adjacent, activeChapterList, pageGroups, advanceGroup]);
 
   const goNext = rtl ? goBack  : goForward;
   const goPrev = rtl ? goForward : goBack;
@@ -752,7 +793,7 @@ export default function Reader() {
         const list = chapterListRef.current;
         const idx  = list.findIndex((c) => c.id === loadingIdRef.current);
         const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
-        if (next) openReader(next, list);
+        if (next) { maybeMarkCurrentRead(); openReader(next, list); }
       }
       else if (matchesKeybind(e, kb.chapterLeft)) {
         e.preventDefault();
@@ -768,7 +809,7 @@ export default function Reader() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [zoomOpen, dlOpen, lastPage]);
+  }, [zoomOpen, dlOpen, lastPage, maybeMarkCurrentRead]);
 
   // ── Render ───────────────────────────────────────────────────────────────────
   function handleTap(e: React.MouseEvent) {
@@ -808,7 +849,7 @@ export default function Reader() {
       {/* ── Topbar ── */}
       <div className={[s.topbar, uiVisible ? "" : s.uiHidden].join(" ")}>
         <button className={s.iconBtn} onClick={closeReader} title="Close reader"><X size={15} weight="light" /></button>
-        <button className={s.iconBtn} onClick={() => adjacent.prev && openReader(adjacent.prev, activeChapterList)} disabled={!adjacent.prev} title="Previous chapter">
+        <button className={s.iconBtn} onClick={() => { if (adjacent.prev) { maybeMarkCurrentRead(); openReader(adjacent.prev, activeChapterList); } }} disabled={!adjacent.prev} title="Previous chapter">
           <CaretLeft size={14} weight="light" />
         </button>
         <span className={s.chLabel}>
@@ -817,7 +858,7 @@ export default function Reader() {
           <span>{displayChapter?.name}</span>
         </span>
         <span className={s.pageLabel}>{visibleChunkPage} / {visibleChunkLastPage || "…"}</span>
-        <button className={s.iconBtn} onClick={() => adjacent.next && openReader(adjacent.next, activeChapterList)} disabled={!adjacent.next} title="Next chapter">
+        <button className={s.iconBtn} onClick={() => { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, activeChapterList); } }} disabled={!adjacent.next} title="Next chapter">
           <CaretRight size={14} weight="light" />
         </button>
         <div className={s.topSep} />
@@ -852,6 +893,16 @@ export default function Reader() {
           <button className={[s.modeBtn, autoNext ? s.modeBtnActive : ""].join(" ")}
             onClick={() => updateSettings({ autoNextChapter: !autoNext })} title="Auto-advance to next chapter">
             <span className={s.modeBtnLabel}>Auto</span>
+          </button>
+        )}
+        {!autoNext && (
+          <button
+            className={[s.modeBtn, markReadOnNext ? s.modeBtnActive : ""].join(" ")}
+            onClick={() => updateSettings({ markReadOnNext: !markReadOnNext })}
+            title={markReadOnNext
+              ? "Mark chapter read when advancing to next (click to disable)"
+              : "Don't mark chapter read on next (click to enable)"}>
+            <span className={s.modeBtnLabel}>Mk.Read</span>
           </button>
         )}
         <button className={s.modeBtn} onClick={() => setDlOpen(true)} title="Download options">
@@ -920,10 +971,12 @@ export default function Reader() {
 
       {/* ── Bottom nav ── */}
       <div className={[s.bottombar, uiVisible ? "" : s.uiHidden].join(" ")}>
-        <button className={s.navBtn} onClick={goPrev} disabled={loading || (pageNumber === 1 && !adjacent.prev)}>
+        <button className={s.navBtn} onClick={goPrev}
+          disabled={loading || (style === "longstrip" ? !adjacent.prev : (pageNumber === 1 && !adjacent.prev))}>
           <ArrowLeft size={13} weight="light" />
         </button>
-        <button className={s.navBtn} onClick={goNext} disabled={loading || (pageNumber === lastPage && !adjacent.next)}>
+        <button className={s.navBtn} onClick={goNext}
+          disabled={loading || (style === "longstrip" ? !adjacent.next : (pageNumber === lastPage && !adjacent.next))}>
           <ArrowRight size={13} weight="light" />
         </button>
       </div>

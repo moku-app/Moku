@@ -301,6 +301,7 @@ export default function SeriesDetail() {
   const activeManga         = useStore((state) => state.activeManga);
   const setActiveManga      = useStore((state) => state.setActiveManga);
   const openReader          = useStore((state) => state.openReader);
+  const activeChapter       = useStore((state) => state.activeChapter);
   const settings            = useStore((state) => state.settings);
   const updateSettings      = useStore((state) => state.updateSettings);
   const addToast            = useStore((state) => state.addToast);
@@ -514,6 +515,13 @@ export default function SeriesDetail() {
         applyChapters(data.chapters.nodes);
       });
   }, [applyChapters]);
+
+  // Reload chapters whenever the reader is closed so read/unread state is always current.
+  useEffect(() => {
+    if (activeChapter || !activeManga) return;
+    reloadChapters(activeManga.id);
+    cache.clear(CACHE_KEYS.LIBRARY);
+  }, [activeChapter, activeManga, reloadChapters]);
 
   async function enqueue(chapter: Chapter, e: React.MouseEvent) {
     e.stopPropagation();

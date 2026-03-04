@@ -45,6 +45,9 @@ const MangaCard = memo(function MangaCard({
         {!!manga.downloadCount && (
           <span className={s.downloadedBadge}>{manga.downloadCount}</span>
         )}
+        {!!manga.unreadCount && (
+          <span className={s.unreadBadge}>{manga.unreadCount}</span>
+        )}
       </div>
       <p className={s.title}>{manga.title}</p>
     </button>
@@ -78,6 +81,16 @@ export default function Library() {
   const addFolder              = useStore((state) => state.addFolder);
   const assignMangaToFolder    = useStore((state) => state.assignMangaToFolder);
   const removeMangaFromFolder  = useStore((state) => state.removeMangaFromFolder);
+  const activeChapter          = useStore((state) => state.activeChapter);
+
+
+  const prevChapterRef = useRef<number | null>(null);
+  useEffect(() => {
+    const wasOpen = prevChapterRef.current !== null;
+    prevChapterRef.current = activeChapter?.id ?? null;
+    if (!wasOpen || activeChapter) return;
+    cache.clear(CACHE_KEYS.LIBRARY);
+  }, [activeChapter]);
 
   const loadData = useCallback((showLoading = false) => {
     if (showLoading) setLoading(true);

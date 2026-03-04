@@ -175,6 +175,24 @@
   border: 1px solid var(--accent-muted);
 }
 
+.unreadBadge {
+  position: absolute;
+  top: var(--sp-1);
+  left: var(--sp-1);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+  background: var(--bg-void);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+}
+
 .title {
   margin-top: var(--sp-2);
   font-size: var(--text-sm);

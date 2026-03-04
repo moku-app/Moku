@@ -76,6 +76,12 @@ export interface Settings {
   splashCards?: boolean;
   storageLimitGb: number | null;
   folders: Folder[];
+  /**
+   * Mark a chapter as read when the user manually taps the "next chapter"
+   * button/key while autoNextChapter is off. Has no effect when autoNextChapter
+   * is on (the scroll-based mark-as-read logic handles that path).
+   */
+  markReadOnNext: boolean;
   /** Debounce delay (ms) applied to the reader's scroll/page-change handler. 0 = off. */
   readerDebounceMs: number;
   /** UI colour theme. Applied as data-theme on <html>. */
@@ -110,6 +116,7 @@ export const DEFAULT_SETTINGS: Settings = {
   splashCards: true,
   storageLimitGb: null,
   folders: [],
+  markReadOnNext: true,
   readerDebounceMs: 120,
   theme: "dark",
 };

@@ -265,6 +265,12 @@ function ReaderTab({ settings, update }: { settings: Settings; update: (p: Parti
           description="Automatically open the next chapter at the end of a long strip"
           checked={settings.autoNextChapter ?? false}
           onChange={(v) => update({ autoNextChapter: v })} />
+        {!(settings.autoNextChapter ?? false) && (
+          <Toggle label="Mark read when skipping to next chapter"
+            description="When auto-advance is off, mark the current chapter as read if you tap the next chapter button before finishing it"
+            checked={settings.markReadOnNext ?? true}
+            onChange={(v) => update({ markReadOnNext: v })} />
+        )}
         <Stepper label="Pages to preload"
           description="Images loaded ahead of the current page"
           value={settings.preloadPages} min={0} max={10}
