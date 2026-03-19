@@ -44,7 +44,7 @@
   onMount(() => window.addEventListener("keydown", onKey));
   onDestroy(() => window.removeEventListener("keydown", onKey));
 
-  // ── Keybinds ─────────────────────────────────────────────────────────────────
+  
   let listeningKey: keyof Keybinds | null = null;
 
   function startListen(key: keyof Keybinds) {
@@ -66,7 +66,7 @@
     window.removeEventListener("keydown", onKeyCapture, true);
   }
 
-  // ── Storage ───────────────────────────────────────────────────────────────────
+  
   interface StorageInfo { manga_bytes: number; total_bytes: number; free_bytes: number; path: string; }
   let storageInfo: StorageInfo | null = null;
   let storageLoading = false;
@@ -98,7 +98,7 @@
     return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
   }
 
-  // ── Folders ────────────────────────────────────────────────────────────────────
+  
   let newFolderName  = "";
   let editingId: string | null = null;
   let editingName    = "";
@@ -116,7 +116,7 @@
     editingId = null; editingName = "";
   }
 
-  // ── Select dropdown ────────────────────────────────────────────────────────────
+  
   let selectOpen: string | null = null;
 
   function toggleSelect(id: string) { selectOpen = selectOpen === id ? null : id; }
@@ -128,7 +128,7 @@
   onMount(() => document.addEventListener("mousedown", onSelectOutside));
   onDestroy(() => document.removeEventListener("mousedown", onSelectOutside));
 
-  // ── DevTools ──────────────────────────────────────────────────────────────────
+  
   let splashTriggered = false;
   function triggerSplash() {
     splashTriggered = true;
@@ -137,7 +137,7 @@
   }
 </script>
 
-<div class="backdrop" on:click={(e) => { if (e.target === e.currentTarget) close(); }}>
+<div class="backdrop" role="presentation" on:click={(e) => { if (e.target === e.currentTarget) close(); }} on:keydown={(e) => { if (e.key === "Escape") close(); }}>
   <div class="modal" role="dialog" aria-label="Settings">
     <div class="sidebar">
       <p class="modal-title">Settings</p>
@@ -154,12 +154,12 @@
     <div class="content">
       <div class="content-header">
         <p class="content-title">{TABS.find((t) => t.id === tab)?.label}</p>
-        <button class="close-btn" on:click={close}><X size={15} weight="light" /></button>
+        <button class="close-btn" aria-label="Close settings" on:click={close}><X size={15} weight="light" /></button>
       </div>
 
       <div class="content-body" bind:this={contentBodyEl}>
 
-        <!-- GENERAL -->
+        
         {#if tab === "general"}
           <div class="panel">
             <div class="section">
@@ -188,7 +188,7 @@
               </div>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-start server</span><span class="toggle-desc">Launch tachidesk-server when Moku opens</span></div>
-                <button role="switch" aria-checked={$settings.autoStartServer} class="toggle" class:on={$settings.autoStartServer} on:click={() => updateSettings({ autoStartServer: !$settings.autoStartServer })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.autoStartServer} aria-label="Auto-start server" class="toggle" class:on={$settings.autoStartServer} on:click={() => updateSettings({ autoStartServer: !$settings.autoStartServer })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -212,7 +212,7 @@
             </div>
           </div>
 
-        <!-- APPEARANCE -->
+        
         {:else if tab === "appearance"}
           <div class="panel">
             <div class="section">
@@ -242,7 +242,7 @@
             </div>
           </div>
 
-        <!-- READER -->
+        
         {:else if tab === "reader"}
           <div class="panel">
             <div class="section">
@@ -281,7 +281,7 @@
               </div>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Page gap</span><span class="toggle-desc">Add spacing between pages in longstrip mode</span></div>
-                <button role="switch" aria-checked={$settings.pageGap} class="toggle" class:on={$settings.pageGap} on:click={() => updateSettings({ pageGap: !$settings.pageGap })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.pageGap} aria-label="Page gap" class="toggle" class:on={$settings.pageGap} on:click={() => updateSettings({ pageGap: !$settings.pageGap })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -312,23 +312,23 @@
               </div>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Optimize contrast</span><span class="toggle-desc">Use webkit-optimize-contrast rendering</span></div>
-                <button role="switch" aria-checked={$settings.optimizeContrast} class="toggle" class:on={$settings.optimizeContrast} on:click={() => updateSettings({ optimizeContrast: !$settings.optimizeContrast })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.optimizeContrast} aria-label="Optimize contrast" class="toggle" class:on={$settings.optimizeContrast} on:click={() => updateSettings({ optimizeContrast: !$settings.optimizeContrast })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Behaviour</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-mark chapters read</span><span class="toggle-desc">Mark a chapter as read when you reach the last page</span></div>
-                <button role="switch" aria-checked={$settings.autoMarkRead} class="toggle" class:on={$settings.autoMarkRead} on:click={() => updateSettings({ autoMarkRead: !$settings.autoMarkRead })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.autoMarkRead} aria-label="Auto-mark chapters read" class="toggle" class:on={$settings.autoMarkRead} on:click={() => updateSettings({ autoMarkRead: !$settings.autoMarkRead })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-advance chapters</span><span class="toggle-desc">Automatically open the next chapter at the end of a long strip</span></div>
-                <button role="switch" aria-checked={$settings.autoNextChapter ?? false} class="toggle" class:on={$settings.autoNextChapter} on:click={() => updateSettings({ autoNextChapter: !($settings.autoNextChapter ?? false) })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.autoNextChapter ?? false} aria-label="Auto-advance chapters" class="toggle" class:on={$settings.autoNextChapter} on:click={() => updateSettings({ autoNextChapter: !($settings.autoNextChapter ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
               {#if !($settings.autoNextChapter ?? false)}
                 <label class="toggle-row">
                   <div class="toggle-info"><span class="toggle-label">Mark read when skipping to next chapter</span><span class="toggle-desc">Mark chapter as read when you tap next before finishing</span></div>
-                  <button role="switch" aria-checked={$settings.markReadOnNext ?? true} class="toggle" class:on={$settings.markReadOnNext ?? true} on:click={() => updateSettings({ markReadOnNext: !($settings.markReadOnNext ?? true) })}><span class="toggle-thumb"></span></button>
+                  <button role="switch" aria-checked={$settings.markReadOnNext ?? true} aria-label="Mark read when skipping" class="toggle" class:on={$settings.markReadOnNext ?? true} on:click={() => updateSettings({ markReadOnNext: !($settings.markReadOnNext ?? true) })}><span class="toggle-thumb"></span></button>
                 </label>
               {/if}
               <div class="step-row">
@@ -342,18 +342,18 @@
             </div>
           </div>
 
-        <!-- LIBRARY -->
+        
         {:else if tab === "library"}
           <div class="panel">
             <div class="section">
               <p class="section-title">Display</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Crop cover images</span><span class="toggle-desc">Fill grid cells — may crop cover edges</span></div>
-                <button role="switch" aria-checked={$settings.libraryCropCovers} class="toggle" class:on={$settings.libraryCropCovers} on:click={() => updateSettings({ libraryCropCovers: !$settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={$settings.libraryCropCovers} on:click={() => updateSettings({ libraryCropCovers: !$settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Show NSFW sources</span><span class="toggle-desc">Display adult content sources in the sources list</span></div>
-                <button role="switch" aria-checked={$settings.showNsfw} class="toggle" class:on={$settings.showNsfw} on:click={() => updateSettings({ showNsfw: !$settings.showNsfw })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.showNsfw} aria-label="Show NSFW sources" class="toggle" class:on={$settings.showNsfw} on:click={() => updateSettings({ showNsfw: !$settings.showNsfw })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -384,33 +384,33 @@
             </div>
           </div>
 
-        <!-- PERFORMANCE -->
+        
         {:else if tab === "performance"}
           <div class="panel">
             <div class="section">
               <p class="section-title">Rendering</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">GPU acceleration</span><span class="toggle-desc">Promote reader and library to compositor layers</span></div>
-                <button role="switch" aria-checked={$settings.gpuAcceleration} class="toggle" class:on={$settings.gpuAcceleration} on:click={() => updateSettings({ gpuAcceleration: !$settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.gpuAcceleration} aria-label="GPU acceleration" class="toggle" class:on={$settings.gpuAcceleration} on:click={() => updateSettings({ gpuAcceleration: !$settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Idle / Splash Screen</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Animated card background</span><span class="toggle-desc">Show floating manga cards on splash and idle screens.</span></div>
-                <button role="switch" aria-checked={$settings.splashCards ?? true} class="toggle" class:on={$settings.splashCards ?? true} on:click={() => updateSettings({ splashCards: !($settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.splashCards ?? true} aria-label="Animated card background" class="toggle" class:on={$settings.splashCards ?? true} on:click={() => updateSettings({ splashCards: !($settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Interface</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Compact sidebar</span><span class="toggle-desc">Reduce sidebar icon spacing</span></div>
-                <button role="switch" aria-checked={$settings.compactSidebar} class="toggle" class:on={$settings.compactSidebar} on:click={() => updateSettings({ compactSidebar: !$settings.compactSidebar })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={$settings.compactSidebar} aria-label="Compact sidebar" class="toggle" class:on={$settings.compactSidebar} on:click={() => updateSettings({ compactSidebar: !$settings.compactSidebar })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
           </div>
 
-        <!-- KEYBINDS -->
+        
         {:else if tab === "keybinds"}
           <div class="panel">
             <div class="section">
@@ -438,7 +438,7 @@
             </div>
           </div>
 
-        <!-- STORAGE -->
+        
         {:else if tab === "storage"}
           <div class="panel">
             <div class="section">
@@ -482,7 +482,7 @@
             </div>
           </div>
 
-        <!-- FOLDERS -->
+        
         {:else if tab === "folders"}
           <div class="panel">
             <div class="section">
@@ -523,7 +523,7 @@
             </div>
           </div>
 
-        <!-- ABOUT -->
+        
         {:else if tab === "about"}
           <div class="panel">
             <div class="section">
@@ -535,7 +535,7 @@
             </div>
           </div>
 
-        <!-- DEVTOOLS -->
+        
         {:else if tab === "devtools"}
           <div class="panel">
             <div class="section">

@@ -170,6 +170,7 @@
 
 <div
   class="root"
+  role="presentation"
   bind:this={scrollEl}
   on:contextmenu={(e) => {
     if ((e.target as HTMLElement).closest("button")) return;

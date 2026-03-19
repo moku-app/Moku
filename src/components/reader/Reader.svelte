@@ -11,7 +11,7 @@
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import type { FitMode } from "../../store";
 
-  // ── Page cache ────────────────────────────────────────────────────────────────
+  
   const pageCache  = new Map<number, string[]>();
   const inflight   = new Map<number, Promise<string[]>>();
   const cacheOrder: number[] = [];
@@ -52,7 +52,7 @@
     });
   }
 
-  // ── Image helpers ─────────────────────────────────────────────────────────────
+  
   const aspectCache = new Map<string, number>();
 
   function preloadImage(url: string) { new Image().src = url; }
@@ -76,7 +76,7 @@
     });
   }
 
-  // ── State ─────────────────────────────────────────────────────────────────────
+  
   interface StripChapter { chapterId: number; chapterName: string; urls: string[]; startGlobalIdx: number; }
 
   let containerEl: HTMLDivElement;
@@ -157,7 +157,7 @@
     hideTimer = setTimeout(() => uiVisible = false, 3000);
   }
 
-  // ── Load chapter ──────────────────────────────────────────────────────────────
+  
   $: if ($activeChapter) {
     loadChapter($activeChapter.id);
   }
@@ -197,7 +197,7 @@
     }
   }
 
-  // ── Append next chapter ───────────────────────────────────────────────────────
+  
   function appendNextChapter() {
     if (appending) return;
     const lastChunk = stripChapters[stripChapters.length - 1];
@@ -237,7 +237,7 @@
       .catch(() => { appending = false; });
   }
 
-  // ── Scroll tracking ───────────────────────────────────────────────────────────
+  
   function setupScrollTracking() {
     if (!containerEl || style !== "longstrip") return;
     const READ_LINE_PCT = 0.20;
@@ -283,7 +283,7 @@
     };
   }
 
-  // ── Navigation ────────────────────────────────────────────────────────────────
+  
   function advanceGroup(forward: boolean) {
     if (!pageGroups.length) return;
     const gi = pageGroups.findIndex((g) => g.includes($pageNumber));
@@ -330,7 +330,7 @@
     updateSettings({ fitMode: opts[(opts.indexOf(fit) + 1) % opts.length] });
   }
 
-  // ── History + auto-mark (non-longstrip) ──────────────────────────────────────
+  
   $: if ($activeChapter && lastPage && $activeManga) {
     addHistory({
       mangaId: $activeManga.id, mangaTitle: $activeManga.title,
@@ -345,7 +345,7 @@
     }
   }
 
-  // ── Double-page grouping ──────────────────────────────────────────────────────
+  
   $: if (style === "double" && $pageUrls.length) {
     let cancelled = false;
     const snap = $pageUrls;
@@ -364,7 +364,7 @@
     });
   } else { pageGroups = []; }
 
-  // ── Preload pages ─────────────────────────────────────────────────────────────
+  
   $: {
     const ahead = $settings.preloadPages ?? 3;
     for (let i = 1; i <= ahead; i++) { const url = $pageUrls[$pageNumber - 1 + i]; if (url) decodeImage(url); }
@@ -372,7 +372,7 @@
     if (behind) preloadImage(behind);
   }
 
-  // ── Prefetch next chapters ────────────────────────────────────────────────────
+  
   $: if ($activeChapter && $activeChapterList.length) {
     const idx = $activeChapterList.findIndex((c) => c.id === $activeChapter!.id);
     if (idx >= 0) {
@@ -388,7 +388,7 @@
     }
   }
 
-  // ── Rebuild strip on autoNext toggle ─────────────────────────────────────────
+  
   $: if (style === "longstrip" && $pageUrls.length && $activeChapter) {
     appended  = new Set([$activeChapter.id]);
     appending = false;
@@ -402,18 +402,18 @@
     if (containerEl) containerEl.scrollTop = 0;
   }
 
-  // ── Scroll to top on chapter/page change ─────────────────────────────────────
+  
   $: if ($activeChapter?.id && containerEl) containerEl.scrollTop = 0;
   $: if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0;
 
-  // ── Ctrl+scroll zoom ─────────────────────────────────────────────────────────
+  
   function onWheel(e: WheelEvent) {
     if (!e.ctrlKey) return;
     e.preventDefault();
     updateSettings({ maxPageWidth: Math.min(2400, Math.max(200, maxW + (e.deltaY < 0 ? 50 : -50))) });
   }
 
-  // ── Keybinds ──────────────────────────────────────────────────────────────────
+  
   function onKey(e: KeyboardEvent) {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
     const kb  = $settings.keybinds ?? DEFAULT_KEYBINDS;
@@ -495,9 +495,9 @@
     : [$pageNumber];
 </script>
 
-<div class="root" on:mousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
+<div class="root" role="presentation" on:mousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
 
-  <!-- Topbar -->
+  
   <div class="topbar" class:hidden={!uiVisible}>
     <button class="icon-btn" on:click={closeReader} title="Close reader"><X size={15} weight="light" /></button>
     <button class="icon-btn" on:click={() => { if (adjacent.prev) { maybeMarkCurrentRead(); openReader(adjacent.prev, $activeChapterList); } }} disabled={!adjacent.prev}>
@@ -557,12 +557,13 @@
     </button>
   </div>
 
-  <!-- Viewer -->
+  
   <div
     bind:this={containerEl}
     class="viewer"
     class:strip={style === "longstrip"}
     style="--max-page-width:{maxW}px"
+    role="presentation"
     tabindex="-1"
     on:click={handleTap}
     on:wheel={(e) => { if (e.ctrlKey) e.preventDefault(); }}
@@ -605,7 +606,7 @@
     {/if}
   </div>
 
-  <!-- Bottom nav -->
+  
   <div class="bottombar" class:hidden={!uiVisible}>
     <button class="nav-btn" on:click={goPrev}
       disabled={loading || (style === "longstrip" ? !adjacent.prev : ($pageNumber === 1 && !adjacent.prev))}>
@@ -617,11 +618,11 @@
     </button>
   </div>
 
-  <!-- Download modal -->
+  
   {#if dlOpen && $activeChapter}
     {@const queueable = adjacent.remaining.filter((c) => !c.isDownloaded)}
-    <div class="dl-backdrop" on:click={() => dlOpen = false}>
-      <div class="dl-modal" on:click|stopPropagation>
+    <div class="dl-backdrop" role="presentation" on:click={() => dlOpen = false}>
+      <div class="dl-modal" role="presentation" on:click|stopPropagation>
         <p class="dl-title">Download</p>
         <button class="dl-option" disabled={dlBusy || !!$activeChapter.isDownloaded}
           on:click={() => runDl(() => gql(ENQUEUE_DOWNLOAD, { chapterId: $activeChapter!.id }), $activeChapter!.name)}>
@@ -634,7 +635,7 @@
             Next chapters
             <span class="dl-sub">{Math.min(nextN, queueable.length)} not yet downloaded</span>
           </button>
-          <div class="dl-stepper" on:click|stopPropagation>
+          <div class="dl-stepper" role="presentation" on:click|stopPropagation>
             <button class="dl-step-btn" on:click={() => nextN = Math.max(1, nextN - 1)} disabled={nextN <= 1}>−</button>
             <span class="dl-step-val">{nextN}</span>
             <button class="dl-step-btn" on:click={() => nextN = Math.min(queueable.length || 1, nextN + 1)} disabled={nextN >= queueable.length}>+</button>

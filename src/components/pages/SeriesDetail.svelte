@@ -15,6 +15,7 @@
   import { settings, activeManga, activeChapter, genreFilter, navPage, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader } from "../../store";
   import type { Manga, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
+  import MigrateModal from "./MigrateModal.svelte";
 
   const CHAPTERS_PER_PAGE  = 25;
   const MANGA_TTL_MS       = 5 * 60 * 1000;
@@ -48,6 +49,7 @@
   let showRange                   = false;
   let dlDropRef: HTMLDivElement;
   let folderPickerRef: HTMLDivElement;
+  let migrateOpen = false;
 
   let mangaAbort: AbortController | null   = null;
   let chapterAbort: AbortController | null = null;
@@ -316,9 +318,9 @@
 </script>
 
 {#if $activeManga}
-<div class="root" on:contextmenu|preventDefault>
+<div class="root" role="presentation" on:contextmenu|preventDefault>
 
-  <!-- Sidebar -->
+  
   <div class="sidebar">
     <button class="back" on:click={() => activeManga.set(null)}>
       <ArrowLeft size={13} weight="light" /> Back
@@ -410,7 +412,7 @@
             {#if manga.status}<div class="detail-row"><span class="detail-key">Status</span><span class="detail-val">{statusLabel}</span></div>{/if}
             {#if manga.author}<div class="detail-row"><span class="detail-key">Author</span><span class="detail-val">{manga.author}</span></div>{/if}
             {#if manga.artist && manga.artist !== manga.author}<div class="detail-row"><span class="detail-key">Artist</span><span class="detail-val">{manga.artist}</span></div>{/if}
-            <button class="migrate-btn" on:click={() => {}}>
+            <button class="migrate-btn" on:click={() => migrateOpen = true}>
               <ArrowsClockwise size={12} weight="light" /> Switch source
             </button>
             {#if downloadedCount > 0}
@@ -424,7 +426,7 @@
     {/if}
   </div>
 
-  <!-- Chapter list -->
+  
   <div class="list-wrap">
     <div class="list-header">
       <div class="list-header-left">
@@ -441,7 +443,7 @@
           <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
         </button>
 
-        <!-- Folder picker -->
+        
         <div class="fp-wrap" bind:this={folderPickerRef}>
           <button class="icon-btn" class:active={hasFolders} on:click={() => folderPickerOpen = !folderPickerOpen}>
             <FolderSimplePlus size={14} weight={hasFolders ? "fill" : "light"} />
@@ -476,7 +478,7 @@
           {/if}
         </div>
 
-        <!-- Jump to chapter -->
+        
         {#if chapters.length > 1}
           <div class="jump-wrap">
             {#if !jumpOpen}
@@ -504,7 +506,7 @@
           </div>
         {/if}
 
-        <!-- Download dropdown -->
+        
         {#if chapters.length > 0}
           <div class="dl-wrap" bind:this={dlDropRef}>
             <button class="icon-btn" on:click={() => dlOpen = !dlOpen}>
@@ -630,6 +632,19 @@
 
 {#if ctx}
   <ContextMenu x={ctx.x} y={ctx.y} items={buildCtxItems(ctx.chapter, ctx.idx)} onClose={() => ctx = null} />
+{/if}
+
+{#if migrateOpen && manga}
+  <MigrateModal
+    {manga}
+    currentChapters={chapters}
+    onClose={() => migrateOpen = false}
+    onMigrated={(newManga) => {
+      activeManga.set(newManga);
+      migrateOpen = false;
+      cache.clear(CACHE_KEYS.LIBRARY);
+    }}
+  />
 {/if}
 {/if}
 

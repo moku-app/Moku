@@ -74,7 +74,7 @@
   $: pos = getPos();
 </script>
 
-<div bind:this={el} class="menu" style="left:{pos.left}px;top:{pos.top}px"
+<div bind:this={el} class="menu" role="menu" style="left:{pos.left}px;top:{pos.top}px"
   on:contextmenu|preventDefault>
   {#each items as item, i}
     {#if "separator" in item}
