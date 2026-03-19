@@ -14,7 +14,7 @@
   import Settings    from "./components/settings/Settings.svelte";
   import TitleBar    from "./components/layout/TitleBar.svelte";
   import Toaster     from "./components/layout/Toaster.svelte";
-  import SplashScreen, { EXIT_MS } from "./components/layout/SplashScreen.svelte";
+  import SplashScreen from "./components/layout/SplashScreen.svelte";
 
   const MAX_ATTEMPTS = 30;
 
@@ -128,7 +128,7 @@
 
 {#if devSplash}
   <SplashScreen mode="idle" showFps showCards={$settings.splashCards ?? true}
-    onDismiss={() => setTimeout(() => devSplash = false, EXIT_MS + 20)} />
+    onDismiss={() => setTimeout(() => devSplash = false, 340)} />
 {:else if !appReady}
   <SplashScreen mode="loading" ringFull={serverProbeOk} {failed}
     showCards={$settings.splashCards ?? true}
@@ -138,7 +138,7 @@
   <div class="root">
     {#if idle && !$activeChapter}
       <SplashScreen mode="idle" showCards={$settings.splashCards ?? true}
-        onDismiss={() => setTimeout(() => idle = false, EXIT_MS + 20)} />
+        onDismiss={() => setTimeout(() => idle = false, 340)} />
     {/if}
     {#if !$activeChapter}<TitleBar />{/if}
     <div class="content">

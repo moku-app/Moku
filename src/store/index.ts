@@ -35,6 +35,7 @@ export interface Settings {
   preferredExtensionLang: string; keybinds: Keybinds; idleTimeoutMin?: number;
   splashCards?: boolean; storageLimitGb: number | null; folders: Folder[];
   markReadOnNext: boolean; readerDebounceMs: number; theme: Theme;
+  libraryBranches: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -48,6 +49,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoStartServer: true, preferredExtensionLang: "en", keybinds: DEFAULT_KEYBINDS,
   idleTimeoutMin: 5, splashCards: true, storageLimitGb: null, folders: [],
   markReadOnNext: true, readerDebounceMs: 120, theme: "dark",
+  libraryBranches: true,
 };
 
 function loadPersisted() {
