@@ -58,7 +58,11 @@ export function matchesKeybind(e: KeyboardEvent, bind: string): boolean {
 }
 
 export async function toggleFullscreen(): Promise<void> {
-  const win = getCurrentWindow();
-  const isFs = await win.isFullscreen();
-  await win.setFullscreen(!isFs);
+  try {
+    const win = getCurrentWindow();
+    const isFs = await win.isFullscreen();
+    await win.setFullscreen(!isFs);
+  } catch (e) {
+    console.warn("toggleFullscreen unavailable:", e);
+  }
 }

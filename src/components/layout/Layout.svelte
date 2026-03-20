@@ -1,34 +1,37 @@
 <script lang="ts">
-  import { navPage, activeManga } from "../../store";
-  import Sidebar      from "./Sidebar.svelte";
-  import Home         from "../pages/Home.svelte";
-  import Library      from "../pages/Library.svelte";
-  import SeriesDetail from "../pages/SeriesDetail.svelte";
-  import History      from "../pages/History.svelte";
-  import Search       from "../pages/Search.svelte";
-  import Discover     from "../pages/Discover.svelte";
-  import Downloads    from "../pages/Downloads.svelte";
-  import Extensions   from "../pages/Extensions.svelte";
+  import { store } from "../../store/state.svelte";
+  import Sidebar        from "./Sidebar.svelte";
+  import Home           from "../pages/Home.svelte";
+  import Library        from "../pages/Library.svelte";
+  import SeriesDetail   from "../pages/SeriesDetail.svelte";
+  import History        from "../pages/History.svelte";
+  import Search         from "../pages/Search.svelte";
+  import Discover       from "../pages/Discover.svelte";
+  import GenreDrillPage from "../pages/GenreDrillPage.svelte";
+  import Downloads      from "../pages/Downloads.svelte";
+  import Extensions     from "../pages/Extensions.svelte";
 </script>
 
 <div class="root">
   <Sidebar />
   <main class="main">
-    {#if activeManga}
+    {#if store.activeManga}
       <SeriesDetail />
-    {:else if navPage === "home"}
+    {:else if store.navPage === "home"}
       <Home />
-    {:else if navPage === "library"}
+    {:else if store.navPage === "library"}
       <Library />
-    {:else if navPage === "search"}
+    {:else if store.navPage === "search"}
       <Search />
-    {:else if navPage === "history"}
+    {:else if store.navPage === "history"}
       <History />
-    {:else if navPage === "explore" || navPage === "sources"}
+    {:else if (store.navPage === "explore" || store.navPage === "sources") && store.genreFilter}
+      <GenreDrillPage />
+    {:else if store.navPage === "explore" || store.navPage === "sources"}
       <Discover />
-    {:else if navPage === "downloads"}
+    {:else if store.navPage === "downloads"}
       <Downloads />
-    {:else if navPage === "extensions"}
+    {:else if store.navPage === "extensions"}
       <Extensions />
     {:else}
       <Home />

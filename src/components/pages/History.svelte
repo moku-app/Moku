@@ -2,8 +2,8 @@
   import { ClockCounterClockwise, Trash, MagnifyingGlass, Play, Books, X as XIcon } from "phosphor-svelte";
   import { thumbUrl, gql } from "../../lib/client";
   import { GET_CHAPTERS } from "../../lib/queries";
-  import { history, readingStats, openReader, clearHistory, clearHistoryForManga } from "../../store";
-  import type { HistoryEntry } from "../../store";
+  import { store, openReader, clearHistory, clearHistoryForManga } from "../../store/state.svelte";
+  import type { HistoryEntry } from "../../store/state.svelte";
 
   let search         = $state("");
   let confirmClearAll = $state(false);
@@ -67,8 +67,8 @@
   }
 
   const filtered = $derived(search.trim()
-    ? history.filter(e => e.mangaTitle.toLowerCase().includes(search.toLowerCase()) || e.chapterName.toLowerCase().includes(search.toLowerCase()))
-    : history);
+    ? store.history.filter(e => e.mangaTitle.toLowerCase().includes(search.toLowerCase()) || e.chapterName.toLowerCase().includes(search.toLowerCase()))
+    : store.history);
 
   const sessions = $derived(buildSessions(filtered));
 
@@ -83,9 +83,9 @@
   })());
 
   const stats = $derived({
-    uniqueChapters: new Set(history.map(e => e.chapterId)).size,
-    uniqueManga: new Set(history.map(e => e.mangaId)).size,
-    estimatedMinutes: Math.round(new Set(history.map(e => e.chapterId)).size * 4.5),
+    uniqueChapters: new Set(store.history.map(e => e.chapterId)).size,
+    uniqueManga: new Set(store.history.map(e => e.mangaId)).size,
+    estimatedMinutes: Math.round(new Set(store.history.map(e => e.chapterId)).size * 4.5),
   });
 
   function doConfirmClear() { clearHistory(); confirmClearAll = false; }
@@ -106,14 +106,14 @@
     <div class="header-right">
       <div class="search-wrap">
         <MagnifyingGlass size={12} class="search-icon" weight="light" />
-        <input class="search" placeholder="Search history…" bind:value={search} />
+        <input class="search" placeholder="Search store.history…" bind:value={search} />
         {#if search}
           <button class="search-clear" onclick={() => search = ""}>
             <XIcon size={10} weight="bold" />
           </button>
         {/if}
       </div>
-      {#if history.length > 0}
+      {#if store.history.length > 0}
         {#if confirmClearAll}
           <div class="confirm-row">
             <span class="confirm-label">Clear all activity?</span>
@@ -135,16 +135,16 @@
     <span class="stat-item"><span class="stat-val">{stats.uniqueManga}</span><span class="stat-label">series</span></span>
     <span class="stat-sep"></span>
     <span class="stat-item"><span class="stat-val">{formatReadTime(stats.estimatedMinutes)}</span><span class="stat-label">est. time</span></span>
-    {#if readingStats.currentStreakDays > 0}
+    {#if store.readingStats.currentStreakDays > 0}
       <span class="stat-sep"></span>
-      <span class="stat-item"><span class="stat-val">{readingStats.currentStreakDays}d</span><span class="stat-label">streak</span></span>
+      <span class="stat-item"><span class="stat-val">{store.readingStats.currentStreakDays}d</span><span class="stat-label">streak</span></span>
     {/if}
   </div>
 
-  {#if history.length === 0}
+  {#if store.history.length === 0}
     <div class="empty">
       <ClockCounterClockwise size={32} weight="light" class="empty-icon" />
-      <p class="empty-text">No reading history yet</p>
+      <p class="empty-text">No reading store.history yet</p>
       <p class="empty-hint">Chapters you read will appear here</p>
     </div>
   {:else if sessions.length === 0}
@@ -183,7 +183,7 @@
                 <span class="time">{timeAgo(session.readAt)}</span>
                 <Play size={11} weight="fill" class="play-icon" />
               </button>
-              <button class="row-delete" onclick={() => clearHistoryForManga(session.mangaId)} title="Remove {session.mangaTitle} from history" aria-label="Remove from history">
+              <button class="row-delete" onclick={() => clearHistoryForManga(session.mangaId)} title="Remove {session.mangaTitle} from store.history" aria-label="Remove from store.history">
                 <XIcon size={9} weight="bold" />
               </button>
             </div>

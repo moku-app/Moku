@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
   import { X, MagnifyingGlass, CircleNotch, ArrowRight, Check, Warning, Sparkle } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, UPDATE_CHAPTERS_PROGRESS } from "../../lib/queries";
   import type { Manga, Source, Chapter } from "../../lib/types";
 
-  export let manga: Manga;
-  export let currentChapters: Chapter[];
-  export let onClose: () => void;
-  export let onMigrated: (newManga: Manga) => void;
+  interface Props {
+    manga:           Manga;
+    currentChapters: Chapter[];
+    onClose:         () => void;
+    onMigrated:      (newManga: Manga) => void;
+  }
+  let { manga, currentChapters, onClose, onMigrated }: Props = $props();
 
   type Step = "source" | "search" | "confirm";
 
@@ -30,34 +32,33 @@
     return intersection / union;
   }
 
-  let step: Step            = "source";
-  let sources: Source[]     = [];
-  let loadingSources        = true;
-  let selectedSource: Source | null = null;
-  let query                 = manga.title;
-  let results: { manga: Manga; similarity: number }[] = [];
-  let searching             = false;
-  let selectedMatch: Match | null = null;
-  let loadingMatchId: number | null = null;
-  let migrating             = false;
-  let error: string | null  = null;
+  let step: Step            = $state("source");
+  let sources: Source[]     = $state([]);
+  let loadingSources        = $state(true);
+  let selectedSource: Source | null = $state(null);
+  const _initialTitle               = manga.title;
+  let query                         = $state(_initialTitle);
+  let results: { manga: Manga; similarity: number }[] = $state([]);
+  let searching             = $state(false);
+  let selectedMatch: Match | null = $state(null);
+  let loadingMatchId: number | null = $state(null);
+  let migrating             = $state(false);
+  let error: string | null  = $state(null);
+  const readCount   = $derived(currentChapters.filter((c) => c.isRead).length);
+  const totalCount  = $derived(currentChapters.length);
+  const chapterDiff = $derived(selectedMatch ? selectedMatch.chapters.length - totalCount : 0);
+  const STEPS = ["source", "search", "confirm"] as const satisfies Step[];
+  const stepIdx = $derived(STEPS.indexOf(step));
 
-  $: readCount      = currentChapters.filter((c) => c.isRead).length;
-  $: totalCount     = currentChapters.length;
-  $: chapterDiff    = selectedMatch ? selectedMatch.chapters.length - totalCount : 0;
-  $: STEPS          = (["source", "search", "confirm"] as Step[]);
-  $: stepIdx        = STEPS.indexOf(step);
-
-  onMount(() => {
+  $effect(() => {
     gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-      .then((d) => sources = d.sources.nodes.filter((s) => s.id !== "0" && s.id !== manga.source?.id))
+      .then((d) => { sources = d.sources.nodes.filter((s) => s.id !== "0" && s.id !== manga.source?.id); })
       .catch(console.error)
-      .finally(() => loadingSources = false);
+      .finally(() => { loadingSources = false; });
 
     window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   });
-
-  onDestroy(() => window.removeEventListener("keydown", onKey));
 
   function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
 
@@ -144,9 +145,9 @@
   }
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="overlay" on:click={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="overlay" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
   <div class="modal">
 
     <!-- Header -->
@@ -155,7 +156,7 @@
         <span class="modal-title-label">Migrate source</span>
         <span class="modal-title-manga">{manga.title}</span>
       </div>
-      <button class="close-btn" on:click={onClose}><X size={14} weight="light" /></button>
+      <button class="close-btn" onclick={onClose}><X size={14} weight="light" /></button>
     </div>
 
     <!-- Step indicators -->
@@ -189,9 +190,9 @@
               <button
                 class="source-row"
                 class:source-row-active={selectedSource?.id === src.id}
-                on:click={() => pickSource(src)}>
+                onclick={() => pickSource(src)}>
                 <img src={thumbUrl(src.iconUrl)} alt={src.name} class="source-icon"
-                  on:error={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 <div class="source-info">
                   <span class="source-name">{src.displayName}</span>
                   <span class="source-meta">{src.lang.toUpperCase()}{src.isNsfw ? " · NSFW" : ""}</span>
@@ -210,9 +211,9 @@
           {#if selectedSource}
             <div class="search-context">
               <img src={thumbUrl(selectedSource.iconUrl)} alt="" class="search-context-icon"
-                on:error={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               <span class="search-context-name">{selectedSource.displayName}</span>
-              <button class="search-context-change" on:click={() => { step = "source"; results = []; }}>Change</button>
+              <button class="search-context-change" onclick={() => { step = "source"; results = []; }}>Change</button>
             </div>
           {/if}
 
@@ -220,11 +221,11 @@
             <div class="search-bar">
               <MagnifyingGlass size={13} weight="light" class="search-icon" />
               <input class="search-input" bind:value={query}
-                on:keydown={(e) => e.key === "Enter" && selectedSource && searchSource(selectedSource, query)}
+                onkeydown={(e) => e.key === "Enter" && selectedSource && searchSource(selectedSource, query)}
                 placeholder="Search title…" autofocus />
             </div>
             <button class="search-btn"
-              on:click={() => selectedSource && searchSource(selectedSource, query)}
+              onclick={() => selectedSource && searchSource(selectedSource, query)}
               disabled={searching || !selectedSource}>
               {#if searching}
                 <CircleNotch size={13} weight="light" class="anim-spin" />
@@ -250,7 +251,7 @@
             {:else}
               {#each results as { manga: m, similarity }, idx}
                 <button class="result-row"
-                  on:click={() => selectMatch(m, similarity)}
+                  onclick={() => selectMatch(m, similarity)}
                   disabled={loadingMatchId !== null}>
                   <div class="result-cover-wrap">
                     <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="result-cover" />
@@ -345,8 +346,8 @@
           {#if error}<p class="error"><Warning size={13} weight="light" /> {error}</p>{/if}
 
           <div class="confirm-actions">
-            <button class="back-btn" on:click={() => step = "search"} disabled={migrating}>Back</button>
-            <button class="migrate-btn" on:click={migrate} disabled={migrating}>
+            <button class="back-btn" onclick={() => step = "search"} disabled={migrating}>Back</button>
+            <button class="migrate-btn" onclick={migrate} disabled={migrating}>
               {#if migrating}
                 <CircleNotch size={13} weight="light" class="anim-spin" /> Migrating…
               {:else}

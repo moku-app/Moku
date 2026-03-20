@@ -1,13 +1,11 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
   import { dedupeSources, dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { settings, searchPrefill, previewManga } from "../../store";
+  import { store, setSearchPrefill, setPreviewManga } from "../../store/state.svelte";
   import type { Manga, Source } from "../../lib/types";
-
-  
 
   type SearchTab = "keyword" | "tag" | "source";
   type TagMode   = "AND" | "OR";
@@ -19,13 +17,7 @@
     error:   string | null;
   }
 
-  
-
-  const CONCURRENCY        = 6;  // more parallel source requests
-  // RESULTS_PER_SOURCE and TAG_PAGE_SIZE are driven by $settings.renderLimit
-  // (accessed inline) so changing the setting takes effect immediately.
-  // No MAX_TAG_SOURCES cap — we fan out to all deduped sources so the grid
-  // is fully populated. Concurrency + caching keep this fast.
+  const CONCURRENCY = 6;
 
   const COMMON_GENRES = [
     "Action","Adventure","Comedy","Drama","Fantasy","Romance",
@@ -35,13 +27,7 @@
     "Magic","Music","Cooking","Medical","Military","Harem","Ecchi",
   ];
 
-  
-
-  async function runConcurrent<T>(
-    items:  T[],
-    fn:     (item: T) => Promise<void>,
-    signal: AbortSignal,
-  ): Promise<void> {
+  async function runConcurrent<T>(items: T[], fn: (item: T) => Promise<void>, signal: AbortSignal): Promise<void> {
     let i = 0;
     async function worker() {
       while (i < items.length) {
@@ -77,24 +63,25 @@
     }
   `;
 
-  
+  let tab: SearchTab = $state("keyword");
 
-  let tab: SearchTab = "keyword";
+  let preferredLang = store.settings?.preferredExtensionLang ?? "";
 
-  let preferredLang = $settings?.preferredExtensionLang ?? "";
+  let allSources:  Source[] = $state([]);
+  let loadingSources         = $state(false);
+  let pendingPrefill         = $state("");
 
-  let allSources:     Source[] = [];
-  let loadingSources            = false;
-  let pendingPrefill            = "";
+  $effect(() => {
+    if (store.searchPrefill) {
+      const prefill = store.searchPrefill;
+      untrack(() => {
+        pendingPrefill = prefill;
+        tab = "keyword";
+        setSearchPrefill("");
+      });
+    }
+  });
 
-  
-  $: if ($searchPrefill) {
-    pendingPrefill = $searchPrefill;
-    tab = "keyword";
-    searchPrefill.set("");
-  }
-
-  
   loadingSources = true;
   cache.get(
     CACHE_KEYS.SOURCES,
@@ -106,35 +93,37 @@
     .catch(console.error)
     .finally(() => { loadingSources = false; });
 
-  $: availableLangs   = Array.from(new Set<string>(allSources.map((s) => s.lang))).sort();
-  $: hasMultipleLangs = availableLangs.length > 1;
+  const availableLangs   = $derived(Array.from(new Set<string>(allSources.map((s) => s.lang))).sort());
+  const hasMultipleLangs = $derived(availableLangs.length > 1);
 
-  
+  // ── Keyword search ────────────────────────────────────────────────────────
 
-  let kw_query        = "";
-  let kw_submitted    = "";
-  let kw_results:     SourceResult[] = [];
-  let kw_showAdvanced = false;
-  let kw_selectedLangs: Set<string> = new Set();
-  let kw_includeNsfw  = false;
-  let kw_inputEl:     HTMLInputElement | null = null;
+  let kw_query        = $state("");
+  let kw_submitted    = $state("");
+  let kw_results:     SourceResult[] = $state([]);
+  let kw_showAdvanced = $state(false);
+  let kw_selectedLangs: Set<string>  = $state(new Set());
+  let kw_includeNsfw  = $state(false);
+  let kw_inputEl:     HTMLInputElement | null = $state(null);
   let kw_abortCtrl:   AbortController | null  = null;
 
-  
-  $: if (allSources.length) {
-    const available = new Set(allSources.map((s) => s.lang));
-    kw_selectedLangs = available.has(preferredLang)
-      ? new Set([preferredLang])
-      : new Set(availableLangs.slice(0, 1));
-  }
+  $effect(() => {
+    if (allSources.length) {
+      const available = new Set(allSources.map((s) => s.lang));
+      kw_selectedLangs = available.has(preferredLang)
+        ? new Set([preferredLang])
+        : new Set(availableLangs.slice(0, 1));
+    }
+  });
 
-  
-  $: if (!loadingSources && pendingPrefill && !kw_submitted && allSources.length) {
-    const q = pendingPrefill;
-    pendingPrefill = "";
-    kw_query = q;
-    kwDoSearch(q);
-  }
+  $effect(() => {
+    if (!loadingSources && pendingPrefill && !kw_submitted && allSources.length) {
+      const q = pendingPrefill;
+      pendingPrefill = "";
+      kw_query = q;
+      kwDoSearch(q);
+    }
+  });
 
   function kwGetVisibleSources(): Source[] {
     let filtered = allSources;
@@ -150,21 +139,16 @@
     if (!trimmed) return;
     const visible = kwGetVisibleSources();
     if (!visible.length) return;
-
     kw_abortCtrl?.abort();
     const ctrl = new AbortController();
     kw_abortCtrl = ctrl;
-
     kw_submitted = trimmed;
     kw_results   = visible.map((src) => ({ source: src, mangas: [], loading: true, error: null }));
-
     await runConcurrent(visible, async (src) => {
       if (ctrl.signal.aborted) return;
       try {
         const d = await gql<{ fetchSourceManga: { mangas: Manga[] } }>(
-          FETCH_SOURCE_MANGA,
-          { source: src.id, type: "SEARCH", page: 1, query: trimmed },
-          ctrl.signal,
+          FETCH_SOURCE_MANGA, { source: src.id, type: "SEARCH", page: 1, query: trimmed }, ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
         kw_results = kw_results.map((r) =>
@@ -186,72 +170,67 @@
     kw_selectedLangs = next;
   }
 
-  $: kw_visibleCount = kwGetVisibleSources().length;
-  $: kw_hasResults   = kw_results.some((r) => r.mangas.length > 0);
-  $: kw_allDone      = kw_results.length > 0 && kw_results.every((r) => !r.loading);
+  const kw_visibleCount = $derived(kwGetVisibleSources().length);
+  const kw_hasResults   = $derived(kw_results.some((r) => r.mangas.length > 0));
+  const kw_allDone      = $derived(kw_results.length > 0 && kw_results.every((r) => !r.loading));
 
-  
+  // ── Tag search ────────────────────────────────────────────────────────────
 
-  let tag_activeTags:       string[] = [];
-  let tag_tagMode:          TagMode  = "AND";
-  let tag_tagFilter                  = "";
+  let tag_activeTags:       string[] = $state([]);
+  let tag_tagMode:          TagMode  = $state("AND");
+  let tag_tagFilter                  = $state("");
 
-  let tag_localResults:     Manga[]  = [];
-  let tag_totalCount                 = 0;
-  let tag_loadingLocal               = false;
-  let tag_loadingMoreLocal           = false;
-  let tag_localOffset                = 0;
-  let tag_localHasNext               = false;
+  let tag_localResults:     Manga[]  = $state([]);
+  let tag_totalCount                 = $state(0);
+  let tag_loadingLocal               = $state(false);
+  let tag_loadingMoreLocal           = $state(false);
+  let tag_localOffset                = $state(0);
+  let tag_localHasNext               = $state(false);
   let tag_abortLocal:       AbortController | null = null;
 
-  let tag_searchSources              = false;
-  let tag_sourceResults:    Manga[]  = [];
-  let tag_loadingSourceSearch        = false;
-  let tag_loadingMoreSource          = false;
-  let tag_srcNextPage: Map<string, number> = new Map();
+  let tag_searchSources              = $state(false);
+  let tag_sourceResults:    Manga[]  = $state([]);
+  let tag_loadingSourceSearch        = $state(false);
+  let tag_loadingMoreSource          = $state(false);
+  let tag_srcNextPage: Map<string, number> = $state(new Map());
   let tag_abortSource: AbortController | null = null;
 
-  $: tag_filteredGenres = (() => {
+  const tag_filteredGenres = $derived.by(() => {
     const q = tag_tagFilter.trim().toLowerCase();
     return q ? COMMON_GENRES.filter((g) => g.toLowerCase().includes(q)) : COMMON_GENRES;
-  })();
+  });
 
-  $: tag_hasActiveTags = tag_activeTags.length > 0;
-  $: tag_localIds      = new Set(tag_localResults.map((m) => m.id));
-  $: tag_mergedResults = dedupeMangaByTitle(dedupeMangaById(
+  const tag_hasActiveTags = $derived(tag_activeTags.length > 0);
+  const tag_localIds      = $derived(new Set(tag_localResults.map((m) => m.id)));
+  const tag_mergedResults = $derived(dedupeMangaByTitle(dedupeMangaById(
     tag_searchSources
       ? [...tag_localResults, ...tag_sourceResults.filter((m) => !tag_localIds.has(m.id))]
       : tag_localResults
-  ), $settings.mangaLinks);
-  $: tag_totalVisible  = tag_mergedResults.length;
-  $: tag_sourceHasMore = tag_searchSources && [...tag_srcNextPage.values()].some((p) => p > 0);
+  ), store.settings.mangaLinks));
+  const tag_totalVisible  = $derived(tag_mergedResults.length);
+  const tag_sourceHasMore = $derived(tag_searchSources && [...tag_srcNextPage.values()].some((p) => p > 0));
 
-  
-  $: {
+  $effect(() => {
     const _activeTags = tag_activeTags;
     const _tagMode    = tag_tagMode;
-    tagFetchLocal(_activeTags, _tagMode);
-  }
+    untrack(() => tagFetchLocal(_activeTags, _tagMode));
+  });
 
-  // Auto-enable source search if local results are sparse (< 20 after initial load)
-  // Use a flag so this only fires once per tag set, not on every reactive update
-  let tag_autoSearchFired = false;
-  $: if (!tag_loadingLocal && tag_activeTags.length > 0 && !tag_autoSearchFired && !tag_searchSources && !loadingSources) {
-    if (tag_localResults.length < 20) {
-      tag_autoSearchFired = true;
-      tag_searchSources = true;
+  let tag_autoSearchFired = $state(false);
+  $effect(() => {
+    if (!tag_loadingLocal && tag_activeTags.length > 0 && !tag_autoSearchFired && !tag_searchSources && !loadingSources) {
+      if (tag_localResults.length < 20) {
+        untrack(() => { tag_autoSearchFired = true; tag_searchSources = true; });
+      }
     }
-  }
-  // Reset the flag when tags change
-  $: { tag_activeTags; tag_autoSearchFired = false; }
-
-  $: {
-    const _search = tag_searchSources;
-    const _tags   = tag_activeTags;
-    if (_search && _tags.length > 0 && !loadingSources) {
-      tagFetchSources(_tags);
+  });
+  $effect(() => { const _ = tag_activeTags; untrack(() => { tag_autoSearchFired = false; }); });
+  $effect(() => {
+    if (tag_searchSources && tag_activeTags.length > 0 && !loadingSources) {
+      const tags = tag_activeTags;
+      untrack(() => tagFetchSources(tags));
     }
-  }
+  });
 
   async function tagFetchLocal(activeTags: string[], tagMode: TagMode) {
     if (activeTags.length === 0) {
@@ -263,17 +242,16 @@
     tag_abortLocal = ctrl;
     tag_localResults = []; tag_totalCount = 0; tag_localOffset = 0; tag_localHasNext = false;
     tag_loadingLocal = true;
-
     gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean }; totalCount: number } }>(
       MANGAS_BY_GENRE,
-      { filter: buildGenreFilter(activeTags, tagMode), first: ($settings.renderLimit ?? 48), offset: 0 },
+      { filter: buildGenreFilter(activeTags, tagMode), first: (store.settings.renderLimit ?? 48), offset: 0 },
       ctrl.signal,
     ).then((d) => {
       if (ctrl.signal.aborted) return;
       tag_localResults  = d.mangas.nodes;
       tag_totalCount    = d.mangas.totalCount;
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
-      tag_localOffset   = ($settings.renderLimit ?? 48);
+      tag_localOffset   = (store.settings.renderLimit ?? 48);
     }).catch((e: any) => {
       if (e?.name !== "AbortError") console.error(e);
     }).finally(() => {
@@ -285,50 +263,32 @@
     tag_abortSource?.abort();
     const ctrl = new AbortController();
     tag_abortSource = ctrl;
-
-    // Don't blank existing results — keep them visible while new ones load.
-    // Only reset if the tags actually changed (tracked by the calling reactive block).
     tag_srcNextPage       = new Map();
     tag_loadingSourceSearch = true;
-
-    // Fan out to ALL deduped sources — no arbitrary cap.
-    // Concurrency (6) + per-page caching keeps this fast without hammering connections.
     const sources    = dedupeSources(allSources, preferredLang);
     const primaryTag = activeTags[0];
-
     for (const src of sources) tag_srcNextPage.set(src.id, -1);
-
     runConcurrent(sources, async (src) => {
       if (ctrl.signal.aborted) return;
       const ps      = getPageSet(src.id, "SEARCH", activeTags);
       const pageKey = CACHE_KEYS.sourceMangaPage(src.id, "SEARCH", 1, activeTags);
-
       const result = await cache
         .get<{ mangas: Manga[]; hasNextPage: boolean }>(
           pageKey,
           () => gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-            FETCH_SOURCE_MANGA,
-            { source: src.id, type: "SEARCH", page: 1, query: primaryTag },
-            ctrl.signal,
+            FETCH_SOURCE_MANGA, { source: src.id, type: "SEARCH", page: 1, query: primaryTag }, ctrl.signal,
           ).then((d) => d.fetchSourceManga),
         )
-        .catch((e: any) => {
-          if (e?.name !== "AbortError") console.error(e);
-          return null;
-        });
-
+        .catch((e: any) => { if (e?.name !== "AbortError") console.error(e); return null; });
       if (!result || ctrl.signal.aborted) return;
       ps.add(1);
       tag_srcNextPage.set(src.id, result.hasNextPage ? 2 : -1);
-      
       tag_srcNextPage = new Map(tag_srcNextPage);
-
       const matching = activeTags.length > 1
         ? result.mangas.filter((m) => matchesAllTags(m, activeTags))
         : result.mangas;
-
       if (matching.length > 0) {
-        tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), $settings.mangaLinks);
+        tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         tag_loadingSourceSearch = false;
       }
     }, ctrl.signal).finally(() => {
@@ -345,13 +305,13 @@
     try {
       const d = await gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean } } }>(
         MANGAS_BY_GENRE,
-        { filter: buildGenreFilter(tag_activeTags, tag_tagMode), first: ($settings.renderLimit ?? 48), offset: tag_localOffset },
+        { filter: buildGenreFilter(tag_activeTags, tag_tagMode), first: (store.settings.renderLimit ?? 48), offset: tag_localOffset },
         ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
       tag_localResults  = [...tag_localResults, ...d.mangas.nodes];
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
-      tag_localOffset  += ($settings.renderLimit ?? 48);
+      tag_localOffset  += (store.settings.renderLimit ?? 48);
     } catch (e: any) {
       if (e?.name !== "AbortError") console.error(e);
     } finally {
@@ -365,43 +325,31 @@
     tag_abortSource?.abort();
     const ctrl = new AbortController();
     tag_abortSource = ctrl;
-
-    const sources    = dedupeSources(allSources, preferredLang)
-      .filter((src) => (tag_srcNextPage.get(src.id) ?? -1) > 0);
+    const sources    = dedupeSources(allSources, preferredLang).filter((src) => (tag_srcNextPage.get(src.id) ?? -1) > 0);
     const primaryTag = tag_activeTags[0];
-
     try {
       await runConcurrent(sources, async (src) => {
         const page    = tag_srcNextPage.get(src.id)!;
         if (ctrl.signal.aborted) return;
         const ps      = getPageSet(src.id, "SEARCH", tag_activeTags);
         const pageKey = CACHE_KEYS.sourceMangaPage(src.id, "SEARCH", page, tag_activeTags);
-
         const result = await cache
           .get<{ mangas: Manga[]; hasNextPage: boolean }>(
             pageKey,
             () => gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-              FETCH_SOURCE_MANGA,
-              { source: src.id, type: "SEARCH", page, query: primaryTag },
-              ctrl.signal,
+              FETCH_SOURCE_MANGA, { source: src.id, type: "SEARCH", page, query: primaryTag }, ctrl.signal,
             ).then((d) => d.fetchSourceManga),
           )
-          .catch((e: any) => {
-            if (e?.name !== "AbortError") tag_srcNextPage.set(src.id, -1);
-            return null;
-          });
-
+          .catch((e: any) => { if (e?.name !== "AbortError") tag_srcNextPage.set(src.id, -1); return null; });
         if (!result || ctrl.signal.aborted) return;
         ps.add(page);
         tag_srcNextPage.set(src.id, result.hasNextPage ? page + 1 : -1);
         tag_srcNextPage = new Map(tag_srcNextPage);
-
         const matching = tag_activeTags.length > 1
           ? result.mangas.filter((m) => matchesAllTags(m, tag_activeTags))
           : result.mangas;
-
         if (matching.length > 0) {
-          tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), $settings.mangaLinks);
+          tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         }
       }, ctrl.signal);
     } finally {
@@ -424,43 +372,33 @@
     }
   }
 
-  
+  // ── Source browse ─────────────────────────────────────────────────────────
 
-  let src_selectedLang  = "all";
-  let src_activeSource: Source | null = null;
-  let src_browseResults: Manga[]       = [];
-  let src_loadingBrowse                = false;
-  let src_browseQuery                  = "";
-  let src_submitted                    = "";
-  let src_hasNextPage                  = false;
-  let src_currentPage                  = 1;
+  let src_selectedLang  = $state("all");
+  let src_activeSource: Source | null = $state(null);
+  let src_browseResults: Manga[]       = $state([]);
+  let src_loadingBrowse                = $state(false);
+  let src_browseQuery                  = $state("");
+  let src_submitted                    = $state("");
+  let src_hasNextPage                  = $state(false);
+  let src_currentPage                  = $state(1);
   let src_abortCtrl: AbortController | null = null;
 
-  $: src_visibleSources = src_selectedLang === "all"
+  const src_visibleSources = $derived(src_selectedLang === "all"
     ? allSources
-    : allSources.filter((s) => s.lang === src_selectedLang);
+    : allSources.filter((s) => s.lang === src_selectedLang));
 
-  async function srcFetchBrowse(
-    src: Source,
-    type: "POPULAR" | "SEARCH",
-    q?: string,
-    page = 1,
-  ) {
+  async function srcFetchBrowse(src: Source, type: "POPULAR" | "SEARCH", q?: string, page = 1) {
     src_abortCtrl?.abort();
     const ctrl = new AbortController();
     src_abortCtrl = ctrl;
     if (page === 1) { src_loadingBrowse = true; src_browseResults = []; }
-
     try {
       const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-        FETCH_SOURCE_MANGA,
-        { source: src.id, type, page, query: q ?? null },
-        ctrl.signal,
+        FETCH_SOURCE_MANGA, { source: src.id, type, page, query: q ?? null }, ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
-      src_browseResults = page === 1
-        ? d.fetchSourceManga.mangas
-        : [...src_browseResults, ...d.fetchSourceManga.mangas];
+      src_browseResults = page === 1 ? d.fetchSourceManga.mangas : [...src_browseResults, ...d.fetchSourceManga.mangas];
       src_hasNextPage = d.fetchSourceManga.hasNextPage;
       src_currentPage = page;
     } catch (e: any) {
@@ -471,9 +409,7 @@
   }
 
   function srcSelectSource(src: Source) {
-    src_activeSource = src;
-    src_browseQuery  = "";
-    src_submitted    = "";
+    src_activeSource = src; src_browseQuery = ""; src_submitted = "";
     srcFetchBrowse(src, "POPULAR");
   }
 
@@ -484,12 +420,9 @@
   }
 
   function srcClearSearch() {
-    src_browseQuery = "";
-    src_submitted   = "";
+    src_browseQuery = ""; src_submitted = "";
     if (src_activeSource) srcFetchBrowse(src_activeSource, "POPULAR");
   }
-
-  
 
   onDestroy(() => {
     kw_abortCtrl?.abort();
@@ -507,7 +440,7 @@
       <button
         class="tab"
         class:tabActive={tab === "keyword"}
-        on:click={() => (tab = "keyword")}
+        onclick={() => (tab = "keyword")}
       >
         
         <svg width="11" height="11" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
@@ -518,7 +451,7 @@
       <button
         class="tab"
         class:tabActive={tab === "tag"}
-        on:click={() => (tab = "tag")}
+        onclick={() => (tab = "tag")}
       >
         
         <svg width="11" height="11" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
@@ -529,7 +462,7 @@
       <button
         class="tab"
         class:tabActive={tab === "source"}
-        on:click={() => (tab = "source")}
+        onclick={() => (tab = "source")}
       >
         
         <svg width="11" height="11" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
@@ -555,13 +488,13 @@
           autofocus
           class="searchInput"
           placeholder="Search across sources…"
-          on:keydown={(e) => e.key === "Enter" && kwDoSearch(kw_query)}
+          onkeydown={(e) => e.key === "Enter" && kwDoSearch(kw_query)}
         />
         {#if kw_query}
           <button
             class="clearBtn"
             title="Clear"
-            on:click={() => { kw_query = ""; kw_inputEl?.focus(); }}
+            onclick={() => { kw_query = ""; kw_inputEl?.focus(); }}
           >×</button>
         {/if}
         {#if hasMultipleLangs}
@@ -569,7 +502,7 @@
             class="advancedBtn"
             class:advancedBtnActive={kw_showAdvanced}
             title="Language & filter options"
-            on:click={() => (kw_showAdvanced = !kw_showAdvanced)}
+            onclick={() => (kw_showAdvanced = !kw_showAdvanced)}
           >
             
             <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
@@ -579,7 +512,7 @@
         {/if}
         <button
           class="searchBtn"
-          on:click={() => kwDoSearch(kw_query)}
+          onclick={() => kwDoSearch(kw_query)}
           disabled={!kw_query.trim() || loadingSources}
         >
           {#if loadingSources}
@@ -597,8 +530,8 @@
           <div class="advancedHeader">
             <span class="advancedTitle">Languages</span>
             <div class="advancedActions">
-              <button class="advancedLink" on:click={() => (kw_selectedLangs = new Set(availableLangs))}>All</button>
-              <button class="advancedLink" on:click={() => (kw_selectedLangs = new Set([preferredLang]))}>Reset</button>
+              <button class="advancedLink" onclick={() => (kw_selectedLangs = new Set(availableLangs))}>All</button>
+              <button class="advancedLink" onclick={() => (kw_selectedLangs = new Set([preferredLang]))}>Reset</button>
             </div>
           </div>
           <div class="langGrid">
@@ -606,7 +539,7 @@
               <button
                 class="langChip"
                 class:langChipActive={kw_selectedLangs.has(lang)}
-                on:click={() => kwToggleLang(lang)}
+                onclick={() => kwToggleLang(lang)}
               >
                 {lang === preferredLang ? `${lang.toUpperCase()} ★` : lang.toUpperCase()}
               </button>
@@ -638,7 +571,7 @@
           {/if}
         </p>
         {#if hasMultipleLangs && !kw_showAdvanced}
-          <button class="advancedLinkStandalone" on:click={() => (kw_showAdvanced = true)}>
+          <button class="advancedLinkStandalone" onclick={() => (kw_showAdvanced = true)}>
             <svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
               <path d="M40,88H73a32,32,0,0,0,62,0h81a8,8,0,0,0,0-16H135a32,32,0,0,0-62,0H40a8,8,0,0,0,0,16Zm64-24A16,16,0,1,1,88,80,16,16,0,0,1,104,64ZM216,168H183a32,32,0,0,0-62,0H40a8,8,0,0,0,0,16h81a32,32,0,0,0,62,0h33a8,8,0,0,0,0-16Zm-64,24a16,16,0,1,1,16-16A16,16,0,0,1,152,192Z"/>
             </svg>
@@ -663,7 +596,7 @@
                 src={thumbUrl(source.iconUrl)}
                 alt={source.displayName}
                 class="sourceIcon"
-                on:error={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
               />
               <span class="sourceName">{source.displayName}</span>
               {#if hasMultipleLangs}
@@ -692,8 +625,8 @@
               </div>
             {:else if mangas.length > 0}
               <div class="sourceRow">
-                {#each mangas.slice(0, ($settings.renderLimit ?? 48)) as m (m.id)}
-                  <button class="card" on:click={() => previewManga.set(m)}>
+                {#each mangas.slice(0, (store.settings.renderLimit ?? 48)) as m (m.id)}
+                  <button class="card" onclick={() => setPreviewManga(m)}>
                     <div class="coverWrap">
                       <img
                         src={thumbUrl(m.thumbnailUrl)}
@@ -737,7 +670,7 @@
             placeholder="Filter tags…"
           />
           {#if tag_tagFilter}
-            <button class="splitSearchClear" title="Clear" on:click={() => (tag_tagFilter = "")}>×</button>
+            <button class="splitSearchClear" title="Clear" onclick={() => (tag_tagFilter = "")}>×</button>
           {/if}
         </div>
         <div class="splitList">
@@ -745,7 +678,7 @@
             <button
               class="splitItem"
               class:splitItemActive={tag_activeTags.includes(tag)}
-              on:click={() => tagToggleTag(tag)}
+              onclick={() => tagToggleTag(tag)}
             >
               <span class="splitItemLabel">{tag}</span>
               {#if tag_activeTags.includes(tag)}<span class="tagCheckMark">✓</span>{/if}
@@ -774,7 +707,7 @@
               {#each tag_activeTags as tag (tag)}
                 <span class="tagPill">
                   {tag}
-                  <button class="tagPillRemove" title="Remove {tag}" on:click={() => tagToggleTag(tag)}>×</button>
+                  <button class="tagPillRemove" title="Remove {tag}" onclick={() => tagToggleTag(tag)}>×</button>
                 </span>
               {/each}
             </div>
@@ -785,13 +718,13 @@
                     class="tagModeBtn"
                     class:tagModeBtnActive={tag_tagMode === "AND"}
                     title="Match ALL tags"
-                    on:click={() => (tag_tagMode = "AND")}
+                    onclick={() => (tag_tagMode = "AND")}
                   >AND</button>
                   <button
                     class="tagModeBtn"
                     class:tagModeBtnActive={tag_tagMode === "OR"}
                     title="Match ANY tag"
-                    on:click={() => (tag_tagMode = "OR")}
+                    onclick={() => (tag_tagMode = "OR")}
                   >OR</button>
                 </div>
               {/if}
@@ -800,7 +733,7 @@
                 class:tagModeBtnActive={tag_searchSources}
                 title="Also search across sources (slower, requires network)"
                 disabled={loadingSources}
-                on:click={tagToggleSearchSources}
+                onclick={tagToggleSearchSources}
               >
                 
                 <svg width="11" height="11" viewBox="0 0 256 256" fill="currentColor" style="margin-right:3px;vertical-align:middle" aria-hidden="true">
@@ -808,7 +741,7 @@
                 </svg>
                 Sources
               </button>
-              <button class="tagClearAll" on:click={() => (tag_activeTags = [])}>Clear all</button>
+              <button class="tagClearAll" onclick={() => (tag_activeTags = [])}>Clear all</button>
             </div>
           </div>
 
@@ -843,7 +776,7 @@
           {:else if tag_mergedResults.length > 0}
             <div class="tagGrid">
               {#each tag_mergedResults as m (m.id)}
-                <button class="card" on:click={() => previewManga.set(m)}>
+                <button class="card" onclick={() => setPreviewManga(m)}>
                   <div class="coverWrap">
                     <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
@@ -864,7 +797,7 @@
               {#if tag_localHasNext || tag_sourceHasMore}
                 <div class="showMoreCell">
                   {#if tag_localHasNext}
-                    <button class="showMoreBtn" on:click={tagLoadMoreLocal} disabled={tag_loadingMoreLocal}>
+                    <button class="showMoreBtn" onclick={tagLoadMoreLocal} disabled={tag_loadingMoreLocal}>
                       {#if tag_loadingMoreLocal}
                         <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" aria-hidden="true">
                           <path d="M232,128a104,104,0,0,1-208,0c0-41,23.81-78.36,60.66-95.27a8,8,0,0,1,6.68,14.54C60.15,61.59,40,93.27,40,128a88,88,0,0,0,176,0c0-34.73-20.15-66.41-51.34-80.73a8,8,0,0,1,6.68-14.54C208.19,49.64,232,87,232,128Z"/>
@@ -875,7 +808,7 @@
                     </button>
                   {/if}
                   {#if tag_sourceHasMore}
-                    <button class="showMoreBtn" on:click={tagLoadMoreSource} disabled={tag_loadingMoreSource}>
+                    <button class="showMoreBtn" onclick={tagLoadMoreSource} disabled={tag_loadingMoreSource}>
                       {#if tag_loadingMoreSource}
                         <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" aria-hidden="true">
                           <path d="M232,128a104,104,0,0,1-208,0c0-41,23.81-78.36,60.66-95.27a8,8,0,0,1,6.68,14.54C60.15,61.59,40,93.27,40,128a88,88,0,0,0,176,0c0-34.73-20.15-66.41-51.34-80.73a8,8,0,0,1,6.68-14.54C208.19,49.64,232,87,232,128Z"/>
@@ -916,7 +849,7 @@
               <button
                 class="langChip"
                 class:langChipActive={src_selectedLang === lang}
-                on:click={() => (src_selectedLang = lang)}
+                onclick={() => (src_selectedLang = lang)}
               >
                 {lang === "all" ? "All" : lang.toUpperCase()}
               </button>
@@ -936,13 +869,13 @@
               <button
                 class="splitItem splitItemSource"
                 class:splitItemActive={src_activeSource?.id === src.id}
-                on:click={() => srcSelectSource(src)}
+                onclick={() => srcSelectSource(src)}
               >
                 <img
                   src={thumbUrl(src.iconUrl)}
                   alt=""
                   class="splitSourceIcon"
-                  on:error={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                  onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
                 <span class="splitItemLabel">{src.displayName}</span>
                 {#if src.isNsfw}<span class="nsfwBadge">18+</span>{/if}
@@ -972,7 +905,7 @@
                 src={thumbUrl(src_activeSource.iconUrl)}
                 alt=""
                 class="splitSourceIcon"
-                on:error={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
               />
               <span class="splitContentTitle">{src_activeSource.displayName}</span>
               {#if src_loadingBrowse}
@@ -994,15 +927,15 @@
                 bind:value={src_browseQuery}
                 class="searchInput"
                 placeholder="Search {src_activeSource.displayName}…"
-                on:keydown={(e) => e.key === "Enter" && srcHandleSearch()}
+                onkeydown={(e) => e.key === "Enter" && srcHandleSearch()}
               />
               {#if src_submitted}
-                <button class="clearBtn" title="Clear search" on:click={srcClearSearch}>×</button>
+                <button class="clearBtn" title="Clear search" onclick={srcClearSearch}>×</button>
               {/if}
             </div>
             <button
               class="searchBtn"
-              on:click={srcHandleSearch}
+              onclick={srcHandleSearch}
               disabled={!src_browseQuery.trim() || src_loadingBrowse}
             >
               Search
@@ -1022,7 +955,7 @@
           {:else if src_browseResults.length > 0}
             <div class="tagGrid">
               {#each src_browseResults as m (m.id)}
-                <button class="card" on:click={() => previewManga.set(m)}>
+                <button class="card" onclick={() => setPreviewManga(m)}>
                   <div class="coverWrap">
                     <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
@@ -1036,7 +969,7 @@
                 <button
                   class="showMoreBtn"
                   disabled={src_loadingBrowse}
-                  on:click={() => src_activeSource && srcFetchBrowse(
+                  onclick={() => src_activeSource && srcFetchBrowse(
                     src_activeSource,
                     src_submitted ? "SEARCH" : "POPULAR",
                     src_submitted || undefined,

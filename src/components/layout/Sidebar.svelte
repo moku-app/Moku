@@ -1,7 +1,7 @@
 <script lang="ts">
   import { House, Books, MagnifyingGlass, ClockCounterClockwise, Compass, DownloadSimple, PuzzlePiece, GearSix } from "phosphor-svelte";
-  import { navPage, activeManga, activeSource, libraryFilter, genreFilter, settingsOpen } from "../../store";
-  import type { NavPage } from "../../store";
+  import { store, setNavPage, setActiveManga, setActiveSource, setLibraryFilter, setGenreFilter, setSettingsOpen } from "../../store/state.svelte";
+  import type { NavPage } from "../../store/state.svelte";
 
   const TABS: { id: NavPage; label: string; icon: any }[] = [
     { id: "home",       label: "Home",       icon: House },
@@ -14,18 +14,18 @@
   ];
 
   function navigate(id: NavPage) {
-    navPage     = id;
-    activeManga = null;
-    genreFilter = "";
-    if (id !== "explore") activeSource = null;
+    store.navPage     = id;
+    store.activeManga = null;
+    store.genreFilter = "";
+    if (id !== "explore") store.activeSource = null;
   }
 
   function goHome() {
-    navPage       = "home";
-    activeSource  = null;
-    activeManga   = null;
-    libraryFilter = "library";
-    genreFilter   = "";
+    store.navPage       = "home";
+    store.activeSource  = null;
+    store.activeManga   = null;
+    store.libraryFilter = "library";
+    store.genreFilter   = "";
   }
 </script>
 
@@ -35,14 +35,14 @@
   </button>
   <nav class="nav">
     {#each TABS as tab}
-      <button class="tab" class:active={navPage === tab.id}
+      <button class="tab" class:active={store.navPage === tab.id}
         title={tab.label} onclick={() => navigate(tab.id)}>
         <tab.icon size={18} weight="light" />
       </button>
     {/each}
   </nav>
   <div class="bottom">
-    <button class="settings-btn" onclick={() => settingsOpen = true} title="Settings">
+    <button class="settings-btn" onclick={() => store.settingsOpen = true} title="Settings">
       <GearSix size={18} weight="light" />
     </button>
   </div>

@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from "svelte";
+  import { tick } from "svelte";
   import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { gql } from "../../lib/client";
   import { GET_DOWNLOADS_PATH } from "../../lib/queries";
-  import { settings, settingsOpen, history, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData } from "../../store";
+  import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen } from "../../store/state.svelte";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
-  import type { Settings, FitMode, Theme } from "../../store";
+  import type { Settings, FitMode, Theme } from "../../store/state.svelte";
   import type { Keybinds } from "../../lib/keybinds";
 
   type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "about" | "devtools";
@@ -34,19 +34,20 @@
     { id: "warm",           label: "Warm",           description: "Amber and sepia tones",         swatches: ["#16130c","#1c1810","#e0b860","#f5f0e0"] },
   ];
 
-  let tab: Tab          = "general";
+  let tab: Tab          = $state("general");
   let contentBodyEl: HTMLDivElement;
+  $effect(() => { tab; tick().then(() => contentBodyEl?.scrollTo({ top: 0 })); });
 
-  $: { tab; tick().then(() => contentBodyEl?.scrollTo({ top: 0 })); }
-
-  function close() { settingsOpen.set(false); }
+  function close() { setSettingsOpen(false); }
 
   function onKey(e: KeyboardEvent) { if (e.key === "Escape" && !listeningKey) close(); }
-  onMount(() => window.addEventListener("keydown", onKey));
-  onDestroy(() => window.removeEventListener("keydown", onKey));
+  $effect(() => {
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   
-  let listeningKey: keyof Keybinds | null = null;
+  let listeningKey: keyof Keybinds | null = $state(null);
 
   function startListen(key: keyof Keybinds) {
     listeningKey = listeningKey === key ? null : key;
@@ -57,23 +58,24 @@
     e.preventDefault(); e.stopPropagation();
     const bind = eventToKeybind(e);
     if (!bind) return;
-    updateSettings({ keybinds: { ...$settings.keybinds, [listeningKey]: bind } });
+    updateSettings({ keybinds: { ...store.settings.keybinds, [listeningKey]: bind } });
     listeningKey = null;
   }
 
-  $: if (listeningKey) {
-    window.addEventListener("keydown", onKeyCapture, true);
-  } else {
-    window.removeEventListener("keydown", onKeyCapture, true);
-  }
+  $effect(() => {
+    if (listeningKey) {
+      window.addEventListener("keydown", onKeyCapture, true);
+      return () => window.removeEventListener("keydown", onKeyCapture, true);
+    }
+  });
 
   
   interface StorageInfo { manga_bytes: number; total_bytes: number; free_bytes: number; path: string; }
-  let storageInfo: StorageInfo | null = null;
-  let storageLoading = false;
-  let storageError: string | null = null;
-  let clearing = false;
-  let cleared  = false;
+  let storageInfo: StorageInfo | null = $state(null);
+  let storageLoading = $state(false);
+  let storageError: string | null = $state(null);
+  let clearing = $state(false);
+  let cleared  = $state(false);
 
   async function fetchStorage() {
     storageLoading = true; storageError = null;
@@ -83,8 +85,7 @@
     } catch (e: any) { storageError = e instanceof Error ? e.message : String(e); }
     finally { storageLoading = false; }
   }
-
-  $: if (tab === "storage" && !storageInfo && !storageLoading) fetchStorage();
+  $effect(() => { if (tab === "storage" && !storageInfo && !storageLoading) fetchStorage(); });
 
   function handleClearCache() {
     clearing = true;
@@ -108,7 +109,7 @@
     newestEntryMs: number | null;
   }
 
-  let perfSnapshot: PerfSnapshot | null = null;
+  let perfSnapshot: PerfSnapshot | null = $state(null);
 
   function refreshPerfMetrics() {
     // cache.list() isn't exported, but we can probe known keys to build a snapshot
@@ -139,8 +140,7 @@
 
     perfSnapshot = { cacheEntries: entries, cacheKeys: foundKeys, oldestEntryMs: oldest, newestEntryMs: newest };
   }
-
-  $: if (tab === "performance") refreshPerfMetrics();
+  $effect(() => { if (tab === "performance") refreshPerfMetrics(); });
 
   function fmtAge(ts: number | null): string {
     if (ts === null) return "—";
@@ -152,7 +152,7 @@
   }
 
   // Storage limit input state
-  let storageLimitInput = String($settings.storageLimitGb ?? "");
+  let storageLimitInput = $state(String(store.settings.storageLimitGb ?? ""));
 
   function applyStorageLimit() {
     const v = storageLimitInput.trim();
@@ -162,9 +162,9 @@
   }
 
   
-  let newFolderName  = "";
-  let editingId: string | null = null;
-  let editingName    = "";
+  let newFolderName  = $state("");
+  let editingId: string | null = $state(null);
+  let editingName    = $state("");
 
   function createFolder() {
     const name = newFolderName.trim();
@@ -180,7 +180,7 @@
   }
 
   
-  let selectOpen: string | null = null;
+  let selectOpen: string | null = $state(null);
 
   function toggleSelect(id: string) { selectOpen = selectOpen === id ? null : id; }
 
@@ -188,11 +188,13 @@
     if (selectOpen && !(e.target as HTMLElement).closest(".select-wrap")) selectOpen = null;
   }
 
-  onMount(() => document.addEventListener("mousedown", onSelectOutside));
-  onDestroy(() => document.removeEventListener("mousedown", onSelectOutside));
+  $effect(() => {
+    document.addEventListener("mousedown", onSelectOutside);
+    return () => document.removeEventListener("mousedown", onSelectOutside);
+  });
 
   
-  let splashTriggered = false;
+  let splashTriggered = $state(false);
   function triggerSplash() {
     splashTriggered = true;
     setTimeout(() => splashTriggered = false, 200);
@@ -200,14 +202,14 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" on:click={(e) => { if (e.target === e.currentTarget) close(); }} on:keydown={(e) => { if (e.key === "Escape") close(); }}>
+<div class="backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) close(); }} onkeydown={(e) => { if (e.key === "Escape") close(); }}>
   <div class="modal" role="dialog" aria-label="Settings">
     <div class="sidebar">
       <p class="modal-title">Settings</p>
       <nav class="nav">
         {#each TABS as t}
-          <button class="nav-item" class:active={tab === t.id} on:click={() => tab = t.id}>
-            <svelte:component this={t.icon} size={14} weight="light" />
+          <button class="nav-item" class:active={tab === t.id} onclick={() => tab = t.id}>
+            <t.icon size={14} weight="light" />
             <span>{t.label}</span>
           </button>
         {/each}
@@ -217,7 +219,7 @@
     <div class="content">
       <div class="content-header">
         <p class="content-title">{TABS.find((t) => t.id === tab)?.label}</p>
-        <button class="close-btn" aria-label="Close settings" on:click={close}><X size={15} weight="light" /></button>
+        <button class="close-btn" aria-label="Close settings" onclick={close}><X size={15} weight="light" /></button>
       </div>
 
       <div class="content-body" bind:this={contentBodyEl}>
@@ -228,14 +230,14 @@
             <div class="section">
               <p class="section-title">Interface Scale</p>
               <div class="scale-row">
-                <input type="range" min={70} max={150} step={5} value={$settings.uiScale}
-                  on:input={(e) => updateSettings({ uiScale: Number(e.currentTarget.value) })} class="scale-slider" />
-                <span class="scale-val">{$settings.uiScale}%</span>
-                <button class="step-btn" on:click={() => updateSettings({ uiScale: 100 })} disabled={$settings.uiScale === 100} title="Reset">↺</button>
+                <input type="range" min={70} max={150} step={5} value={store.settings.uiScale}
+                  oninput={(e) => updateSettings({ uiScale: Number(e.currentTarget.value) })} class="scale-slider" />
+                <span class="scale-val">{store.settings.uiScale}%</span>
+                <button class="step-btn" onclick={() => updateSettings({ uiScale: 100 })} disabled={store.settings.uiScale === 100} title="Reset">↺</button>
               </div>
               <p class="scale-hint">
                 {#each [70,80,90,100,110,125,150] as v}
-                  <button class="scale-preset" class:active={$settings.uiScale === v} on:click={() => updateSettings({ uiScale: v })}>{v}%</button>
+                  <button class="scale-preset" class:active={store.settings.uiScale === v} onclick={() => updateSettings({ uiScale: v })}>{v}%</button>
                 {/each}
               </p>
             </div>
@@ -243,15 +245,15 @@
               <p class="section-title">Server</p>
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Server URL</span><span class="toggle-desc">Base URL of your Suwayomi instance</span></div>
-                <input class="text-input" value={$settings.serverUrl ?? "http://localhost:4567"} on:input={(e) => updateSettings({ serverUrl: e.currentTarget.value })} placeholder="http://localhost:4567" spellcheck="false" />
+                <input class="text-input" value={store.settings.serverUrl ?? "http://localhost:4567"} oninput={(e) => updateSettings({ serverUrl: e.currentTarget.value })} placeholder="http://localhost:4567" spellcheck="false" />
               </div>
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Server binary</span><span class="toggle-desc">Path or command to launch tachidesk-server</span></div>
-                <input class="text-input" value={$settings.serverBinary} on:input={(e) => updateSettings({ serverBinary: e.currentTarget.value })} placeholder="tachidesk-server" spellcheck="false" />
+                <input class="text-input" value={store.settings.serverBinary} oninput={(e) => updateSettings({ serverBinary: e.currentTarget.value })} placeholder="tachidesk-server" spellcheck="false" />
               </div>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-start server</span><span class="toggle-desc">Launch tachidesk-server when Moku opens</span></div>
-                <button role="switch" aria-checked={$settings.autoStartServer} aria-label="Auto-start server" class="toggle" class:on={$settings.autoStartServer} on:click={() => updateSettings({ autoStartServer: !$settings.autoStartServer })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.autoStartServer} aria-label="Auto-start server" class="toggle" class:on={store.settings.autoStartServer} onclick={() => updateSettings({ autoStartServer: !store.settings.autoStartServer })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -259,14 +261,14 @@
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Idle screen timeout</span><span class="toggle-desc">Show the Moku idle splash after this much inactivity.</span></div>
                 <div class="select-wrap" id="idle-timeout">
-                  <button class="select-btn" on:click={() => toggleSelect("idle-timeout")}>
-                    <span>{{ "0":"Never","1":"1 minute","2":"2 minutes","5":"5 minutes","10":"10 minutes","15":"15 minutes","30":"30 minutes" }[String($settings.idleTimeoutMin ?? 5)] ?? `${$settings.idleTimeoutMin} min`}</span>
+                  <button class="select-btn" onclick={() => toggleSelect("idle-timeout")}>
+                    <span>{{ "0":"Never","1":"1 minute","2":"2 minutes","5":"5 minutes","10":"10 minutes","15":"15 minutes","30":"30 minutes" }[String(store.settings.idleTimeoutMin ?? 5)] ?? `${store.settings.idleTimeoutMin} min`}</span>
                     <svg class="select-caret" class:open={selectOpen === "idle-timeout"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
                   </button>
                   {#if selectOpen === "idle-timeout"}
                     <div class="select-menu">
                       {#each [["0","Never"],["1","1 minute"],["2","2 minutes"],["5","5 minutes"],["10","10 minutes"],["15","15 minutes"],["30","30 minutes"]] as [v, l]}
-                        <button class="select-option" class:active={String($settings.idleTimeoutMin ?? 5) === v} on:click={() => { updateSettings({ idleTimeoutMin: Number(v) }); selectOpen = null; }}>{l}</button>
+                        <button class="select-option" class:active={String(store.settings.idleTimeoutMin ?? 5) === v} onclick={() => { updateSettings({ idleTimeoutMin: Number(v) }); selectOpen = null; }}>{l}</button>
                       {/each}
                     </div>
                   {/if}
@@ -282,8 +284,8 @@
               <p class="section-title">Theme</p>
               <div class="theme-grid">
                 {#each THEMES as theme}
-                  {@const active = ($settings.theme ?? "dark") === theme.id}
-                  <button class="theme-card" class:active on:click={() => updateSettings({ theme: theme.id })} title={theme.description}>
+                  {@const active = (store.settings.theme ?? "dark") === theme.id}
+                  <button class="theme-card" class:active onclick={() => updateSettings({ theme: theme.id })} title={theme.description}>
                     <div class="theme-preview">
                       <div class="theme-preview-bg" style="background:{theme.swatches[0]}">
                         <div class="theme-preview-sidebar" style="background:{theme.swatches[1]}"></div>
@@ -313,14 +315,14 @@
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Default layout</span><span class="toggle-desc">How chapters open by default</span></div>
                 <div class="select-wrap" id="page-style">
-                  <button class="select-btn" on:click={() => toggleSelect("page-style")}>
-                    <span>{{ "single":"Single page","longstrip":"Long strip" }[$settings.pageStyle === "double" ? "single" : $settings.pageStyle]}</span>
+                  <button class="select-btn" onclick={() => toggleSelect("page-style")}>
+                    <span>{{ "single":"Single page","longstrip":"Long strip" }[store.settings.pageStyle === "double" ? "single" : store.settings.pageStyle]}</span>
                     <svg class="select-caret" class:open={selectOpen === "page-style"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
                   </button>
                   {#if selectOpen === "page-style"}
                     <div class="select-menu">
                       {#each [["single","Single page"],["longstrip","Long strip"]] as [v, l]}
-                        <button class="select-option" class:active={($settings.pageStyle === "double" ? "single" : $settings.pageStyle) === v} on:click={() => { updateSettings({ pageStyle: v as Settings["pageStyle"] }); selectOpen = null; }}>{l}</button>
+                        <button class="select-option" class:active={(store.settings.pageStyle === "double" ? "single" : store.settings.pageStyle) === v} onclick={() => { updateSettings({ pageStyle: v as Settings["pageStyle"] }); selectOpen = null; }}>{l}</button>
                       {/each}
                     </div>
                   {/if}
@@ -329,14 +331,14 @@
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Reading direction</span><span class="toggle-desc">Left-to-right for most manga, right-to-left for Japanese</span></div>
                 <div class="select-wrap" id="reading-dir">
-                  <button class="select-btn" on:click={() => toggleSelect("reading-dir")}>
-                    <span>{{ "ltr":"Left to right","rtl":"Right to left" }[$settings.readingDirection]}</span>
+                  <button class="select-btn" onclick={() => toggleSelect("reading-dir")}>
+                    <span>{{ "ltr":"Left to right","rtl":"Right to left" }[store.settings.readingDirection]}</span>
                     <svg class="select-caret" class:open={selectOpen === "reading-dir"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
                   </button>
                   {#if selectOpen === "reading-dir"}
                     <div class="select-menu">
                       {#each [["ltr","Left to right"],["rtl","Right to left"]] as [v, l]}
-                        <button class="select-option" class:active={$settings.readingDirection === v} on:click={() => { updateSettings({ readingDirection: v as Settings["readingDirection"] }); selectOpen = null; }}>{l}</button>
+                        <button class="select-option" class:active={store.settings.readingDirection === v} onclick={() => { updateSettings({ readingDirection: v as Settings["readingDirection"] }); selectOpen = null; }}>{l}</button>
                       {/each}
                     </div>
                   {/if}
@@ -344,7 +346,7 @@
               </div>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Page gap</span><span class="toggle-desc">Add spacing between pages in longstrip mode</span></div>
-                <button role="switch" aria-checked={$settings.pageGap} aria-label="Page gap" class="toggle" class:on={$settings.pageGap} on:click={() => updateSettings({ pageGap: !$settings.pageGap })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.pageGap} aria-label="Page gap" class="toggle" class:on={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -352,14 +354,14 @@
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Default fit mode</span><span class="toggle-desc">How pages are sized to fit the screen</span></div>
                 <div class="select-wrap" id="fit-mode">
-                  <button class="select-btn" on:click={() => toggleSelect("fit-mode")}>
-                    <span>{{ "width":"Fit width","height":"Fit height","screen":"Fit screen","original":"Original (1:1)" }[$settings.fitMode ?? "width"]}</span>
+                  <button class="select-btn" onclick={() => toggleSelect("fit-mode")}>
+                    <span>{{ "width":"Fit width","height":"Fit height","screen":"Fit screen","original":"Original (1:1)" }[store.settings.fitMode ?? "width"]}</span>
                     <svg class="select-caret" class:open={selectOpen === "fit-mode"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
                   </button>
                   {#if selectOpen === "fit-mode"}
                     <div class="select-menu">
                       {#each [["width","Fit width"],["height","Fit height"],["screen","Fit screen"],["original","Original (1:1)"]] as [v, l]}
-                        <button class="select-option" class:active={($settings.fitMode ?? "width") === v} on:click={() => { updateSettings({ fitMode: v as FitMode }); selectOpen = null; }}>{l}</button>
+                        <button class="select-option" class:active={(store.settings.fitMode ?? "width") === v} onclick={() => { updateSettings({ fitMode: v as FitMode }); selectOpen = null; }}>{l}</button>
                       {/each}
                     </div>
                   {/if}
@@ -368,38 +370,38 @@
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Max page width</span><span class="toggle-desc">Pixel cap for fit-width mode.</span></div>
                 <div class="step-controls">
-                  <button class="step-btn" on:click={() => updateSettings({ maxPageWidth: Math.max(200, ($settings.maxPageWidth ?? 900) - 100) })}>−</button>
-                  <span class="step-val">{$settings.maxPageWidth ?? 900}px</span>
-                  <button class="step-btn" on:click={() => updateSettings({ maxPageWidth: Math.min(2400, ($settings.maxPageWidth ?? 900) + 100) })}>+</button>
+                  <button class="step-btn" onclick={() => updateSettings({ maxPageWidth: Math.max(200, (store.settings.maxPageWidth ?? 900) - 100) })}>−</button>
+                  <span class="step-val">{store.settings.maxPageWidth ?? 900}px</span>
+                  <button class="step-btn" onclick={() => updateSettings({ maxPageWidth: Math.min(2400, (store.settings.maxPageWidth ?? 900) + 100) })}>+</button>
                 </div>
               </div>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Optimize contrast</span><span class="toggle-desc">Use webkit-optimize-contrast rendering</span></div>
-                <button role="switch" aria-checked={$settings.optimizeContrast} aria-label="Optimize contrast" class="toggle" class:on={$settings.optimizeContrast} on:click={() => updateSettings({ optimizeContrast: !$settings.optimizeContrast })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.optimizeContrast} aria-label="Optimize contrast" class="toggle" class:on={store.settings.optimizeContrast} onclick={() => updateSettings({ optimizeContrast: !store.settings.optimizeContrast })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Behaviour</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-mark chapters read</span><span class="toggle-desc">Mark a chapter as read when you reach the last page</span></div>
-                <button role="switch" aria-checked={$settings.autoMarkRead} aria-label="Auto-mark chapters read" class="toggle" class:on={$settings.autoMarkRead} on:click={() => updateSettings({ autoMarkRead: !$settings.autoMarkRead })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.autoMarkRead} aria-label="Auto-mark chapters read" class="toggle" class:on={store.settings.autoMarkRead} onclick={() => updateSettings({ autoMarkRead: !store.settings.autoMarkRead })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-advance chapters</span><span class="toggle-desc">Automatically open the next chapter at the end of a long strip</span></div>
-                <button role="switch" aria-checked={$settings.autoNextChapter ?? false} aria-label="Auto-advance chapters" class="toggle" class:on={$settings.autoNextChapter} on:click={() => updateSettings({ autoNextChapter: !($settings.autoNextChapter ?? false) })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.autoNextChapter ?? false} aria-label="Auto-advance chapters" class="toggle" class:on={store.settings.autoNextChapter} onclick={() => updateSettings({ autoNextChapter: !(store.settings.autoNextChapter ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
-              {#if !($settings.autoNextChapter ?? false)}
+              {#if !(store.settings.autoNextChapter ?? false)}
                 <label class="toggle-row">
                   <div class="toggle-info"><span class="toggle-label">Mark read when skipping to next chapter</span><span class="toggle-desc">Mark chapter as read when you tap next before finishing</span></div>
-                  <button role="switch" aria-checked={$settings.markReadOnNext ?? true} aria-label="Mark read when skipping" class="toggle" class:on={$settings.markReadOnNext ?? true} on:click={() => updateSettings({ markReadOnNext: !($settings.markReadOnNext ?? true) })}><span class="toggle-thumb"></span></button>
+                  <button role="switch" aria-checked={store.settings.markReadOnNext ?? true} aria-label="Mark read when skipping" class="toggle" class:on={store.settings.markReadOnNext ?? true} onclick={() => updateSettings({ markReadOnNext: !(store.settings.markReadOnNext ?? true) })}><span class="toggle-thumb"></span></button>
                 </label>
               {/if}
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Pages to preload</span><span class="toggle-desc">Images loaded ahead of the current page</span></div>
                 <div class="step-controls">
-                  <button class="step-btn" on:click={() => updateSettings({ preloadPages: Math.max(0, $settings.preloadPages - 1) })} disabled={$settings.preloadPages <= 0}>−</button>
-                  <span class="step-val">{$settings.preloadPages}</span>
-                  <button class="step-btn" on:click={() => updateSettings({ preloadPages: Math.min(10, $settings.preloadPages + 1) })} disabled={$settings.preloadPages >= 10}>+</button>
+                  <button class="step-btn" onclick={() => updateSettings({ preloadPages: Math.max(0, store.settings.preloadPages - 1) })} disabled={store.settings.preloadPages <= 0}>−</button>
+                  <span class="step-val">{store.settings.preloadPages}</span>
+                  <button class="step-btn" onclick={() => updateSettings({ preloadPages: Math.min(10, store.settings.preloadPages + 1) })} disabled={store.settings.preloadPages >= 10}>+</button>
                 </div>
               </div>
             </div>
@@ -412,11 +414,11 @@
               <p class="section-title">Display</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Crop cover images</span><span class="toggle-desc">Fill grid cells — may crop cover edges</span></div>
-                <button role="switch" aria-checked={$settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={$settings.libraryCropCovers} on:click={() => updateSettings({ libraryCropCovers: !$settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={store.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !store.settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Show NSFW sources</span><span class="toggle-desc">Display adult content sources in the sources list</span></div>
-                <button role="switch" aria-checked={$settings.showNsfw} aria-label="Show NSFW sources" class="toggle" class:on={$settings.showNsfw} on:click={() => updateSettings({ showNsfw: !$settings.showNsfw })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.showNsfw} aria-label="Show NSFW sources" class="toggle" class:on={store.settings.showNsfw} onclick={() => updateSettings({ showNsfw: !store.settings.showNsfw })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -424,14 +426,14 @@
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Default sort direction</span></div>
                 <div class="select-wrap" id="sort-dir">
-                  <button class="select-btn" on:click={() => toggleSelect("sort-dir")}>
-                    <span>{{ "desc":"Newest first","asc":"Oldest first" }[$settings.chapterSortDir]}</span>
+                  <button class="select-btn" onclick={() => toggleSelect("sort-dir")}>
+                    <span>{{ "desc":"Newest first","asc":"Oldest first" }[store.settings.chapterSortDir]}</span>
                     <svg class="select-caret" class:open={selectOpen === "sort-dir"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
                   </button>
                   {#if selectOpen === "sort-dir"}
                     <div class="select-menu">
                       {#each [["desc","Newest first"],["asc","Oldest first"]] as [v, l]}
-                        <button class="select-option" class:active={$settings.chapterSortDir === v} on:click={() => { updateSettings({ chapterSortDir: v as Settings["chapterSortDir"] }); selectOpen = null; }}>{l}</button>
+                        <button class="select-option" class:active={store.settings.chapterSortDir === v} onclick={() => { updateSettings({ chapterSortDir: v as Settings["chapterSortDir"] }); selectOpen = null; }}>{l}</button>
                       {/each}
                     </div>
                   {/if}
@@ -441,15 +443,15 @@
             <div class="section">
               <p class="section-title">History</p>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Reading history</span><span class="toggle-desc">{$history.length} entries stored</span></div>
-                <button class="danger-btn" on:click={clearHistory} disabled={$history.length === 0}>Clear activity</button>
+                <div class="toggle-info"><span class="toggle-label">Reading store.history</span><span class="toggle-desc">{store.history.length} entries stored</span></div>
+                <button class="danger-btn" onclick={clearHistory} disabled={store.history.length === 0}>Clear activity</button>
               </div>
               <div class="step-row">
                 <div class="toggle-info">
                   <span class="toggle-label">Full data cleanse</span>
-                  <span class="toggle-desc">Removes history, stats, completed list, hero pins, and manga links</span>
+                  <span class="toggle-desc">Removes store.history, stats, completed list, hero pins, and manga links</span>
                 </div>
-                <button class="danger-btn" on:click={wipeAllData}>Wipe all data</button>
+                <button class="danger-btn" onclick={wipeAllData}>Wipe all data</button>
               </div>
             </div>
           </div>
@@ -466,14 +468,14 @@
                   <span class="toggle-desc">Library and Search render this many items before showing a "Load more" button. Lower = faster scrolling on large libraries.</span>
                 </div>
                 <div class="step-controls">
-                  <button class="step-btn" on:click={() => updateSettings({ renderLimit: Math.max(12, ($settings.renderLimit ?? 48) - 12) })} disabled={($settings.renderLimit ?? 48) <= 12}>−</button>
-                  <span class="step-val">{$settings.renderLimit ?? 48}</span>
-                  <button class="step-btn" on:click={() => updateSettings({ renderLimit: Math.min(200, ($settings.renderLimit ?? 48) + 12) })} disabled={($settings.renderLimit ?? 48) >= 200}>+</button>
+                  <button class="step-btn" onclick={() => updateSettings({ renderLimit: Math.max(12, (store.settings.renderLimit ?? 48) - 12) })} disabled={(store.settings.renderLimit ?? 48) <= 12}>−</button>
+                  <span class="step-val">{store.settings.renderLimit ?? 48}</span>
+                  <button class="step-btn" onclick={() => updateSettings({ renderLimit: Math.min(200, (store.settings.renderLimit ?? 48) + 12) })} disabled={(store.settings.renderLimit ?? 48) >= 200}>+</button>
                 </div>
               </div>
               <p class="scale-hint">
                 {#each [12, 24, 48, 96, 200] as v}
-                  <button class="scale-preset" class:active={($settings.renderLimit ?? 48) === v} on:click={() => updateSettings({ renderLimit: v })}>{v}</button>
+                  <button class="scale-preset" class:active={(store.settings.renderLimit ?? 48) === v} onclick={() => updateSettings({ renderLimit: v })}>{v}</button>
                 {/each}
               </p>
             </div>
@@ -482,7 +484,7 @@
               <p class="section-title">Rendering</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">GPU acceleration</span><span class="toggle-desc">Promote reader and library to compositor layers</span></div>
-                <button role="switch" aria-checked={$settings.gpuAcceleration} aria-label="GPU acceleration" class="toggle" class:on={$settings.gpuAcceleration} on:click={() => updateSettings({ gpuAcceleration: !$settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.gpuAcceleration} aria-label="GPU acceleration" class="toggle" class:on={store.settings.gpuAcceleration} onclick={() => updateSettings({ gpuAcceleration: !store.settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
 
@@ -490,7 +492,7 @@
               <p class="section-title">Idle / Splash Screen</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Animated card background</span><span class="toggle-desc">Show floating manga cards on splash and idle screens.</span></div>
-                <button role="switch" aria-checked={$settings.splashCards ?? true} aria-label="Animated card background" class="toggle" class:on={$settings.splashCards ?? true} on:click={() => updateSettings({ splashCards: !($settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.splashCards ?? true} aria-label="Animated card background" class="toggle" class:on={store.settings.splashCards ?? true} onclick={() => updateSettings({ splashCards: !(store.settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
 
@@ -498,7 +500,7 @@
               <p class="section-title">Interface</p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Compact sidebar</span><span class="toggle-desc">Reduce sidebar icon spacing</span></div>
-                <button role="switch" aria-checked={$settings.compactSidebar} aria-label="Compact sidebar" class="toggle" class:on={$settings.compactSidebar} on:click={() => updateSettings({ compactSidebar: !$settings.compactSidebar })}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={store.settings.compactSidebar} aria-label="Compact sidebar" class="toggle" class:on={store.settings.compactSidebar} onclick={() => updateSettings({ compactSidebar: !store.settings.compactSidebar })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
 
@@ -511,7 +513,7 @@
                 </div>
                 <div class="perf-stat-group">
                   <span class="perf-stat">{perfSnapshot?.cacheEntries ?? 0} entries</span>
-                  <button class="kb-reset" on:click={refreshPerfMetrics} title="Refresh">↺</button>
+                  <button class="kb-reset" onclick={refreshPerfMetrics} title="Refresh">↺</button>
                 </div>
               </div>
               {#if perfSnapshot && perfSnapshot.cacheEntries > 0}
@@ -540,21 +542,21 @@
             <div class="section">
               <div class="kb-header">
                 <p class="section-title">Keyboard shortcuts</p>
-                <button class="reset-all-btn" on:click={resetKeybinds}>Reset all</button>
+                <button class="reset-all-btn" onclick={resetKeybinds}>Reset all</button>
               </div>
               <p class="kb-hint">Click a key to rebind, then press the new combination.</p>
               <div class="kb-list">
                 {#each Object.keys(KEYBIND_LABELS) as key}
                   {@const k = key as keyof Keybinds}
                   {@const isListening = listeningKey === k}
-                  {@const isDefault   = $settings.keybinds[k] === DEFAULT_KEYBINDS[k]}
+                  {@const isDefault   = store.settings.keybinds[k] === DEFAULT_KEYBINDS[k]}
                   <div class="kb-row">
                     <span class="kb-label">{KEYBIND_LABELS[k]}</span>
                     <div class="kb-right">
-                      <button class="kb-bind" class:listening={isListening} on:click={() => startListen(k)}>
-                        {isListening ? "Press key…" : $settings.keybinds[k]}
+                      <button class="kb-bind" class:listening={isListening} onclick={() => startListen(k)}>
+                        {isListening ? "Press key…" : store.settings.keybinds[k]}
                       </button>
-                      <button class="kb-reset" on:click={() => updateSettings({ keybinds: { ...$settings.keybinds, [k]: DEFAULT_KEYBINDS[k] } })} disabled={isDefault} title="Reset">↺</button>
+                      <button class="kb-reset" onclick={() => updateSettings({ keybinds: { ...store.settings.keybinds, [k]: DEFAULT_KEYBINDS[k] } })} disabled={isDefault} title="Reset">↺</button>
                     </div>
                   </div>
                 {/each}
@@ -573,7 +575,7 @@
                 {@const mangaBytes = storageInfo.manga_bytes}
                 {@const totalBytes = storageInfo.total_bytes}
                 {@const freeBytes  = storageInfo.free_bytes}
-                {@const limitGb    = $settings.storageLimitGb ?? null}
+                {@const limitGb    = store.settings.storageLimitGb ?? null}
                 {@const limitBytes = limitGb !== null ? limitGb * 1024 ** 3 : null}
                 {@const available  = mangaBytes + freeBytes}
                 {@const cap        = limitBytes !== null ? Math.min(limitBytes, available) : available}
@@ -599,7 +601,7 @@
               <p class="section-title">Cache</p>
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Image cache</span><span class="toggle-desc">Cached page images stored by the webview</span></div>
-                <button class="danger-btn" on:click={handleClearCache} disabled={clearing}>
+                <button class="danger-btn" onclick={handleClearCache} disabled={clearing}>
                   {cleared ? "Cleared" : clearing ? "Clearing…" : "Clear cache"}
                 </button>
               </div>
@@ -610,35 +612,35 @@
                 <div class="toggle-info">
                   <span class="toggle-label">Limit download storage</span>
                   <span class="toggle-desc">
-                    {$settings.storageLimitGb === null
+                    {store.settings.storageLimitGb === null
                       ? "No limit — uses full drive capacity"
-                      : `Warn when downloads exceed ${$settings.storageLimitGb} GB`}
+                      : `Warn when downloads exceed ${store.settings.storageLimitGb} GB`}
                   </span>
                 </div>
-                {#if $settings.storageLimitGb === null}
+                {#if store.settings.storageLimitGb === null}
                   <button class="step-btn" style="width:auto;padding:0 var(--sp-3);font-size:var(--text-xs);letter-spacing:var(--tracking-wide)"
-                    on:click={() => updateSettings({ storageLimitGb: 10 })}>
+                    onclick={() => updateSettings({ storageLimitGb: 10 })}>
                     Set limit
                   </button>
                 {:else}
                   <div class="step-controls">
                     <button class="step-btn"
-                      on:click={() => updateSettings({ storageLimitGb: Math.max(1, ($settings.storageLimitGb ?? 10) - 1) })}
-                      disabled={($settings.storageLimitGb ?? 10) <= 1}>−</button>
+                      onclick={() => updateSettings({ storageLimitGb: Math.max(1, (store.settings.storageLimitGb ?? 10) - 1) })}
+                      disabled={(store.settings.storageLimitGb ?? 10) <= 1}>−</button>
                     <input
                       type="number" min="1" step="1"
                       class="storage-limit-input"
-                      value={$settings.storageLimitGb}
-                      on:input={(e) => {
+                      value={store.settings.storageLimitGb}
+                      oninput={(e) => {
                         const n = parseFloat(e.currentTarget.value);
                         if (!isNaN(n) && n > 0) updateSettings({ storageLimitGb: n });
                       }}
                     />
                     <span class="storage-limit-unit">GB</span>
                     <button class="step-btn"
-                      on:click={() => updateSettings({ storageLimitGb: ($settings.storageLimitGb ?? 10) + 1 })}>+</button>
+                      onclick={() => updateSettings({ storageLimitGb: (store.settings.storageLimitGb ?? 10) + 1 })}>+</button>
                     <button class="kb-reset" title="Remove limit"
-                      on:click={() => updateSettings({ storageLimitGb: null })}>↺</button>
+                      onclick={() => updateSettings({ storageLimitGb: null })}>↺</button>
                   </div>
                 {/if}
               </div>
@@ -653,31 +655,31 @@
               <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-3);display:block">Assign manga to folders from the series detail page.</p>
               <div class="folder-create-row">
                 <input class="text-input" placeholder="New folder name…" bind:value={newFolderName}
-                  on:keydown={(e) => e.key === "Enter" && createFolder()} style="flex:1;width:auto" />
-                <button class="folder-create-btn" on:click={createFolder} disabled={!newFolderName.trim()}>
+                  onkeydown={(e) => e.key === "Enter" && createFolder()} style="flex:1;width:auto" />
+                <button class="folder-create-btn" onclick={createFolder} disabled={!newFolderName.trim()}>
                   <Plus size={13} weight="bold" /> Create
                 </button>
               </div>
-              {#if $settings.folders.length === 0}
+              {#if store.settings.folders.length === 0}
                 <p class="storage-loading">No folders yet. Create one above.</p>
               {:else}
                 <div class="folder-list">
-                  {#each $settings.folders as folder}
+                  {#each store.settings.folders as folder}
                     <div class="folder-row">
                       {#if editingId === folder.id}
                         <input class="text-input" bind:value={editingName}
-                          on:keydown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") editingId = null; }}
-                          on:blur={commitEdit} style="flex:1;width:auto" use:focusInput />
-                        <button class="kb-reset" on:click={commitEdit} title="Save">✓</button>
+                          onkeydown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") editingId = null; }}
+                          onblur={commitEdit} style="flex:1;width:auto" use:focusInput />
+                        <button class="kb-reset" onclick={commitEdit} title="Save">✓</button>
                       {:else}
                         <FolderSimple size={14} weight="light" style="color:var(--text-faint);flex-shrink:0" />
                         <span class="folder-row-name">{folder.name}</span>
                         <span class="folder-row-count">{folder.mangaIds.length} manga</span>
-                        <button class="folder-tab-toggle" class:on={folder.showTab} on:click={() => toggleFolderTab(folder.id)}>
+                        <button class="folder-tab-toggle" class:on={folder.showTab} onclick={() => toggleFolderTab(folder.id)}>
                           {folder.showTab ? "Tab on" : "Tab off"}
                         </button>
-                        <button class="kb-reset" on:click={() => startEdit(folder.id, folder.name)} title="Rename"><Pencil size={12} weight="light" /></button>
-                        <button class="kb-reset folder-delete" on:click={() => removeFolder(folder.id)} title="Delete"><Trash size={12} weight="light" /></button>
+                        <button class="kb-reset" onclick={() => startEdit(folder.id, folder.name)} title="Rename"><Pencil size={12} weight="light" /></button>
+                        <button class="kb-reset folder-delete" onclick={() => removeFolder(folder.id)} title="Delete"><Trash size={12} weight="light" /></button>
                       {/if}
                     </div>
                   {/each}
@@ -705,7 +707,7 @@
               <p class="section-title">Splash Screen</p>
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Preview idle screen</span><span class="toggle-desc">Show the idle splash — dismiss with any click or key</span></div>
-                <button class="danger-btn" on:click={triggerSplash}
+                <button class="danger-btn" onclick={triggerSplash}
                   style={splashTriggered ? "background:var(--accent-fg);color:var(--bg-base);border-color:var(--accent-fg);transition:all 0.15s ease" : ""}>
                   Show idle
                 </button>
@@ -725,7 +727,7 @@
   </div>
 </div>
 
-<script context="module">
+<script module>
   function focusInput(node: HTMLElement) { node.focus(); }
 </script>
 

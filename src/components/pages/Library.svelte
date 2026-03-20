@@ -1,27 +1,28 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_LIBRARY, GET_ALL_MANGA, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
+  import { GET_LIBRARY, GET_MANGA, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { settings, activeManga, libraryFilter, genreFilter, activeChapter } from "../../store";
-  import { addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders } from "../../store";
+  import { store, setActiveManga, setLibraryFilter } from "../../store/state.svelte";
+  import { addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders } from "../../store/state.svelte";
+  import { COMPLETED_FOLDER_ID } from "../../store/state.svelte";
   import type { Manga, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
   const CARD_MIN_W = 130;
   const CARD_GAP   = 16;
 
-  let allManga:           Manga[]      = $state([]);
-  let allMangaUnfiltered: Manga[]      = $state([]);
-  let loading:            boolean      = $state(true);
-  let error:              string|null  = $state(null);
-  let retryCount:         number       = $state(0);
-  let search:             string       = $state("");
-  let renderVisible:      number       = $state(0);
-  let scrollEl:           HTMLDivElement;
-  let containerWidth:     number       = $state(800);
+  let allManga:        Manga[]     = $state([]);
+  let extraManga:      Manga[]     = $state([]); // non-library manga needed for folders (e.g. completed)
+  let loading:         boolean     = $state(true);
+  let error:           string|null = $state(null);
+  let retryCount:      number      = $state(0);
+  let search:          string      = $state("");
+  let renderVisible:   number      = $state(0);
+  let scrollEl:        HTMLDivElement;
+  let containerWidth:  number      = $state(800);
   let ctx:  { x: number; y: number; manga: Manga } | null = $state(null);
   let emptyCtx: { x: number; y: number } | null           = $state(null);
 
@@ -29,8 +30,8 @@
 
   $effect(() => {
     const wasOpen = prevChapterId !== null;
-    prevChapterId = activeChapter?.id ?? null;
-    if (wasOpen && !activeChapter) cache.clear(CACHE_KEYS.LIBRARY);
+    prevChapterId = store.activeChapter?.id ?? null;
+    if (wasOpen && !store.activeChapter) cache.clear(CACHE_KEYS.LIBRARY);
   });
 
   function fetchLibrary() {
@@ -44,47 +45,66 @@
 
   function loadData() {
     fetchLibrary()
-      .then(nodes => { allManga = dedupeMangaByTitle(dedupeMangaById(nodes), settings.mangaLinks); error = null; })
+      .then(nodes => { allManga = dedupeMangaByTitle(dedupeMangaById(nodes), store.settings.mangaLinks); error = null; })
       .catch(e => error = e.message)
       .finally(() => loading = false);
-
-    cache.get(CACHE_KEYS.ALL_MANGA, () =>
-      gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA).then(d => d.mangas.nodes),
-      DEFAULT_TTL_MS, CACHE_GROUPS.LIBRARY,
-    ).then(nodes => { allMangaUnfiltered = dedupeMangaById(nodes); }).catch(console.error);
   }
 
   $effect(() => {
     retryCount;
     loading = true; error = null;
     if (retryCount > 0) cache.clear(CACHE_KEYS.LIBRARY);
-    loadData();
+    untrack(() => loadData());
+  });
+
+  // Lazily fetch manga that are in a folder but not in the library (e.g. completed but removed from library)
+  $effect(() => {
+    const allIds   = new Set(allManga.map(m => m.id));
+    const missingIds = store.settings.folders
+      .flatMap(f => f.mangaIds)
+      .filter(id => !allIds.has(id));
+    if (!missingIds.length) return;
+    const toFetch = [...new Set(missingIds)].filter(id => !extraManga.some(m => m.id === id));
+    if (!toFetch.length) return;
+    untrack(() => {
+      Promise.all(
+        toFetch.map(id =>
+          cache.get(CACHE_KEYS.MANGA(id), () =>
+            gql<{ manga: Manga }>(GET_MANGA, { id }).then(d => d.manga)
+          ).catch(() => null)
+        )
+      ).then(results => {
+        const valid = results.filter(Boolean) as Manga[];
+        if (valid.length) extraManga = dedupeMangaById([...extraManga, ...valid]);
+      });
+    });
   });
 
   $effect(() => { if (scrollEl) scrollEl.scrollTo({ top: 0 }); });
 
   $effect(() => {
-    const f = settings.folders.find(f => f.id === libraryFilter);
-    if (f && !f.showTab) libraryFilter = "library";
+    const f = store.settings.folders.find(f => f.id === store.libraryFilter);
+    if (f && !f.showTab) untrack(() => { store.libraryFilter = "library"; });
   });
 
   const isBuiltin = (f: string) => f === "library" || f === "downloaded";
 
+  // All manga available for folder filtering — library + any extras fetched above
   const folderPool = $derived((() => {
     const seen = new Set(allManga.map(m => m.id));
-    return [...allManga, ...allMangaUnfiltered.filter(m => !seen.has(m.id))];
+    return [...allManga, ...extraManga.filter(m => !seen.has(m.id))];
   })());
 
   const filtered = $derived((() => {
     const q = search.trim().toLowerCase();
-    if (libraryFilter === "library") {
+    if (store.libraryFilter === "library") {
       return q ? allManga.filter(m => m.title.toLowerCase().includes(q)) : allManga;
     }
-    if (libraryFilter === "downloaded") {
+    if (store.libraryFilter === "downloaded") {
       const items = allManga.filter(m => (m.downloadCount ?? 0) > 0);
       return q ? items.filter(m => m.title.toLowerCase().includes(q)) : items;
     }
-    const folder = settings.folders.find(f => f.id === libraryFilter);
+    const folder = store.settings.folders.find(f => f.id === store.libraryFilter);
     if (folder) {
       const items = folderPool.filter(m => folder.mangaIds.includes(m.id));
       return q ? items.filter(m => m.title.toLowerCase().includes(q)) : items;
@@ -97,15 +117,15 @@
   const hasMore        = $derived(filtered.length > renderVisible);
   const remainingCount = $derived(filtered.length - renderVisible);
 
-  $effect(() => { filtered; renderVisible = settings.renderLimit ?? 48; });
+  $effect(() => { filtered; untrack(() => { renderVisible = store.settings.renderLimit ?? 48; }); });
 
   const counts = $derived({
     library:    allManga.length,
     downloaded: allManga.filter(m => (m.downloadCount ?? 0) > 0).length,
-    ...settings.folders.reduce((a, f) => ({ ...a, [f.id]: folderPool.filter(m => f.mangaIds.includes(m.id)).length }), {} as Record<string, number>),
+    ...store.settings.folders.reduce((a, f) => ({ ...a, [f.id]: folderPool.filter(m => f.mangaIds.includes(m.id)).length }), {} as Record<string, number>),
   });
 
-  function loadMore() { renderVisible += settings.renderLimit ?? 48; }
+  function loadMore() { renderVisible += store.settings.renderLimit ?? 48; }
 
   async function removeFromLibrary(manga: Manga) {
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
@@ -128,7 +148,7 @@
 
   function buildCtxItems(m: Manga): MenuEntry[] {
     const mangaFolders = getMangaFolders(m.id);
-    const folderEntries: MenuEntry[] = settings.folders.map(f => {
+    const folderEntries: MenuEntry[] = store.settings.folders.map(f => {
       const inFolder = mangaFolders.some(mf => mf.id === f.id);
       return { label: inFolder ? `Remove from ${f.name}` : `Add to ${f.name}`, icon: Folder, onClick: () => inFolder ? removeMangaFromFolder(f.id, m.id) : assignMangaToFolder(f.id, m.id) };
     });
@@ -163,7 +183,7 @@
     emptyCtx = { x: e.clientX, y: e.clientY };
   }}
 >
-  {#if settings.libraryBranches ?? true}
+  {#if store.settings.libraryBranches ?? true}
     <svg class="branches" viewBox="0 0 400 600" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
       <g stroke="var(--accent)" stroke-width="0.6" fill="none" opacity="0.13">
         <path d="M380 600 C380 500 340 460 310 400 C280 340 300 280 270 220"/>
@@ -196,15 +216,15 @@
         <span class="heading">Library</span>
         <div class="tabs">
           {#each [["library","Saved"], ["downloaded","Downloaded"]] as [f, label]}
-            <button class="tab" class:active={libraryFilter === f} onclick={() => libraryFilter = f}>
+            <button class="tab" class:active={store.libraryFilter === f} onclick={() => store.libraryFilter = f}>
               {#if f === "library"}<Books size={11} weight="bold" />
               {:else if f === "downloaded"}<DownloadSimple size={11} weight="bold" />{/if}
               {label}
               <span class="tab-count">{counts[f] ?? 0}</span>
             </button>
           {/each}
-          {#each settings.folders.filter(f => f.showTab) as folder}
-            <button class="tab" class:active={libraryFilter === folder.id} onclick={() => libraryFilter = folder.id}>
+          {#each store.settings.folders.filter(f => f.showTab) as folder}
+            <button class="tab" class:active={store.libraryFilter === folder.id} onclick={() => store.libraryFilter = folder.id}>
               <Folder size={11} weight="bold" />
               {folder.name}
               <span class="tab-count">{counts[folder.id] ?? 0}</span>
@@ -229,16 +249,16 @@
       </div>
     {:else if filtered.length === 0}
       <div class="center">
-        {libraryFilter === "library" ? "No manga saved to library — browse sources to add some."
-          : libraryFilter === "downloaded" ? "No downloaded manga."
+        {store.libraryFilter === "library" ? "No manga saved to library — browse sources to add some."
+          : store.libraryFilter === "downloaded" ? "No downloaded manga."
           : "No manga in this folder yet. Right-click manga anywhere to assign them."}
       </div>
     {:else}
       <div class="grid" style="--cols:{cols}">
         {#each visibleManga as m (m.id)}
-          <button class="card" onclick={() => activeManga = m} oncontextmenu={(e) => openCtx(e, m)}>
+          <button class="card" onclick={() => store.activeManga = m} oncontextmenu={(e) => openCtx(e, m)}>
             <div class="cover-wrap">
-              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{settings.libraryCropCovers ? 'cover' : 'contain'}" loading="lazy" decoding="async" />
+              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" loading="lazy" decoding="async" />
               {#if m.downloadCount}<span class="badge-dl">{m.downloadCount}</span>{/if}
               {#if m.unreadCount}<span class="badge-unread">{m.unreadCount}</span>{/if}
             </div>
@@ -249,7 +269,7 @@
       {#if hasMore}
         <div class="load-more-row">
           <button class="load-more-btn" onclick={loadMore}>
-            Show {Math.min(remainingCount, settings.renderLimit ?? 48)} more
+            Show {Math.min(remainingCount, store.settings.renderLimit ?? 48)} more
             <span class="load-more-count">({remainingCount} remaining)</span>
           </button>
         </div>

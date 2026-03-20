@@ -1,21 +1,20 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
   import { Play, Pause, Trash, CircleNotch, X } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_DOWNLOAD_STATUS, START_DOWNLOADER, STOP_DOWNLOADER, CLEAR_DOWNLOADER, DEQUEUE_DOWNLOAD } from "../../lib/queries";
-  import { activeDownloads } from "../../store";
+  import { store, setActiveDownloads } from "../../store/state.svelte";
   import type { DownloadStatus } from "../../lib/types";
 
-  let status: DownloadStatus | null = null;
-  let loading                       = true;
-  let togglingPlay                  = false;
-  let clearing                      = false;
-  let dequeueing                    = new Set<number>();
+  let status: DownloadStatus | null = $state(null);
+  let loading                       = $state(true);
+  let togglingPlay                  = $state(false);
+  let clearing                      = $state(false);
+  let dequeueing = $state(new Set<number>());
   let interval: ReturnType<typeof setInterval>;
 
   function applyStatus(ds: DownloadStatus) {
     status = ds;
-    activeDownloads.set(ds.queue.map((item) => ({
+    setActiveDownloads(ds.queue.map((item) => ({
       chapterId: item.chapter.id,
       mangaId:   item.chapter.mangaId,
       progress:  item.progress,
@@ -29,8 +28,7 @@
       .finally(() => loading = false);
   }
 
-  onMount(() => { poll(); interval = setInterval(poll, 2000); });
-  onDestroy(() => clearInterval(interval));
+  $effect(() => { poll(); interval = setInterval(poll, 2000); return () => clearInterval(interval); });
 
   async function togglePlay() {
     if (togglingPlay) return;
@@ -53,7 +51,7 @@
     if (clearing) return;
     clearing = true;
     if (status) status = { ...status, queue: [] };
-    activeDownloads.set([]);
+    setActiveDownloads([]);
     try {
       const d = await gql<{ clearDownloader: { downloadStatus: DownloadStatus } }>(CLEAR_DOWNLOADER);
       applyStatus(d.clearDownloader.downloadStatus);
@@ -69,22 +67,21 @@
     catch (e) { console.error(e); poll(); }
     finally { dequeueing.delete(chapterId); dequeueing = new Set(dequeueing); }
   }
-
-  $: queue     = status?.queue ?? [];
-  $: isRunning = status?.state === "STARTED";
+  let queue = $derived(status?.queue ?? []);
+  const isRunning = $derived(status?.state === "STARTED");
 </script>
 
 <div class="root">
   <div class="header">
     <h1 class="heading">Downloads</h1>
     <div class="header-actions">
-      <button class="icon-btn" class:loading={togglingPlay} on:click={togglePlay}
+      <button class="icon-btn" class:loading={togglingPlay} onclick={togglePlay}
         disabled={togglingPlay || (queue.length === 0 && !isRunning)} title={isRunning ? "Pause" : "Resume"}>
         {#if togglingPlay}<CircleNotch size={14} weight="light" class="anim-spin" />
         {:else if isRunning}<Pause size={14} weight="fill" />
         {:else}<Play size={14} weight="fill" />{/if}
       </button>
-      <button class="icon-btn" class:loading={clearing} on:click={clear}
+      <button class="icon-btn" class:loading={clearing} onclick={clear}
         disabled={clearing || queue.length === 0} title="Clear queue">
         {#if clearing}<CircleNotch size={14} weight="light" class="anim-spin" />
         {:else}<Trash size={14} weight="regular" />{/if}
@@ -133,7 +130,7 @@
           <div class="row-right">
             <span class="state-label">{item.state}</span>
             {#if !isActive}
-              <button class="remove-btn" on:click={() => dequeue(item.chapter.id)} disabled={isRemoving} title="Remove from queue">
+              <button class="remove-btn" onclick={() => dequeue(item.chapter.id)} disabled={isRemoving} title="Remove from queue">
                 {#if isRemoving}<CircleNotch size={11} weight="light" class="anim-spin" />{:else}<X size={12} weight="light" />{/if}
               </button>
             {/if}

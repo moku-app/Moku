@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { untrack } from "svelte";
   import { MagnifyingGlass, ArrowsClockwise, Plus, CircleNotch, CaretRight, CaretDown, X, Check, GitBranch } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_EXTENSIONS, FETCH_EXTENSIONS, UPDATE_EXTENSION, INSTALL_EXTERNAL_EXTENSION, GET_SETTINGS, SET_EXTENSION_REPOS } from "../../lib/queries";
-  import { settings } from "../../store";
+  import { store } from "../../store/state.svelte";
   import type { Extension } from "../../lib/types";
 
   type Filter = "installed" | "available" | "updates" | "all";
@@ -11,23 +11,23 @@
 
   function baseName(name: string): string { return name.replace(/\s*\([A-Z0-9-]{2,10}\)\s*$/, "").trim(); }
 
-  let extensions: Extension[] = [];
-  let loading                 = true;
-  let refreshing              = false;
-  let filter: Filter          = "installed";
-  let search                  = "";
-  let working                 = new Set<string>();
-  let expanded                = new Set<string>();
-  let panel: Panel            = null;
-  let externalUrl             = "";
-  let installing              = false;
-  let installError: string|null = null;
-  let installSuccess          = false;
-  let repos: string[]         = [];
-  let reposLoading            = false;
-  let newRepoUrl              = "";
-  let repoError: string|null  = null;
-  let savingRepos             = false;
+  let extensions: Extension[] = $state([]);
+  let loading = $state(true);
+  let refreshing = $state(false);
+  let filter: Filter          = $state("installed");
+  let search = $state("");
+  let working = $state(new Set<string>());
+  let expanded = $state(new Set<string>());
+  let panel: Panel            = $state(null);
+  let externalUrl = $state("");
+  let installing = $state(false);
+  let installError: string|null = $state(null);
+  let installSuccess = $state(false);
+  let repos: string[]         = $state([]);
+  let reposLoading = $state(false);
+  let newRepoUrl = $state("");
+  let repoError: string|null  = $state(null);
+  let savingRepos = $state(false);
 
   async function load() {
     return gql<{ extensions: { nodes: Extension[] } }>(GET_EXTENSIONS)
@@ -93,26 +93,25 @@
     if (p === "repos") loadRepos();
   }
 
-  onMount(() => { fetchFromRepo().finally(() => loading = false); });
+  $effect(() => { untrack(() => fetchFromRepo().finally(() => { loading = false; })); });
 
-  $: filtered = extensions.filter((e) => {
+  const filtered = $derived(extensions.filter((e) => {
     const q = search.toLowerCase();
     const matchSearch = e.name.toLowerCase().includes(q) || e.lang.toLowerCase().includes(q);
     const matchFilter = filter === "installed" ? e.isInstalled : filter === "available" ? !e.isInstalled : filter === "updates" ? e.hasUpdate : true;
     return matchSearch && matchFilter;
-  });
+  }));
 
-  $: groups = (() => {
+  const groups = $derived.by(() => {
     const map = new Map<string, Extension[]>();
     for (const ext of filtered) { const key = baseName(ext.name); if (!map.has(key)) map.set(key, []); map.get(key)!.push(ext); }
-    const preferredLang = $settings.preferredExtensionLang;
+    const preferredLang = store.settings.preferredExtensionLang;
     return Array.from(map.entries()).map(([base, all]) => {
       const primary = all.find((v) => v.lang === preferredLang) ?? all.find((v) => v.lang === "en") ?? all[0];
       return { base, primary, variants: all.filter((v) => v.pkgName !== primary.pkgName) };
     });
-  })();
-
-  $: updateCount = extensions.filter((e) => e.hasUpdate).length;
+  });
+  const updateCount = $derived(extensions.filter((e) => e.hasUpdate).length);
 
   const FILTERS: { id: Filter; label: string }[] = [
     { id: "installed", label: "Installed" },
@@ -132,13 +131,13 @@
   <div class="header">
     <h1 class="heading">Extensions</h1>
     <div class="header-actions">
-      <button class="icon-btn" class:active={panel === "repos"} on:click={() => openPanel("repos")} title="Manage repos">
+      <button class="icon-btn" class:active={panel === "repos"} onclick={() => openPanel("repos")} title="Manage repos">
         <GitBranch size={14} weight="light" />
       </button>
-      <button class="icon-btn" class:active={panel === "apk"} on:click={() => openPanel("apk")} title="Install from URL">
+      <button class="icon-btn" class:active={panel === "apk"} onclick={() => openPanel("apk")} title="Install from URL">
         <Plus size={14} weight="light" />
       </button>
-      <button class="icon-btn" on:click={fetchFromRepo} disabled={refreshing} title="Refresh repo">
+      <button class="icon-btn" onclick={fetchFromRepo} disabled={refreshing} title="Refresh repo">
         <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
       </button>
     </div>
@@ -148,15 +147,14 @@
     <div class="ext-panel">
       <div class="panel-header">
         <span class="panel-title">Install from APK URL</span>
-        <button class="icon-btn" on:click={() => panel = null}><X size={14} weight="light" /></button>
+        <button class="icon-btn" onclick={() => panel = null}><X size={14} weight="light" /></button>
       </div>
       <div class="ext-row">
         <input class="ext-input" class:error={installError} placeholder="https://example.com/extension.apk"
           bind:value={externalUrl} disabled={installing}
-          on:input={() => installError = null}
-          on:keydown={(e) => e.key === "Enter" && !installing && installExternal()}
-          use:focusEl />
-        <button class="install-btn" class:success={installSuccess} on:click={installExternal} disabled={installing || !externalUrl.trim()}>
+          oninput={() => installError = null}
+          onkeydown={(e) => e.key === "Enter" && !installing && installExternal()} autofocus />
+        <button class="install-btn" class:success={installSuccess} onclick={installExternal} disabled={installing || !externalUrl.trim()}>
           {#if installing}<CircleNotch size={13} weight="light" class="anim-spin" />
           {:else if installSuccess}<Check size={13} weight="bold" /> Done
           {:else}Install{/if}
@@ -170,7 +168,7 @@
     <div class="ext-panel">
       <div class="panel-header">
         <span class="panel-title">Extension Repositories</span>
-        <button class="icon-btn" on:click={() => panel = null}><X size={14} weight="light" /></button>
+        <button class="icon-btn" onclick={() => panel = null}><X size={14} weight="light" /></button>
       </div>
       {#if reposLoading}
         <div class="repo-loading"><CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
@@ -182,7 +180,7 @@
             {#each repos as url}
               <div class="repo-row">
                 <span class="repo-url">{url}</span>
-                <button class="repo-remove" on:click={() => removeRepo(url)} disabled={savingRepos} title="Remove repo">
+                <button class="repo-remove" onclick={() => removeRepo(url)} disabled={savingRepos} title="Remove repo">
                   {#if savingRepos}<CircleNotch size={12} weight="light" class="anim-spin" />{:else}<X size={12} weight="bold" />{/if}
                 </button>
               </div>
@@ -192,9 +190,9 @@
         <div class="ext-row" style="margin-top:var(--sp-2)">
           <input class="ext-input" class:error={repoError} placeholder="https://example.com/index.min.json"
             bind:value={newRepoUrl} disabled={savingRepos}
-            on:input={() => repoError = null}
-            on:keydown={(e) => e.key === "Enter" && !savingRepos && addRepo()} />
-          <button class="install-btn" on:click={addRepo} disabled={savingRepos || !newRepoUrl.trim()}>
+            oninput={() => repoError = null}
+            onkeydown={(e) => e.key === "Enter" && !savingRepos && addRepo()} />
+          <button class="install-btn" onclick={addRepo} disabled={savingRepos || !newRepoUrl.trim()}>
             {#if savingRepos}<CircleNotch size={13} weight="light" class="anim-spin" />{:else}Add{/if}
           </button>
         </div>
@@ -206,7 +204,7 @@
   <div class="controls">
     <div class="tabs">
       {#each FILTERS as f}
-        <button class="tab" class:active={filter === f.id} on:click={() => filter = f.id}>
+        <button class="tab" class:active={filter === f.id} onclick={() => filter = f.id}>
           {f.id === "updates" && updateCount > 0 ? `Updates (${updateCount})` : f.label}
         </button>
       {/each}
@@ -228,7 +226,7 @@
         {@const hasVariants = variants.length > 0}
         <div class="group">
           <div class="row">
-            <img src={thumbUrl(primary.iconUrl)} alt={primary.name} class="icon" on:error={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+            <img src={thumbUrl(primary.iconUrl)} alt={primary.name} class="icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
             <div class="info">
               <span class="name">{base}</span>
               <span class="meta"><span class="lang-tag">{primary.lang.toUpperCase()}</span> v{primary.versionName}</span>
@@ -238,16 +236,16 @@
               <CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" />
             {:else if primary.hasUpdate}
               <div class="row-actions">
-                <button class="action-btn" on:click={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, update: true }), primary.pkgName)}>Update</button>
-                <button class="action-btn-dim" on:click={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName)}>Remove</button>
+                <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, update: true }), primary.pkgName)}>Update</button>
+                <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName)}>Remove</button>
               </div>
             {:else if primary.isInstalled}
-              <button class="action-btn-dim" on:click={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName)}>Remove</button>
+              <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName)}>Remove</button>
             {:else}
-              <button class="action-btn" on:click={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, install: true }), primary.pkgName)}>Install</button>
+              <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, install: true }), primary.pkgName)}>Install</button>
             {/if}
             {#if hasVariants}
-              <button class="expand-btn" on:click={() => toggleExpand(base)} title="{variants.length + 1} languages">
+              <button class="expand-btn" onclick={() => toggleExpand(base)} title="{variants.length + 1} languages">
                 {#if isExpanded}<CaretDown size={12} weight="light" />{:else}<CaretRight size={12} weight="light" />{/if}
                 <span class="expand-count">{variants.length + 1}</span>
               </button>
@@ -265,11 +263,11 @@
                     {#if working.has(v.pkgName)}
                       <CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" />
                     {:else if v.hasUpdate}
-                      <button class="action-btn" on:click={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, update: true }), v.pkgName)}>Update</button>
+                      <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, update: true }), v.pkgName)}>Update</button>
                     {:else if v.isInstalled}
-                      <button class="action-btn-dim" on:click={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, uninstall: true }), v.pkgName)}>Remove</button>
+                      <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, uninstall: true }), v.pkgName)}>Remove</button>
                     {:else}
-                      <button class="action-btn" on:click={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, install: true }), v.pkgName)}>Install</button>
+                      <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, install: true }), v.pkgName)}>Install</button>
                     {/if}
                   </div>
                 </div>
@@ -282,9 +280,6 @@
   {/if}
 </div>
 
-<script context="module">
-  function focusEl(node: HTMLElement) { node.focus(); }
-</script>
 
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }

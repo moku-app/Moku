@@ -1,13 +1,12 @@
 <script lang="ts">
   import { ClockCounterClockwise, Trash, MagnifyingGlass, Play, Books, Fire, BookOpen, Clock, TrendUp } from "phosphor-svelte";
   import { thumbUrl } from "../../lib/client";
-  import { history, readingStats, clearHistory, activeManga, activeChapterList, openReader } from "../../store";
-  import type { HistoryEntry } from "../../store";
+  import { store, clearHistory, openReader, setActiveManga } from "../../store/state.svelte";
+  import type { HistoryEntry } from "../../store/state.svelte";
 
-  let search         = "";
-  let confirmClear   = false;
+  let search       = $state("");
+  let confirmClear = $state(false);
 
-  // ── Helpers ───────────────────────────────────────────────────────────────────
   function timeAgo(ts: number): string {
     const diff = Date.now() - ts, m = Math.floor(diff / 60000);
     if (m < 1)  return "Just now";
@@ -34,13 +33,18 @@
     return r === 0 ? `${h}h` : `${h}h ${r}m`;
   }
 
-  // ── Session grouping — collapses rapid same-manga reads ───────────────────────
   const SESSION_GAP_MS = 30 * 60 * 1000;
 
   interface Session {
-    mangaId: number; mangaTitle: string; thumbnailUrl: string;
-    latestChapterId: number; latestChapterName: string; latestPageNumber: number;
-    firstChapterName: string; chapterCount: number; readAt: number;
+    mangaId:           number;
+    mangaTitle:        string;
+    thumbnailUrl:      string;
+    latestChapterId:   number;
+    latestChapterName: string;
+    latestPageNumber:  number;
+    firstChapterName:  string;
+    chapterCount:      number;
+    readAt:            number;
   }
 
   function buildSessions(entries: HistoryEntry[]): Session[] {
@@ -53,28 +57,37 @@
       let j = i + 1;
       while (j < entries.length) {
         const next = entries[j];
-        if (next.mangaId === anchor.mangaId && anchor.readAt - next.readAt <= SESSION_GAP_MS) { group.push(next); j++; }
-        else break;
+        if (next.mangaId === anchor.mangaId && anchor.readAt - next.readAt <= SESSION_GAP_MS) {
+          group.push(next); j++;
+        } else break;
       }
       const latest = group[0], oldest = group[group.length - 1];
       sessions.push({
-        mangaId: latest.mangaId, mangaTitle: latest.mangaTitle, thumbnailUrl: latest.thumbnailUrl,
-        latestChapterId: latest.chapterId, latestChapterName: latest.chapterName,
-        latestPageNumber: latest.pageNumber, firstChapterName: oldest.chapterName,
-        chapterCount: group.length, readAt: latest.readAt,
+        mangaId:           latest.mangaId,
+        mangaTitle:        latest.mangaTitle,
+        thumbnailUrl:      latest.thumbnailUrl,
+        latestChapterId:   latest.chapterId,
+        latestChapterName: latest.chapterName,
+        latestPageNumber:  latest.pageNumber,
+        firstChapterName:  oldest.chapterName,
+        chapterCount:      group.length,
+        readAt:            latest.readAt,
       });
       i = j;
     }
     return sessions;
   }
 
-  $: filtered = search.trim()
-    ? $history.filter(e => e.mangaTitle.toLowerCase().includes(search.toLowerCase()) || e.chapterName.toLowerCase().includes(search.toLowerCase()))
-    : $history;
+  const filtered = $derived(search.trim()
+    ? store..filter((e) =>
+        e.mangaTitle.toLowerCase().includes(search.toLowerCase()) ||
+        e.chapterName.toLowerCase().includes(search.toLowerCase())
+      )
+    : store.);
 
-  $: sessions = buildSessions(filtered);
+  const sessions = $derived(buildSessions(filtered));
 
-  $: groups = (() => {
+  const groups = $derived.by(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
       const l = dayLabel(s.readAt);
@@ -82,12 +95,12 @@
       map.get(l)!.push(s);
     }
     return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
-  })();
+  });
 
   function resume(session: Session) {
-    const ch = $activeChapterList.find(c => c.id === session.latestChapterId);
-    if (ch && $activeChapterList.length > 0) openReader(ch, $activeChapterList);
-    else activeManga.set({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: session.thumbnailUrl } as any);
+    const ch = store..find((c) => c.id === session.latestChapterId);
+    if (ch && store..length > 0) openReader(ch, );
+    else setActiveManga({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: session.thumbnailUrl } as any);
   }
 
   function handleClear() {
@@ -98,18 +111,17 @@
 
 <div class="root">
 
-  <!-- ── Header ──────────────────────────────────────────────────────────────── -->
   <div class="page-header">
     <span class="heading">History</span>
     <div class="header-right">
       <div class="search-wrap">
         <MagnifyingGlass size={12} class="search-icon" weight="light" />
-        <input class="search" placeholder="Search history…" bind:value={search} />
-        {#if search}<button class="search-clear" on:click={() => search = ""}>×</button>{/if}
+        <input class="search" placeholder="Search store.…" bind:value={search} />
+        {#if search}<button class="search-clear" onclick={() => search = ""}>×</button>{/if}
       </div>
-      {#if $history.length > 0}
-        <button class="clear-btn" class:confirm={confirmClear} on:click={handleClear}
-          title={confirmClear ? "Click again to confirm" : "Clear history feed"}>
+      {#if store..length > 0}
+        <button class="clear-btn" class:confirm={confirmClear} onclick={handleClear}
+          title={confirmClear ? "Click again to confirm" : "Clear store. feed"}>
           <Trash size={14} weight="light" />
           {#if confirmClear}<span class="clear-label">Confirm?</span>{/if}
         </button>
@@ -117,46 +129,44 @@
     </div>
   </div>
 
-  <!-- ── Persistent stats bar — never cleared ────────────────────────────────── -->
-  {#if $readingStats.totalChaptersRead > 0}
+  {#if store..totalChaptersRead > 0}
     <div class="stats-bar">
       <div class="stat-group">
         <Fire size={13} weight="fill" class="stat-fire" />
-        <span class="stat-val accent">{$readingStats.currentStreakDays}</span>
+        <span class="stat-val accent">{store..currentStreakDays}</span>
         <span class="stat-label">day streak</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
         <BookOpen size={13} weight="light" class="stat-icon-neutral" />
-        <span class="stat-val">{$readingStats.totalChaptersRead}</span>
+        <span class="stat-val">{store..totalChaptersRead}</span>
         <span class="stat-label">chapters</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
         <Clock size={13} weight="light" class="stat-icon-neutral" />
-        <span class="stat-val">{formatReadTime($readingStats.totalMinutesRead)}</span>
+        <span class="stat-val">{formatReadTime(store..totalMinutesRead)}</span>
         <span class="stat-label">read time</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
         <TrendUp size={13} weight="light" class="stat-icon-neutral" />
-        <span class="stat-val">{$readingStats.totalMangaRead}</span>
+        <span class="stat-val">{store..totalMangaRead}</span>
         <span class="stat-label">series</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
-        <span class="stat-val muted">{$readingStats.longestStreakDays}d</span>
+        <span class="stat-val muted">{store..longestStreakDays}d</span>
         <span class="stat-label">best streak</span>
       </div>
       <span class="stats-note">Stats are preserved when you clear the feed</span>
     </div>
   {/if}
 
-  <!-- ── Empty states ────────────────────────────────────────────────────────── -->
-  {#if $history.length === 0}
+  {#if store..length === 0}
     <div class="empty">
       <ClockCounterClockwise size={32} weight="light" class="empty-icon" />
-      <p class="empty-text">No reading history</p>
+      <p class="empty-text">No reading store.</p>
       <p class="empty-hint">Chapters you read will appear here</p>
     </div>
   {:else if sessions.length === 0}
@@ -164,8 +174,6 @@
       <Books size={28} weight="light" class="empty-icon" />
       <p class="empty-text">No results for "{search}"</p>
     </div>
-
-  <!-- ── Timeline ────────────────────────────────────────────────────────────── -->
   {:else}
     <div class="timeline">
       {#each groups as { label, items }}
@@ -176,17 +184,13 @@
           </div>
           <div class="session-list">
             {#each items as session (session.latestChapterId)}
-              <button class="session-row" on:click={() => resume(session)}>
-
-                <!-- Cover -->
+              <button class="session-row" onclick={() => resume(session)}>
                 <div class="thumb-wrap">
                   <img src={thumbUrl(session.thumbnailUrl)} alt={session.mangaTitle} class="thumb" />
                   {#if session.chapterCount > 1}
                     <span class="session-count">{session.chapterCount}</span>
                   {/if}
                 </div>
-
-                <!-- Info -->
                 <div class="session-info">
                   <span class="session-title">{session.mangaTitle}</span>
                   <span class="session-chapter">
@@ -202,13 +206,10 @@
                     {/if}
                   </span>
                 </div>
-
-                <!-- Time + play -->
                 <span class="session-time">{timeAgo(session.readAt)}</span>
                 <div class="play-pill">
                   <Play size={10} weight="fill" /> Resume
                 </div>
-
               </button>
             {/each}
           </div>
@@ -222,7 +223,6 @@
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
 
-  /* ── Header ──────────────────────────────────────────────────────────────── */
   .page-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0;
@@ -250,7 +250,6 @@
   .clear-btn.confirm { color: var(--color-error); background: var(--color-error-bg); border-color: var(--color-error); }
   .clear-label { font-size: var(--text-2xs); }
 
-  /* ── Stats bar — persisted, never clears ────────────────────────────────── */
   .stats-bar {
     display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
     padding: var(--sp-3) var(--sp-6); border-bottom: 1px solid var(--border-dim);
@@ -266,7 +265,6 @@
   .stat-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .stats-note { margin-left: auto; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); opacity: 0.5; letter-spacing: var(--tracking-wide); font-style: italic; }
 
-  /* ── Timeline ────────────────────────────────────────────────────────────── */
   .timeline { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-6); }
 
   .day-group { margin-bottom: var(--sp-5); }
@@ -285,7 +283,6 @@
   .session-row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
   .session-row:hover .play-pill { opacity: 1; transform: translateX(0); }
 
-  /* Thumb */
   .thumb-wrap { position: relative; flex-shrink: 0; }
   .thumb { width: 38px; height: 54px; border-radius: var(--radius-sm); object-fit: cover; display: block; background: var(--bg-raised); border: 1px solid var(--border-dim); }
   .session-count {
@@ -295,14 +292,12 @@
     padding: 1px 4px; border-radius: 6px; line-height: 1.4; pointer-events: none;
   }
 
-  /* Info */
   .session-info { flex: 1; display: flex; flex-direction: column; gap: 3px; overflow: hidden; min-width: 0; }
   .session-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .session-chapter { font-size: var(--text-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-1); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ch-arrow { color: var(--text-faint); font-size: 10px; flex-shrink: 0; }
   .ch-page { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
 
-  /* Time & play */
   .session-time { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; white-space: nowrap; }
   .play-pill {
     display: flex; align-items: center; gap: 4px; flex-shrink: 0;
@@ -313,7 +308,6 @@
     transition: opacity var(--t-base), transform var(--t-base);
   }
 
-  /* ── Empty ───────────────────────────────────────────────────────────────── */
   .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2); }
   :global(.empty-icon) { color: var(--text-faint); }
   .empty-text { font-size: var(--text-base); color: var(--text-muted); }

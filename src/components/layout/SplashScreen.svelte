@@ -24,7 +24,7 @@
   let exiting  = $state(false);
   let exitLock = false;
 
-  let fpsEl: HTMLSpanElement;
+  let fpsEl = $state<HTMLSpanElement | undefined>(undefined);
 
   function triggerExit(cb?: () => void) {
     if (exitLock) return;

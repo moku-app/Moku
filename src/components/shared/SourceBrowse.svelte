@@ -2,37 +2,37 @@
   import { ArrowLeft, MagnifyingGlass, ArrowLeft as Prev, ArrowRight as Next, BookmarkSimple, FolderSimplePlus, Folder } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
-  import { activeSource, activeManga, navPage, settings, addFolder, assignMangaToFolder } from "../../store";
+  import { store, addFolder, assignMangaToFolder, setActiveSource, setActiveManga, setNavPage } from "../../store/state.svelte";
   import type { Manga } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
   type BrowseType = "POPULAR" | "LATEST" | "SEARCH";
 
-  let mangas:              Manga[]     = $state([]);
-  let loading                          = $state(true);
-  let page                             = $state(1);
-  let hasNextPage                      = $state(false);
-  let browseType:          BrowseType  = $state("POPULAR");
-  let search                           = $state("");
-  let searchInput                      = $state("");
-  let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
+  let mangas: Manga[]       = [];
+  let loading               = true;
+  let page                  = 1;
+  let hasNextPage           = false;
+  let browseType: BrowseType = "POPULAR";
+  let search                = "";
+  let searchInput           = "";
+  let ctx: { x: number; y: number; manga: Manga } | null = null;
 
   async function fetchMangas(type: BrowseType, p: number, q: string) {
-    if (!activeSource) return;
+    if (!$store.activeSource) return;
     loading = true; mangas = [];
     gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-      FETCH_SOURCE_MANGA, { source: activeSource.id, type, page: p, query: q || null }
+      FETCH_SOURCE_MANGA, { source: $store.activeSource.id, type, page: p, query: q || null }
     ).then((d) => { mangas = d.fetchSourceManga.mangas; hasNextPage = d.fetchSourceManga.hasNextPage; })
      .catch(console.error)
-     .finally(() => { loading = false; });
+     .finally(() => loading = false);
   }
 
-  $effect(() => { if (activeSource) fetchMangas(browseType, page, search); });
+  $: if ($store.activeSource) fetchMangas(browseType, page, search);
 
   function submitSearch() {
-    search     = searchInput.trim();
+    search = searchInput.trim();
     browseType = "SEARCH";
-    page       = 1;
+    page = 1;
   }
 
   function setMode(mode: BrowseType) {
@@ -42,48 +42,36 @@
 
   function buildCtxItems(m: Manga): MenuEntry[] {
     return [
-      {
-        label: m.inLibrary ? "In Library" : "Add to library",
-        icon: BookmarkSimple,
-        disabled: m.inLibrary,
+      { label: m.inLibrary ? "In Library" : "Add to library", icon: BookmarkSimple, disabled: m.inLibrary,
         onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
-          .then(() => { mangas = mangas.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x); })
-          .catch(console.error),
-      },
-      ...(settings.folders.length > 0 ? [
+          .then(() => mangas = mangas.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x))
+          .catch(console.error) },
+      ...($store.settings.folders.length > 0 ? [
         { separator: true } as MenuEntry,
-        ...settings.folders.map((f): MenuEntry => ({
-          label:   f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name,
-          icon:    Folder,
+        ...$store.settings.folders.map((f): MenuEntry => ({
+          label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name, icon: Folder,
           onClick: () => assignMangaToFolder(f.id, m.id),
         })),
       ] : []),
       { separator: true },
-      {
-        label:   "New folder & add",
-        icon:    FolderSimplePlus,
-        onClick: () => {
-          const name = prompt("Folder name:");
-          if (name?.trim()) { const id = addFolder(name.trim()); assignMangaToFolder(id, m.id); }
-        },
-      },
+      { label: "New folder & add", icon: FolderSimplePlus, onClick: () => { const name = prompt("Folder name:"); if (name?.trim()) { const id = addFolder(name.trim()); assignMangaToFolder(id, m.id); } } },
     ];
   }
 </script>
 
-{#if activeSource}
+{#if $store.activeSource}
 <div class="root">
   <div class="header">
-    <button class="back" onclick={() => activeSource = null}>
+    <button class="back" on:click={() => store.activeSource.set(null)}>
       <ArrowLeft size={13} weight="light" /><span>Sources</span>
     </button>
-    <span class="source-name">{activeSource.displayName}</span>
+    <span class="source-name">{$store.activeSource.displayName}</span>
   </div>
 
   <div class="toolbar">
     <div class="tabs">
       {#each (["POPULAR", "LATEST"] as BrowseType[]) as mode}
-        <button class="tab" class:active={browseType === mode && !search} onclick={() => setMode(mode)}>
+        <button class="tab" class:active={browseType === mode && !search} on:click={() => setMode(mode)}>
           {mode.charAt(0) + mode.slice(1).toLowerCase()}
         </button>
       {/each}
@@ -92,7 +80,7 @@
     <div class="search-wrap">
       <MagnifyingGlass size={12} class="search-icon" weight="light" />
       <input class="search" placeholder="Search source…" bind:value={searchInput}
-        onkeydown={(e) => e.key === "Enter" && submitSearch()} />
+        on:keydown={(e) => e.key === "Enter" && submitSearch()} />
     </div>
   </div>
 
@@ -107,9 +95,8 @@
   {:else}
     <div class="grid">
       {#each mangas as m (m.id)}
-        <button class="card"
-          onclick={() => { activeManga = m; navPage = "library"; }}
-          oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); ctx = { x: e.clientX, y: e.clientY, manga: m }; }}>
+        <button class="card" on:click={() => { store.activeManga.set(m); store.navPage.set("library"); }}
+          on:contextmenu={(e) => { e.preventDefault(); e.stopPropagation(); ctx = { x: e.clientX, y: e.clientY, manga: m }; }}>
           <div class="cover-wrap">
             <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" />
             {#if m.inLibrary}<span class="in-library-badge">In Library</span>{/if}
@@ -122,11 +109,11 @@
 
   {#if !loading && (page > 1 || hasNextPage)}
     <div class="pagination">
-      <button class="page-btn" onclick={() => page = Math.max(1, page - 1)} disabled={page === 1}>
+      <button class="page-btn" on:click={() => page = Math.max(1, page - 1)} disabled={page === 1}>
         <Prev size={13} weight="light" /> Prev
       </button>
       <span class="page-num">{page}</span>
-      <button class="page-btn" onclick={() => page++} disabled={!hasNextPage}>
+      <button class="page-btn" on:click={() => page++} disabled={!hasNextPage}>
         Next <Next size={13} weight="light" />
       </button>
     </div>

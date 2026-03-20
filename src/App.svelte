@@ -4,7 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { gql } from "./lib/client";
   import { GET_DOWNLOAD_STATUS } from "./lib/queries";
-  import { activeChapter, settingsOpen, settings, activeDownloads, addToast } from "./store";
+  import { store, addToast, setActiveDownloads } from "./store/state.svelte";
   import type { DownloadStatus, DownloadQueueItem } from "./lib/types";
   import Layout       from "./components/layout/Layout.svelte";
   import Reader       from "./components/reader/Reader.svelte";
@@ -16,8 +16,8 @@
 
   const MAX_ATTEMPTS = 30;
 
-  let serverProbeOk = $state(!settings.autoStartServer);
-  let appReady      = $state(!settings.autoStartServer);
+  let serverProbeOk = $state(!store.settings.autoStartServer);
+  let appReady      = $state(!store.settings.autoStartServer);
   let failed        = $state(false);
   let idle          = $state(false);
   let devSplash     = $state(false);
@@ -42,15 +42,15 @@
   function applyQueue(next: DownloadQueueItem[]) {
     detectCompletions(prevQueue, next);
     prevQueue = next;
-    activeDownloads = next.map(item => ({
+    setActiveDownloads(next.map(item => ({
       chapterId: item.chapter.id, mangaId: item.chapter.mangaId, progress: item.progress,
-    }));
+    })));
   }
 
   function resetIdle() {
     if (idle) return;
     if (idleTimer) clearTimeout(idleTimer);
-    const ms = (settings.idleTimeoutMin ?? 5) * 60 * 1000;
+    const ms = (store.settings.idleTimeoutMin ?? 5) * 60 * 1000;
     if (ms === 0) return;
     idleTimer = setTimeout(() => idle = true, ms);
   }
@@ -65,11 +65,15 @@
   });
 
   $effect(() => {
-    document.documentElement.style.zoom = `${settings.uiScale * 1.5}%`;
+    const scale = store.settings.uiScale * 1.5;
+    document.documentElement.style.zoom = `${scale}%`;
+    document.documentElement.style.setProperty("--ui-scale", String(scale));
+    // --visual-vh gives true viewport height independent of zoom
+    document.documentElement.style.setProperty("--visual-vh", `${window.innerHeight / (scale / 100)}px`);
   });
 
   $effect(() => {
-    document.documentElement.setAttribute("data-theme", settings.theme ?? "dark");
+    document.documentElement.setAttribute("data-theme", store.settings.theme ?? "dark");
   });
 
   $effect(() => {
@@ -85,8 +89,8 @@
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => devSplash = true;
 
-    if (settings.autoStartServer) {
-      invoke("spawn_server", { binary: settings.serverBinary }).catch(err =>
+    if (store.settings.autoStartServer) {
+      invoke("spawn_server", { binary: store.settings.serverBinary }).catch(err =>
         console.warn("Could not start server:", err));
     }
 
@@ -96,7 +100,7 @@
         if (cancelled) return;
         tries++;
         try {
-          const res = await fetch(`${settings.serverUrl}/api/graphql`, {
+          const res = await fetch(`${store.settings.serverUrl}/api/graphql`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query: "{ __typename }" }),
             signal: AbortSignal.timeout(2000),
@@ -110,10 +114,10 @@
     }
 
     type P = { chapterId: number; mangaId: number; progress: number }[];
-    unlistenDownload = await listen<P>("download-progress", e => { activeDownloads = e.payload; });
+    unlistenDownload = await listen<P>("download-progress", e => { setActiveDownloads(e.payload); });
 
     return () => {
-      if (settings.autoStartServer) invoke("kill_server").catch(() => {});
+      if (store.settings.autoStartServer) invoke("kill_server").catch(() => {});
       if (idleTimer) clearTimeout(idleTimer);
       if (pollInterval) clearInterval(pollInterval);
       unlistenDownload?.();
@@ -125,24 +129,24 @@
 </script>
 
 {#if devSplash}
-  <SplashScreen mode="idle" showFps showCards={settings.splashCards ?? true}
+  <SplashScreen mode="idle" showFps showCards={store.settings.splashCards ?? true}
     onDismiss={() => setTimeout(() => devSplash = false, 340)} />
 {:else if !appReady}
   <SplashScreen mode="loading" ringFull={serverProbeOk} {failed}
-    showCards={settings.splashCards ?? true}
+    showCards={store.settings.splashCards ?? true}
     onReady={() => appReady = true}
     onRetry={handleRetry} />
 {:else}
   <div class="root">
-    {#if idle && !activeChapter}
-      <SplashScreen mode="idle" showCards={settings.splashCards ?? true}
+    {#if idle && !store.activeChapter}
+      <SplashScreen mode="idle" showCards={store.settings.splashCards ?? true}
         onDismiss={() => setTimeout(() => idle = false, 340)} />
     {/if}
-    {#if !activeChapter}<TitleBar />{/if}
+    {#if !store.activeChapter}<TitleBar />{/if}
     <div class="content">
-      {#if activeChapter}<Reader />{:else}<Layout />{/if}
+      {#if store.activeChapter}<Reader />{:else}<Layout />{/if}
     </div>
-    {#if settingsOpen}<Settings />{/if}
+    {#if store.settingsOpen}<Settings />{/if}
     <MangaPreview />
     <Toaster />
   </div>

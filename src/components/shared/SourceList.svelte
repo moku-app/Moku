@@ -2,7 +2,7 @@
   import { MagnifyingGlass, CircleNotch, CaretDown, CaretRight } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES } from "../../lib/queries";
-  import { activeSource } from "../../store";
+  import { store } from "../../store/state.svelte";
   import type { Source } from "../../lib/types";
 
   let sources:  Source[]   = $state([]);
@@ -71,7 +71,7 @@
         {@const single = g.sources.length === 1}
         {@const open   = expanded.has(g.name)}
         <div>
-          <button class="row" onclick={() => single ? activeSource = g.sources[0] : toggleGroup(g.name)}>
+          <button class="row" onclick={() => single ? store.activeSource = g.sources[0] : toggleGroup(g.name)}>
             <img src={thumbUrl(g.icon)} alt={g.name} class="icon"
               onerror={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
             <div class="info">
@@ -84,7 +84,7 @@
           </button>
           {#if !single && open}
             {#each g.sources as src}
-              <button class="row row-indented" onclick={() => activeSource = src}>
+              <button class="row row-indented" onclick={() => store.activeSource = src}>
                 <div class="indent-spacer"></div>
                 <div class="info"><span class="name">{src.lang.toUpperCase()}{src.isNsfw ? " · NSFW" : ""}</span></div>
                 <span class="arrow">→</span>

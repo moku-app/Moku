@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
-  import { toasts, dismissToast } from "../../store";
-  import type { Toast } from "../../store";
+  import { store, dismissToast } from "../../store/state.svelte";
+  import type { Toast } from "../../store/state.svelte";
 
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -12,9 +11,10 @@
     timers.set(t.id, setTimeout(() => dismissToast(t.id), dur));
   }
 
-  $: $toasts.forEach(schedule);
-
-  onDestroy(() => timers.forEach(clearTimeout));
+  $effect(() => {
+    store.toasts.forEach(schedule);
+    return () => timers.forEach(clearTimeout);
+  });
 
   const icons: Record<Toast["kind"], string> = {
     success:  "M9 12l2 2 4-4M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z",
@@ -24,9 +24,9 @@
   };
 </script>
 
-{#if $toasts.length}
+{#if store.toasts.length}
   <div class="toaster" aria-live="polite">
-    {#each $toasts as t (t.id)}
+    {#each store.toasts as t (t.id)}
       <div class="toast toast-{t.kind}" role="alert">
         <span class="icon">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -38,7 +38,7 @@
           <p class="title">{t.title}</p>
           {#if t.body}<p class="sub">{t.body}</p>{/if}
         </div>
-        <button class="close" on:click={() => dismissToast(t.id)} title="Dismiss">
+        <button class="close" onclick={() => dismissToast(t.id)} title="Dismiss">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
             <path d="M18 6L6 18M6 6l12 12" />

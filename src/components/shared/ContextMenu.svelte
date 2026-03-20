@@ -22,9 +22,13 @@
   let focused = $state(-1);
   let el      = $state<HTMLDivElement | undefined>(undefined);
 
-  const actionable = items
-    .map((_, i) => i)
-    .filter((i) => !("separator" in items[i]) && !(items[i] as MenuItem).disabled);
+  const actionable = $derived(
+    items
+      .map((_, i) => i)
+      .filter((i) => !("separator" in items[i]) && !(items[i] as MenuItem).disabled)
+  );
+
+  $effect(() => { if (actionable.length && focused === -1) focused = actionable[0]; });
 
   const pos = $derived.by(() => {
     const zoom  = parseFloat(document.documentElement.style.zoom || "100") / 100 || 1;
@@ -36,8 +40,6 @@
       top:  Math.max(4, sy + menuH > vh ? sy - menuH : sy),
     };
   });
-
-  if (actionable.length) focused = actionable[0];
 
   function onMouseDown(e: MouseEvent) {
     if (el && !el.contains(e.target as Node)) onClose();
@@ -74,7 +76,7 @@
   });
 </script>
 
-<div bind:this={el} class="menu" role="menu" style="left:{pos.left}px;top:{pos.top}px"
+<div bind:this={el} class="menu" role="menu" tabindex="-1" style="left:{pos.left}px;top:{pos.top}px"
   oncontextmenu={(e) => e.preventDefault()}>
   {#each items as item, i}
     {#if "separator" in item}

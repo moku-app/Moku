@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
-  import { settings, activeManga, activeChapter, activeChapterList, pageUrls, pageNumber, closeReader, openReader, settingsOpen, addHistory, updateSettings, checkAndMarkCompleted } from "../../store";
+  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
-  import type { FitMode } from "../../store";
+  import type { FitMode } from "../../store/state.svelte";
 
   const pageCache  = new Map<number, string[]>();
   const inflight   = new Map<number, Promise<string[]>>();
@@ -73,17 +73,17 @@
   let sentinelEl:  HTMLDivElement;
   let hideTimer:   ReturnType<typeof setTimeout> | null = null;
 
-  let loading:          boolean          = $state(true);
-  let error:            string | null    = $state(null);
-  let dlOpen:           boolean          = $state(false);
-  let zoomOpen:         boolean          = $state(false);
-  let uiVisible:        boolean          = $state(true);
-  let pageReady:        boolean          = $state(false);
-  let pageGroups:       number[][]       = $state([]);
-  let stripChapters:    StripChapter[]   = $state([]);
-  let visibleChapterId: number | null    = $state(null);
-  let nextN:            number           = $state(5);
-  let dlBusy:           boolean          = $state(false);
+  let loading          = $state(true);
+  let error: string | null = $state(null);
+  let dlOpen           = $state(false);
+  let zoomOpen         = $state(false);
+  let uiVisible        = $state(true);
+  let pageReady        = $state(false);
+  let pageGroups: number[][] = $state([]);
+  let stripChapters: StripChapter[] = $state([]);
+  let visibleChapterId: number | null = $state(null);
+  let nextN            = $state(5);
+  let dlBusy           = $state(false);
   let markedRead   = new Set<number>();
   let appended     = new Set<number>();
   let appending    = false;
@@ -91,32 +91,33 @@
   let loadingId:   number | null = null;
   let scrollAnchor: { scrollTop: number; scrollHeight: number } | null = null;
 
-  const rtl      = $derived(settings.readingDirection === "rtl");
-  const fit      = $derived((settings.fitMode ?? "width") as FitMode);
-  const style    = $derived(settings.pageStyle ?? "single");
-  const maxW     = $derived(settings.maxPageWidth ?? 900);
-  const autoNext = $derived(settings.autoNextChapter ?? false);
-  const markOnNext = $derived(settings.markReadOnNext ?? true);
-  const lastPage = $derived(pageUrls.length);
+
+  const rtl        = $derived(store.settings.readingDirection === "rtl");
+  const fit        = $derived((store.settings.fitMode ?? "width") as FitMode);
+  const style      = $derived(store.settings.pageStyle ?? "single");
+  const maxW       = $derived(store.settings.maxPageWidth ?? 900);
+  const autoNext   = $derived(store.settings.autoNextChapter ?? false);
+  const markOnNext = $derived(store.settings.markReadOnNext ?? true);
+  const lastPage   = $derived(store.pageUrls.length);
 
   const displayChapter = $derived((style === "longstrip" && autoNext && visibleChapterId)
-    ? (activeChapterList.find(c => c.id === visibleChapterId) ?? activeChapter)
-    : activeChapter);
+    ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
+    : store.activeChapter);
 
   const adjacent = $derived((() => {
-    const ref = displayChapter ?? activeChapter;
-    if (!ref || !activeChapterList.length) return { prev: null, next: null, remaining: [] };
-    const idx = activeChapterList.findIndex(c => c.id === ref.id);
+    const ref = displayChapter ?? store.activeChapter;
+    if (!ref || !store.activeChapterList.length) return { prev: null, next: null, remaining: [] };
+    const idx = store.activeChapterList.findIndex(c => c.id === ref.id);
     return {
-      prev:      idx > 0                               ? activeChapterList[idx - 1] : null,
-      next:      idx < activeChapterList.length - 1   ? activeChapterList[idx + 1] : null,
-      remaining: activeChapterList.slice(idx + 1),
+      prev:      idx > 0                                    ? store.activeChapterList[idx - 1] : null,
+      next:      idx < store.activeChapterList.length - 1  ? store.activeChapterList[idx + 1] : null,
+      remaining: store.activeChapterList.slice(idx + 1),
     };
   })());
 
   const visibleChunkLastPage = $derived((() => {
     if (style !== "longstrip" || !autoNext) return lastPage;
-    const chId  = visibleChapterId ?? activeChapter?.id;
+    const chId  = visibleChapterId ?? store.activeChapter?.id;
     const chunk = stripChapters.find(c => c.chapterId === chId);
     return chunk?.urls.length ?? lastPage;
   })());
@@ -127,21 +128,21 @@
     fit === "height"   && "fit-height",
     fit === "screen"   && "fit-screen",
     fit === "original" && "fit-original",
-    settings.optimizeContrast && "optimize-contrast",
+    store.settings.optimizeContrast && "optimize-contrast",
   ].filter(Boolean).join(" "));
 
   const fitLabel   = $derived({ width: "Fit W", height: "Fit H", screen: "Fit Screen", original: "1:1" }[fit]);
   const styleLabel = $derived(style);
 
   function maybeMarkCurrentRead() {
-    const ch = activeChapter;
+    const ch = store.activeChapter;
     if (!ch || !markOnNext || markedRead.has(ch.id)) return;
     markedRead.add(ch.id);
     gql(MARK_CHAPTER_READ, { id: ch.id, isRead: true })
       .then(() => {
-        if (activeManga) {
-          const updated = activeChapterList.map(c => c.id === ch.id ? { ...c, isRead: true } : c);
-          checkAndMarkCompleted(activeManga.id, updated);
+        if (store.activeManga) {
+          const updated = store.activeChapterList.map(c => c.id === ch.id ? { ...c, isRead: true } : c);
+          checkAndMarkCompleted(store.activeManga.id, updated);
         }
       })
       .catch(e => { markedRead.delete(ch.id); console.error(e); });
@@ -153,7 +154,10 @@
     hideTimer = setTimeout(() => uiVisible = false, 3000);
   }
 
-  $effect(() => { if (activeChapter) loadChapter(activeChapter.id); });
+  $effect(() => {
+    const ch = store.activeChapter;
+    if (ch) untrack(() => loadChapter(ch.id));
+  });
 
   async function loadChapter(id: number) {
     abortCtrl?.abort();
@@ -170,15 +174,15 @@
     pageReady  = false;
     stripChapters    = [];
     visibleChapterId = null;
-    pageUrls  = [];
-    pageNumber = 1;
+    store.pageUrls   = [];
+    store.pageNumber = 1;
     try {
       const urls = await fetchPages(id, ctrl.signal);
       if (ctrl.signal.aborted) return;
-      pageUrls  = urls;
+      store.pageUrls  = urls;
       pageReady = true;
       if (style === "longstrip" && autoNext) {
-        stripChapters    = [{ chapterId: id, chapterName: activeChapter?.name ?? "", urls, startGlobalIdx: 0 }];
+        stripChapters    = [{ chapterId: id, chapterName: store.activeChapter?.name ?? "", urls, startGlobalIdx: 0 }];
         visibleChapterId = id;
       }
       loading = false;
@@ -193,7 +197,7 @@
     if (appending) return;
     const lastChunk = stripChapters[stripChapters.length - 1];
     if (!lastChunk) return;
-    const list    = activeChapterList;
+    const list    = store.activeChapterList;
     const lastIdx = list.findIndex(c => c.id === lastChunk.chapterId);
     if (lastIdx < 0 || lastIdx >= list.length - 1) return;
     const next = list[lastIdx + 1];
@@ -239,26 +243,26 @@
         else break;
       }
       if (activeLocalPage === null && imgs.length > 0) { activeLocalPage = Number(imgs[0].dataset.localPage); activeChId = Number(imgs[0].dataset.chapter); }
-      if (activeLocalPage !== null) pageNumber = activeLocalPage;
+      if (activeLocalPage !== null) store.pageNumber = activeLocalPage;
       if (activeChId && activeChId !== visibleChapterId) visibleChapterId = activeChId;
-      if (settings.autoMarkRead && activeLocalPage !== null && activeChId) {
+      if (store.settings.autoMarkRead && activeLocalPage !== null && activeChId) {
         const chunk = stripChapters.find(c => c.chapterId === activeChId);
-        const total = chunk ? chunk.urls.length : pageUrls.length;
+        const total = chunk ? chunk.urls.length : store.pageUrls.length;
         if (total > 0 && activeLocalPage >= total - 1 && !markedRead.has(activeChId)) {
           markedRead.add(activeChId);
           const chIdSnap = activeChId;
           gql(MARK_CHAPTER_READ, { id: chIdSnap, isRead: true })
-            .then(() => { if (activeManga) { const updated = activeChapterList.map(c => c.id === chIdSnap ? { ...c, isRead: true } : c); checkAndMarkCompleted(activeManga.id, updated); } })
+            .then(() => { if (store.activeManga) { const updated = store.activeChapterList.map(c => c.id === chIdSnap ? { ...c, isRead: true } : c); checkAndMarkCompleted(store.activeManga.id, updated); } })
             .catch(e => { markedRead.delete(chIdSnap); console.error(e); });
         }
       }
       if (containerEl.scrollTop + containerEl.clientHeight < containerEl.scrollHeight - 40) return;
       const last = stripChapters[stripChapters.length - 1];
-      if (last && settings.autoMarkRead && !markedRead.has(last.chapterId)) {
+      if (last && store.settings.autoMarkRead && !markedRead.has(last.chapterId)) {
         markedRead.add(last.chapterId);
         const lastIdSnap = last.chapterId;
         gql(MARK_CHAPTER_READ, { id: lastIdSnap, isRead: true })
-          .then(() => { if (activeManga) { const updated = activeChapterList.map(c => c.id === lastIdSnap ? { ...c, isRead: true } : c); checkAndMarkCompleted(activeManga.id, updated); } })
+          .then(() => { if (store.activeManga) { const updated = store.activeChapterList.map(c => c.id === lastIdSnap ? { ...c, isRead: true } : c); checkAndMarkCompleted(store.activeManga.id, updated); } })
           .catch(console.error);
       }
     }
@@ -274,34 +278,34 @@
 
   function advanceGroup(forward: boolean) {
     if (!pageGroups.length) return;
-    const gi = pageGroups.findIndex(g => g.includes(pageNumber));
+    const gi = pageGroups.findIndex(g => g.includes(store.pageNumber));
     if (forward) {
-      if (gi < pageGroups.length - 1) pageNumber = pageGroups[gi + 1][0];
-      else if (adjacent.next) { pageNumber = 1; openReader(adjacent.next, activeChapterList); }
+      if (gi < pageGroups.length - 1) store.pageNumber = pageGroups[gi + 1][0];
+      else if (adjacent.next) { store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
       else closeReader();
     } else {
-      if (gi > 0) pageNumber = pageGroups[gi - 1][0];
-      else if (adjacent.prev) openReader(adjacent.prev, activeChapterList);
+      if (gi > 0) store.pageNumber = pageGroups[gi - 1][0];
+      else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
     }
   }
 
   function goForward() {
     if (loading) return;
-    if (style === "longstrip") { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, activeChapterList); } return; }
+    if (style === "longstrip") { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } return; }
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
-    if (!pageUrls.length) return;
-    if (pageNumber < lastPage) { decodeImage(pageUrls[pageNumber]).then(() => pageNumber++); }
-    else if (adjacent.next) { maybeMarkCurrentRead(); pageNumber = 1; openReader(adjacent.next, activeChapterList); }
+    if (!store.pageUrls.length) return;
+    if (store.pageNumber < lastPage) { decodeImage(store.pageUrls[store.pageNumber]).then(() => store.pageNumber++); }
+    else if (adjacent.next) { maybeMarkCurrentRead(); store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
     else closeReader();
   }
 
   function goBack() {
     if (loading) return;
-    if (style === "longstrip") { if (adjacent.prev) openReader(adjacent.prev, activeChapterList); return; }
+    if (style === "longstrip") { if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList); return; }
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
-    if (!pageUrls.length) return;
-    if (pageNumber > 1) { decodeImage(pageUrls[pageNumber - 2]).then(() => pageNumber--); }
-    else if (adjacent.prev) openReader(adjacent.prev, activeChapterList);
+    if (!store.pageUrls.length) return;
+    if (store.pageNumber > 1) { decodeImage(store.pageUrls[store.pageNumber - 2]).then(() => store.pageNumber--); }
+    else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
   }
 
   const goNext = $derived(rtl ? goBack  : goForward);
@@ -319,27 +323,35 @@
   }
 
   $effect(() => {
-    if (activeChapter && lastPage && activeManga) {
-      addHistory({ mangaId: activeManga.id, mangaTitle: activeManga.title, thumbnailUrl: activeManga.thumbnailUrl, chapterId: activeChapter.id, chapterName: activeChapter.name, pageNumber, readAt: Date.now() });
-      if (style !== "longstrip" && settings.autoMarkRead && pageNumber === lastPage) {
-        if (!markedRead.has(activeChapter.id)) {
-          markedRead.add(activeChapter.id);
-          const chIdSnap = activeChapter.id;
-          gql(MARK_CHAPTER_READ, { id: chIdSnap, isRead: true })
-            .then(() => { if (activeManga) { const updated = activeChapterList.map(c => c.id === chIdSnap ? { ...c, isRead: true } : c); checkAndMarkCompleted(activeManga.id, updated); } })
-            .catch(console.error);
+    if (store.activeChapter && lastPage && store.activeManga) {
+      const chapterId  = store.activeChapter.id;
+      const chapterName = store.activeChapter.name;
+      const mangaId    = store.activeManga.id;
+      const mangaTitle = store.activeManga.title;
+      const thumbUrl   = store.activeManga.thumbnailUrl;
+      const pageNum    = store.pageNumber;
+      const atLast     = store.pageNumber === lastPage;
+      untrack(() => {
+        addHistory({ mangaId, mangaTitle, thumbnailUrl: thumbUrl, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
+        if (style !== "longstrip" && store.settings.autoMarkRead && atLast) {
+          if (!markedRead.has(chapterId)) {
+            markedRead.add(chapterId);
+            gql(MARK_CHAPTER_READ, { id: chapterId, isRead: true })
+              .then(() => { if (store.activeManga) { const updated = store.activeChapterList.map(c => c.id === chapterId ? { ...c, isRead: true } : c); checkAndMarkCompleted(store.activeManga.id, updated); } })
+              .catch(console.error);
+          }
         }
-      }
+      });
     }
   });
 
   $effect(() => {
-    if (style === "double" && pageUrls.length) {
+    if (style === "double" && store.pageUrls.length) {
       let cancelled = false;
-      const snap = pageUrls;
+      const snap = store.pageUrls;
       Promise.all(snap.map(measureAspect)).then(aspects => {
-        if (cancelled || snap !== pageUrls) return;
-        const offset = settings.offsetDoubleSpreads;
+        if (cancelled || snap !== store.pageUrls) return;
+        const offset = store.settings.offsetDoubleSpreads;
         const groups: number[][] = [[1]];
         if (offset) groups.push([2]);
         let i = offset ? 3 : 2;
@@ -355,36 +367,36 @@
   });
 
   $effect(() => {
-    const ahead = settings.preloadPages ?? 3;
-    for (let i = 1; i <= ahead; i++) { const url = pageUrls[pageNumber - 1 + i]; if (url) decodeImage(url); }
-    const behind = pageUrls[pageNumber - 2];
+    const ahead = store.settings.preloadPages ?? 3;
+    for (let i = 1; i <= ahead; i++) { const url = store.pageUrls[store.pageNumber - 1 + i]; if (url) decodeImage(url); }
+    const behind = store.pageUrls[store.pageNumber - 2];
     if (behind) preloadImage(behind);
   });
 
   $effect(() => {
-    if (activeChapter && activeChapterList.length) {
-      const idx = activeChapterList.findIndex(c => c.id === activeChapter!.id);
+    if (store.activeChapter && store.activeChapterList.length) {
+      const idx = store.activeChapterList.findIndex(c => c.id === store.activeChapter!.id);
       if (idx >= 0) {
-        const toPin: number[] = [activeChapter.id];
+        const toPin: number[] = [store.activeChapter.id];
         for (let i = 1; i <= 3; i++) {
-          const entry = activeChapterList[idx + i];
+          const entry = store.activeChapterList[idx + i];
           if (!entry) break;
           toPin.push(entry.id);
           fetchPages(entry.id).then(urls => { const n = i === 1 ? 8 : i === 2 ? 4 : 2; urls.slice(0, n).forEach(preloadImage); }).catch(() => {});
         }
-        if (idx > 0) { const prev = activeChapterList[idx - 1]; toPin.push(prev.id); fetchPages(prev.id).catch(() => {}); }
+        if (idx > 0) { const prev = store.activeChapterList[idx - 1]; toPin.push(prev.id); fetchPages(prev.id).catch(() => {}); }
         cacheEvict(new Set(toPin));
       }
     }
   });
 
   $effect(() => {
-    if (style === "longstrip" && pageUrls.length && activeChapter) {
-      appended  = new Set([activeChapter.id]);
+    if (style === "longstrip" && store.pageUrls.length && store.activeChapter) {
+      appended  = new Set([store.activeChapter.id]);
       appending = false;
       if (autoNext) {
-        stripChapters    = [{ chapterId: activeChapter.id, chapterName: activeChapter.name, urls: pageUrls, startGlobalIdx: 0 }];
-        visibleChapterId = activeChapter.id;
+        stripChapters    = [{ chapterId: store.activeChapter.id, chapterName: store.activeChapter.name, urls: store.pageUrls, startGlobalIdx: 0 }];
+        visibleChapterId = store.activeChapter.id;
       } else {
         stripChapters    = [];
         visibleChapterId = null;
@@ -393,7 +405,7 @@
     }
   });
 
-  $effect(() => { if (activeChapter?.id && containerEl) containerEl.scrollTop = 0; });
+  $effect(() => { if (store.activeChapter?.id && containerEl) containerEl.scrollTop = 0; });
   $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
 
   function onWheel(e: WheelEvent) {
@@ -404,9 +416,9 @@
 
   function onKey(e: KeyboardEvent) {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
-    const kb = settings.keybinds ?? DEFAULT_KEYBINDS;
-    const mW = settings.maxPageWidth ?? 900;
-    const r  = settings.readingDirection === "rtl";
+    const kb = store.settings.keybinds ?? DEFAULT_KEYBINDS;
+    const mW = store.settings.maxPageWidth ?? 900;
+    const r  = store.settings.readingDirection === "rtl";
     if (e.key === "Escape") {
       e.preventDefault();
       if (zoomOpen) { zoomOpen = false; return; }
@@ -419,24 +431,24 @@
     if      (matchesKeybind(e, kb.exitReader))             { e.preventDefault(); closeReader(); }
     else if (matchesKeybind(e, kb.pageRight))              { e.preventDefault(); goForward(); }
     else if (matchesKeybind(e, kb.pageLeft))               { e.preventDefault(); goBack(); }
-    else if (matchesKeybind(e, kb.firstPage))              { e.preventDefault(); pageNumber = 1; }
-    else if (matchesKeybind(e, kb.lastPage))               { e.preventDefault(); pageNumber = lastPage; }
+    else if (matchesKeybind(e, kb.firstPage))              { e.preventDefault(); store.pageNumber = 1; }
+    else if (matchesKeybind(e, kb.lastPage))               { e.preventDefault(); store.pageNumber = lastPage; }
     else if (matchesKeybind(e, kb.chapterRight)) {
       e.preventDefault();
-      const list = activeChapterList, idx = list.findIndex(c => c.id === loadingId);
+      const list = store.activeChapterList, idx = list.findIndex(c => c.id === loadingId);
       const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
       if (next) { maybeMarkCurrentRead(); openReader(next, list); }
     }
     else if (matchesKeybind(e, kb.chapterLeft)) {
       e.preventDefault();
-      const list = activeChapterList, idx = list.findIndex(c => c.id === loadingId);
+      const list = store.activeChapterList, idx = list.findIndex(c => c.id === loadingId);
       const prev = idx > 0 ? list[idx - 1] : null;
       if (prev) openReader(prev, list);
     }
     else if (matchesKeybind(e, kb.togglePageStyle))        { e.preventDefault(); cycleStyle(); }
     else if (matchesKeybind(e, kb.toggleReadingDirection)) { e.preventDefault(); updateSettings({ readingDirection: r ? "ltr" : "rtl" }); }
     else if (matchesKeybind(e, kb.toggleFullscreen))       { e.preventDefault(); toggleFullscreen().catch(console.error); }
-    else if (matchesKeybind(e, kb.openSettings))           { e.preventDefault(); settingsOpen = true; }
+    else if (matchesKeybind(e, kb.openSettings))           { e.preventDefault(); setSettingsOpen(true); }
   }
 
   function handleTap(e: MouseEvent) {
@@ -469,31 +481,43 @@
     };
   });
 
+  $effect(() => {
+    if (!containerEl) return;
+    const _style = style;
+    const _len   = store.pageUrls.length;
+    const _auto  = autoNext;
+    untrack(() => {
+      scrollCleanup?.();
+      scrollCleanup = setupScrollTracking();
+    });
+    return () => { scrollCleanup?.(); };
+  });
+
   const stripToRender = $derived(style === "longstrip"
     ? (autoNext && stripChapters.length > 0
         ? stripChapters
-        : [{ chapterId: activeChapter?.id ?? 0, chapterName: activeChapter?.name ?? "", urls: pageUrls, startGlobalIdx: 0 }])
+        : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls, startGlobalIdx: 0 }])
     : []);
 
   const currentGroup = $derived(style === "double" && pageGroups.length
-    ? (pageGroups.find(g => g.includes(pageNumber)) ?? [pageNumber])
-    : [pageNumber]);
+    ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
+    : [store.pageNumber]);
 </script>
 
 <div class="root" role="presentation" onmousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
 
   <div class="topbar" class:hidden={!uiVisible}>
     <button class="icon-btn" onclick={closeReader} title="Close reader"><X size={15} weight="light" /></button>
-    <button class="icon-btn" onclick={() => { if (adjacent.prev) { maybeMarkCurrentRead(); openReader(adjacent.prev, activeChapterList); } }} disabled={!adjacent.prev}>
+    <button class="icon-btn" onclick={() => { if (adjacent.prev) { maybeMarkCurrentRead(); openReader(adjacent.prev, store.activeChapterList); } }} disabled={!adjacent.prev}>
       <CaretLeft size={14} weight="light" />
     </button>
     <span class="ch-label">
-      <span class="ch-title">{activeManga?.title}</span>
+      <span class="ch-title">{store.activeManga?.title}</span>
       <span class="ch-sep">/</span>
       <span>{displayChapter?.name}</span>
     </span>
-    <span class="page-label">{pageNumber} / {visibleChunkLastPage || "…"}</span>
-    <button class="icon-btn" onclick={() => { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, activeChapterList); } }} disabled={!adjacent.next}>
+    <span class="page-label">{store.pageNumber} / {visibleChunkLastPage || "…"}</span>
+    <button class="icon-btn" onclick={() => { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } }} disabled={!adjacent.next}>
       <CaretRight size={14} weight="light" />
     </button>
     <div class="top-sep"></div>
@@ -522,7 +546,7 @@
       <span class="mode-label">{styleLabel}</span>
     </button>
     {#if style !== "single"}
-      <button class="mode-btn" class:active={settings.pageGap} onclick={() => updateSettings({ pageGap: !settings.pageGap })}>
+      <button class="mode-btn" class:active={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}>
         <span class="mode-label">Gap</span>
       </button>
     {/if}
@@ -562,7 +586,7 @@
     {#if style === "longstrip"}
       {#each stripToRender as chunk}
         {#each chunk.urls as url, i}
-          <img src={url} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{settings.pageGap ? ' strip-gap' : ''}" loading={i < 3 ? "eager" : "lazy"} decoding="async" height="1000" />
+          <img src={url} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading={i < 3 ? "eager" : "lazy"} decoding="async" height="1000" />
         {/each}
       {/each}
       <div bind:this={sentinelEl} style="height:1px;flex-shrink:0;overflow-anchor:none"></div>
@@ -570,33 +594,33 @@
       {#if style === "double" && pageGroups.length}
         <div class="double-wrap">
           {#each currentGroup as pg}
-            <img src={pageUrls[pg - 1]} alt="Page {pg}" class="{imgCls} page-half {pg === currentGroup[0] ? 'gap-left' : 'gap-right'}" decoding="async" />
+            <img src={store.pageUrls[pg - 1]} alt="Page {pg}" class="{imgCls} page-half {pg === currentGroup[0] ? 'gap-left' : 'gap-right'}" decoding="async" />
           {/each}
         </div>
       {:else}
-        <img src={pageUrls[pageNumber - 1]} alt="Page {pageNumber}" class={imgCls} decoding="async" style="transition:opacity 0.1s ease" />
+        <img src={store.pageUrls[store.pageNumber - 1]} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="transition:opacity 0.1s ease" />
       {/if}
     {/if}
   </div>
 
   <div class="bottombar" class:hidden={!uiVisible}>
-    <button class="nav-btn" onclick={goPrev} disabled={loading || (style === "longstrip" ? !adjacent.prev : (pageNumber === 1 && !adjacent.prev))}>
+    <button class="nav-btn" onclick={goPrev} disabled={loading || (style === "longstrip" ? !adjacent.prev : (store.pageNumber === 1 && !adjacent.prev))}>
       <ArrowLeft size={13} weight="light" />
     </button>
-    <button class="nav-btn" onclick={goNext} disabled={loading || (style === "longstrip" ? !adjacent.next : (pageNumber === lastPage && !adjacent.next))}>
+    <button class="nav-btn" onclick={goNext} disabled={loading || (style === "longstrip" ? !adjacent.next : (store.pageNumber === lastPage && !adjacent.next))}>
       <ArrowRight size={13} weight="light" />
     </button>
   </div>
 
-  {#if dlOpen && activeChapter}
+  {#if dlOpen && store.activeChapter}
     {@const queueable = adjacent.remaining.filter(c => !c.isDownloaded)}
     <div class="dl-backdrop" role="presentation" onclick={() => dlOpen = false}>
-      <div class="dl-modal" role="presentation" onclick|stopPropagation>
+      <div class="dl-modal" role="presentation" onclick={(e) => e.stopPropagation()}>
         <p class="dl-title">Download</p>
-        <button class="dl-option" disabled={dlBusy || !!activeChapter.isDownloaded}
-          onclick={() => runDl(() => gql(ENQUEUE_DOWNLOAD, { chapterId: activeChapter!.id }))}>
+        <button class="dl-option" disabled={dlBusy || !!store.activeChapter.isDownloaded}
+          onclick={() => runDl(() => gql(ENQUEUE_DOWNLOAD, { chapterId: store.activeChapter!.id }))}>
           This chapter
-          <span class="dl-sub">{activeChapter.isDownloaded ? "Already downloaded" : activeChapter.name}</span>
+          <span class="dl-sub">{store.activeChapter.isDownloaded ? "Already downloaded" : store.activeChapter.name}</span>
         </button>
         <div class="dl-row">
           <button class="dl-option" disabled={dlBusy || queueable.length === 0}
@@ -604,7 +628,7 @@
             Next chapters
             <span class="dl-sub">{Math.min(nextN, queueable.length)} not yet downloaded</span>
           </button>
-          <div class="dl-stepper" role="presentation" onclick|stopPropagation>
+          <div class="dl-stepper" role="presentation" onclick={(e) => e.stopPropagation()}>
             <button class="dl-step-btn" onclick={() => nextN = Math.max(1, nextN - 1)} disabled={nextN <= 1}>−</button>
             <span class="dl-step-val">{nextN}</span>
             <button class="dl-step-btn" onclick={() => nextN = Math.min(queueable.length || 1, nextN + 1)} disabled={nextN >= queueable.length}>+</button>

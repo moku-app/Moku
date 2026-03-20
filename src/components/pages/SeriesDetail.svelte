@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
-  import { settings, activeManga, activeChapter, genreFilter, navPage, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader, checkAndMarkCompleted } from "../../store";
+  import { store, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader, checkAndMarkCompleted, setActiveManga, setGenreFilter, setNavPage} from "../../store/state.svelte";
   import type { Manga, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
   import MigrateModal from "./MigrateModal.svelte";
@@ -40,8 +40,8 @@
   let rangeTo:        string           = $state("");
   let showRange:      boolean          = $state(false);
   let migrateOpen:    boolean          = $state(false);
-  let dlDropRef:      HTMLDivElement;
-  let folderPickerRef: HTMLDivElement;
+  let dlDropRef:       HTMLDivElement | undefined = $state();
+  let folderPickerRef: HTMLDivElement | undefined = $state();
 
   let mangaAbort:  AbortController | null = null;
   let chapterAbort: AbortController | null = null;
@@ -56,10 +56,10 @@
 
   function applyChapters(nodes: Chapter[]) {
     chapters = nodes;
-    if (activeManga && nodes.length > 0) checkAndMarkCompleted(activeManga.id, nodes);
+    if (store.activeManga && nodes.length > 0) checkAndMarkCompleted(store.activeManga.id, nodes);
   }
 
-  const sortDir        = $derived(settings.chapterSortDir);
+  const sortDir        = $derived(store.settings.chapterSortDir);
   const sortedChapters = $derived(sortDir === "desc" ? [...chapters].reverse() : [...chapters]);
   const totalPages     = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
   const pageChapters   = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
@@ -80,7 +80,7 @@
   })());
 
   const statusLabel    = $derived(manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null);
-  const assignedFolders = $derived(activeManga ? getMangaFolders(activeManga.id) : []);
+  const assignedFolders = $derived(store.activeManga ? getMangaFolders(store.activeManga.id) : []);
   const hasFolders     = $derived(assignedFolders.length > 0);
 
   function loadManga(id: number) {
@@ -141,14 +141,18 @@
   }
 
   $effect(() => {
-    if (activeManga) { loadManga(activeManga.id); loadChapters(activeManga.id); }
+    const m = store.activeManga;
+    if (m) untrack(() => { loadManga(m.id); loadChapters(m.id); });
   });
 
   let prevChapterId: number | null = null;
   $effect(() => {
     const wasOpen = prevChapterId !== null;
-    prevChapterId = activeChapter?.id ?? null;
-    if (wasOpen && !activeChapter && activeManga) { loadChapters(activeManga.id); cache.clear(CACHE_KEYS.LIBRARY); }
+    prevChapterId = store.activeChapter?.id ?? null;
+    if (wasOpen && !store.activeChapter && store.activeManga) {
+      const id = store.activeManga.id;
+      untrack(() => { loadChapters(id); cache.clear(CACHE_KEYS.LIBRARY); });
+    }
   });
 
   async function toggleLibrary() {
@@ -174,20 +178,20 @@
     await gql(ENQUEUE_DOWNLOAD, { chapterId: ch.id }).catch(console.error);
     addToast({ kind: "download", title: "Download queued", body: ch.name });
     enqueueing.delete(ch.id); enqueueing = new Set(enqueueing);
-    if (activeManga) reloadChapters(activeManga.id);
+    if (store.activeManga) reloadChapters(store.activeManga.id);
   }
 
   async function enqueueMultiple(chapterIds: number[]) {
     if (!chapterIds.length) return;
     await gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds }).catch(console.error);
     addToast({ kind: "download", title: "Download queued", body: `${chapterIds.length} chapter${chapterIds.length !== 1 ? "s" : ""} added` });
-    if (activeManga) reloadChapters(activeManga.id);
+    if (store.activeManga) reloadChapters(store.activeManga.id);
   }
 
   async function markRead(chapterId: number, isRead: boolean) {
     await gql(MARK_CHAPTER_READ, { id: chapterId, isRead }).catch(console.error);
     chapters = chapters.map(c => c.id === chapterId ? { ...c, isRead } : c);
-    if (activeManga) { chapterStore.set(activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(activeManga.id, chapters); }
+    if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
   }
 
   async function markBulk(ids: number[], isRead: boolean) {
@@ -195,7 +199,7 @@
     await gql(MARK_CHAPTERS_READ, { ids, isRead }).catch(console.error);
     const idSet = new Set(ids);
     chapters = chapters.map(c => idSet.has(c.id) ? { ...c, isRead } : c);
-    if (activeManga) { chapterStore.set(activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(activeManga.id, chapters); }
+    if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
   }
 
   const markAboveRead   = (i: number) => markBulk(sortedChapters.slice(0, i + 1).filter(c => !c.isRead).map(c => c.id), true);
@@ -206,7 +210,7 @@
   async function deleteDownloaded(chapterId: number) {
     await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: [chapterId] }).catch(console.error);
     chapters = chapters.map(c => c.id === chapterId ? { ...c, isDownloaded: false } : c);
-    if (activeManga) chapterStore.set(activeManga.id, { data: chapters, fetchedAt: Date.now() });
+    if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
   }
 
   async function deleteAllDownloads() {
@@ -215,16 +219,16 @@
     deletingAll = true;
     await gql(DELETE_DOWNLOADED_CHAPTERS, { ids }).catch(console.error);
     chapters = chapters.map(c => ({ ...c, isDownloaded: false }));
-    if (activeManga) chapterStore.set(activeManga.id, { data: chapters, fetchedAt: Date.now() });
+    if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
     deletingAll = false;
   }
 
   async function refreshChapters() {
-    if (!activeManga || refreshing) return;
+    if (!store.activeManga || refreshing) return;
     refreshing = true;
-    chapterStore.delete(activeManga.id);
-    gql(FETCH_CHAPTERS, { mangaId: activeManga.id })
-      .then(() => reloadChapters(activeManga!.id))
+    chapterStore.delete(store.activeManga.id);
+    gql(FETCH_CHAPTERS, { mangaId: store.activeManga.id })
+      .then(() => reloadChapters(store.activeManga!.id))
       .then(() => addToast({ kind: "success", title: "Chapters refreshed" }))
       .catch(e => addToast({ kind: "error", title: "Refresh failed", body: e?.message }))
       .finally(() => refreshing = false);
@@ -276,25 +280,25 @@
 
   function createFolder() {
     const name = folderNewName.trim();
-    if (!name || !activeManga) return;
+    if (!name || !store.activeManga) return;
     const id = addFolder(name);
-    assignMangaToFolder(id, activeManga.id);
+    assignMangaToFolder(id, store.activeManga.id);
     folderNewName = ""; folderCreating = false;
   }
 
   onMount(() => () => { mangaAbort?.abort(); chapterAbort?.abort(); });
 </script>
 
-{#if activeManga}
+{#if store.activeManga}
 <div class="root" role="presentation" oncontextmenu={(e) => e.preventDefault()}>
 
   <div class="sidebar">
-    <button class="back" onclick={() => activeManga = null}>
+    <button class="back" onclick={() => setActiveManga(null)}>
       <ArrowLeft size={13} weight="light" /> Back
     </button>
 
     <div class="cover-wrap">
-      <img src={thumbUrl(activeManga.thumbnailUrl)} alt={activeManga.title} class="cover" />
+      <img src={thumbUrl(store.activeManga.thumbnailUrl)} alt={store.activeManga.title} class="cover" />
     </div>
 
     {#if loadingManga}
@@ -314,7 +318,7 @@
         {#if manga?.genre?.length}
           <div class="genres">
             {#each (genresExpanded ? manga.genre : manga.genre.slice(0, 5)) as g}
-              <button class="genre" onclick={() => { genreFilter = g; navPage = "explore"; activeManga = null; }}>{g}</button>
+              <button class="genre" onclick={() => { setGenreFilter(g); setNavPage("explore"); setActiveManga(null); }}>{g}</button>
             {/each}
             {#if manga.genre.length > 5}
               <button class="genre-toggle" onclick={() => genresExpanded = !genresExpanded}>
@@ -415,13 +419,13 @@
           </button>
           {#if folderPickerOpen}
             <div class="fp-menu">
-              {#if settings.folders.length === 0 && !folderCreating}
+              {#if store.settings.folders.length === 0 && !folderCreating}
                 <p class="fp-empty">No folders yet</p>
               {/if}
-              {#each settings.folders as folder}
-                {@const isIn = activeManga ? folder.mangaIds.includes(activeManga.id) : false}
+              {#each store.settings.folders as folder}
+                {@const isIn = store.activeManga ? folder.mangaIds.includes(store.activeManga.id) : false}
                 <button class="fp-item" class:fp-item-active={isIn}
-                  onclick={() => activeManga && (isIn ? removeMangaFromFolder(folder.id, activeManga.id) : assignMangaToFolder(folder.id, activeManga.id))}>
+                  onclick={() => store.activeManga && (isIn ? removeMangaFromFolder(folder.id, store.activeManga.id) : assignMangaToFolder(folder.id, store.activeManga.id))}>
                   <span class="fp-check">{isIn ? "✓" : ""}</span>{folder.name}
                 </button>
               {/each}
@@ -429,8 +433,7 @@
               {#if folderCreating}
                 <div class="fp-create">
                   <input class="fp-input" placeholder="Folder name…" bind:value={folderNewName}
-                    onkeydown={(e) => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }}
-                    use:focus />
+                    onkeydown={(e) => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }} autofocus />
                   <button class="fp-confirm" onclick={createFolder} disabled={!folderNewName.trim()}>Add</button>
                   <button class="fp-cancel" onclick={() => { folderCreating = false; folderNewName = ""; }}>
                     <X size={12} weight="light" />
@@ -449,8 +452,7 @@
               <button class="jump-toggle" onclick={() => { jumpOpen = true; jumpInput = ""; }}>Go to…</button>
             {:else}
               <div class="jump-row">
-                <input class="jump-input" type="text" placeholder="Ch. #" bind:value={jumpInput}
-                  use:focus
+                <input class="jump-input" type="text" placeholder="Ch. #" bind:value={jumpInput} autofocus
                   onkeydown={(e) => {
                     if (e.key === "Escape") { jumpOpen = false; return; }
                     if (e.key === "Enter") {
@@ -499,7 +501,7 @@
                 {:else}
                   <div class="dl-range-row">
                     <button class="dl-range-back" onclick={() => showRange = false}>‹</button>
-                    <input class="dl-range-input" placeholder="From" bind:value={rangeFrom} onkeydown={(e) => e.key === "Enter" && enqueueRange()} use:focus />
+                    <input class="dl-range-input" placeholder="From" bind:value={rangeFrom} onkeydown={(e) => e.key === "Enter" && enqueueRange()} autofocus />
                     <span class="dl-range-sep">–</span>
                     <input class="dl-range-input" placeholder="To" bind:value={rangeTo} onkeydown={(e) => e.key === "Enter" && enqueueRange()} />
                     <button class="dl-range-go" disabled={!rangeFrom.trim() || !rangeTo.trim()} onclick={enqueueRange}>Go</button>
@@ -571,11 +573,11 @@
             <div class="ch-right">
               {#if ch.isRead}<CheckCircle size={14} weight="light" class="read-icon" />{/if}
               {#if ch.isDownloaded}
-                <button class="dl-btn" onclick|stopPropagation={() => deleteDownloaded(ch.id)}><Trash size={13} weight="light" /></button>
+                <button class="dl-btn" onclick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }}><Trash size={13} weight="light" /></button>
               {:else if enqueueing.has(ch.id)}
                 <CircleNotch size={14} weight="light" class="anim-spin enqueue-icon" />
               {:else}
-                <button class="dl-btn" onclick|stopPropagation={(e) => enqueue(ch, e)}><Download size={13} weight="light" /></button>
+                <button class="dl-btn" onclick={(e) => { e.stopPropagation(); enqueue(ch, e); }}><Download size={13} weight="light" /></button>
               {/if}
             </div>
           </div>
@@ -602,14 +604,11 @@
     {manga}
     currentChapters={chapters}
     onClose={() => migrateOpen = false}
-    onMigrated={(newManga) => { activeManga = newManga; migrateOpen = false; cache.clear(CACHE_KEYS.LIBRARY); }}
+    onMigrated={(newManga) => { setActiveManga(newManga); migrateOpen = false; cache.clear(CACHE_KEYS.LIBRARY); }}
   />
 {/if}
 {/if}
 
-<script context="module">
-  function focus(node: HTMLElement) { node.focus(); }
-</script>
 
 <style>
   .root { display: flex; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }

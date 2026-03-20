@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
   import { ArrowLeft, BookmarkSimple, FolderSimplePlus, Folder, CircleNotch } from "phosphor-svelte";
+  import { untrack } from "svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
   import { dedupeSources, dedupeMangaById } from "../../lib/util";
-  import { settings, genreFilter, previewManga, addFolder, assignMangaToFolder } from "../../store";
+  import { store, addFolder, assignMangaToFolder, setGenreFilter, setPreviewManga, setNavPage } from "../../store/state.svelte";
   import type { Manga, Source } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
@@ -28,34 +28,32 @@
     async function worker() { while (i < items.length) { if (signal.aborted) return; await fn(items[i++]).catch(() => {}); } }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
   }
+  const prevNavPage = store.navPage;
+  const tags       = $derived(parseTags(store.genreFilter));
+  const primaryTag = $derived(tags[0] ?? "");
+  const label      = $derived(tagsLabel(tags));
 
-  $: tags       = parseTags($genreFilter);
-  $: primaryTag = tags[0] ?? "";
-  $: label      = tagsLabel(tags);
-
-  let libraryManga: Manga[]  = [];
-  let sourceManga: Manga[]   = [];
+  let libraryManga: Manga[]  = $state([]);
+  let sourceManga: Manga[]   = $state([]);
   let loadingInitial         = true;
   let loadingMore            = false;
   let visibleCount           = PAGE_SIZE;
-  let ctx: { x: number; y: number; manga: Manga } | null = null;
+  let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
 
   const nextPageMap = new Map<string, number>();
-  let sources: Source[] = [];
+  let sources: Source[] = $state([]);
   let abortCtrl: AbortController | null = null;
 
-  $: filtered = (() => {
+  const filtered = $derived.by(() => {
     const libMatches = libraryManga.filter((m) => matchesAllTags(m, tags));
     const libIds     = new Set(libMatches.map((m) => m.id));
     return dedupeMangaById([...libMatches, ...sourceManga.filter((m) => !libIds.has(m.id))]);
-  })();
-
-  $: visibleItems    = filtered.slice(0, visibleCount);
-  $: hasMoreVisible  = visibleCount < filtered.length;
-  $: hasMoreNetwork  = sources.some((s) => (nextPageMap.get(s.id) ?? -1) > 0);
-  $: hasMore         = hasMoreVisible || hasMoreNetwork;
-
-  $: if ($genreFilter) load($genreFilter);
+  });
+  const visibleItems    = $derived(filtered.slice(0, visibleCount));
+  const hasMoreVisible  = $derived(visibleCount < filtered.length);
+  const hasMoreNetwork  = $derived(sources.some((s) => (nextPageMap.get(s.id) ?? -1) > 0));
+  const hasMore         = $derived(hasMoreVisible || hasMoreNetwork);
+  $effect(() => { const f = store.genreFilter; if (f) untrack(() => load(f)); });
 
   async function load(filter: string) {
     abortCtrl?.abort();
@@ -67,7 +65,7 @@
     visibleCount   = PAGE_SIZE;
     nextPageMap.clear();
 
-    const preferredLang = $settings.preferredExtensionLang || "en";
+    const preferredLang = store.settings.preferredExtensionLang || "en";
     const t = parseTags(filter);
     const pt = t[0] ?? "";
 
@@ -149,9 +147,9 @@
     return [
       { label: m.inLibrary ? "In Library" : "Add to library", icon: BookmarkSimple, disabled: m.inLibrary,
         onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).then(() => { sourceManga = sourceManga.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x); cache.clear(CACHE_KEYS.LIBRARY); }).catch(console.error) },
-      ...($settings.folders.length > 0 ? [
+      ...(store.settings.folders.length > 0 ? [
         { separator: true } as MenuEntry,
-        ...$settings.folders.map((f): MenuEntry => ({
+        ...store.settings.folders.map((f): MenuEntry => ({
           label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name, icon: Folder,
           onClick: () => assignMangaToFolder(f.id, m.id),
         })),
@@ -161,12 +159,12 @@
     ];
   }
 
-  onDestroy(() => abortCtrl?.abort());
+  $effect(() => () => { abortCtrl?.abort(); });
 </script>
 
 <div class="root">
   <div class="header">
-    <button class="back" on:click={() => genreFilter.set("")}>
+    <button class="back" onclick={() => { setGenreFilter(""); setNavPage(prevNavPage); }}>
       <ArrowLeft size={13} weight="light" /><span>Back</span>
     </button>
     <span class="title">{label}</span>
@@ -192,7 +190,7 @@
   {:else}
     <div class="grid">
       {#each visibleItems as m (m.id)}
-        <button class="card" on:click={() => previewManga.set(m)} on:contextmenu={(e) => { e.preventDefault(); e.stopPropagation(); ctx = { x: e.clientX, y: e.clientY, manga: m }; }}>
+        <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); ctx = { x: e.clientX, y: e.clientY, manga: m }; }}>
           <div class="cover-wrap">
             <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
             {#if m.inLibrary}<span class="in-library-badge">Saved</span>{/if}
@@ -202,7 +200,7 @@
       {/each}
       {#if hasMore}
         <div class="show-more-cell">
-          <button class="show-more-btn" on:click={loadMore} disabled={loadingMore}>
+          <button class="show-more-btn" onclick={loadMore} disabled={loadingMore}>
             {#if loadingMore}<CircleNotch size={13} weight="light" class="anim-spin" /> Loading…{:else}Show more{/if}
           </button>
         </div>

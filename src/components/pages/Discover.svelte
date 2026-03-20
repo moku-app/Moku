@@ -5,7 +5,7 @@
   import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
   import { dedupeSources, dedupeMangaByTitle, dedupeMangaById } from "../../lib/util";
-  import { settings, previewManga, activeSource, addFolder, assignMangaToFolder } from "../../store";
+  import { store, addFolder, assignMangaToFolder, setPreviewManga } from "../../store/state.svelte";
   import type { Manga, Source } from "../../lib/types";
   import ContextMenu from "../shared/ContextMenu.svelte";
   import type { MenuEntry } from "../shared/ContextMenu.svelte";
@@ -35,17 +35,17 @@
   `;
 
   // ── State ─────────────────────────────────────────────────────────────────────
-  let allManga:    Manga[]  = [];  // local library — loaded once, never triggers lag
-  let allSources:  Source[] = [];  // all deduped sources — loaded once
-  let loadingLib   = true;
-  let loadError    = false;
+  let allManga:    Manga[]  = $state([]);  // local library — loaded once, never triggers lag
+  let allSources:  Source[] = $state([]);  // all deduped sources — loaded once
+  let loadingLib   = $state(true);
+  let loadError    = $state(false);
 
   // Per-genre result map. Keyed by genre string.
   // "All" key → local library deduped by title
   // Each tab key → local + background source results, deduped id+title
-  let genreResults  = new Map<string, Manga[]>();
-  let genreLoading  = false;  // true only during the initial local fetch for a new tab
-  let currentGenre  = "All";
+  let genreResults  = $state(new Map<string, Manga[]>());
+  let genreLoading  = $state(false);  // true only during the initial local fetch for a new tab
+  let currentGenre  = $state("All");
   let genreAbort: AbortController | null = null;
 
   // batch timer handle for background source fan-out
@@ -54,15 +54,16 @@
   let batchAccum   = new Map<string, Manga[]>(); // genre → pending mangas
 
   // Context menu
-  let ctx: { x: number; y: number; manga: Manga } | null = null;
+  let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
+  let isLoading = $state(false);
 
   // ── Derived ───────────────────────────────────────────────────────────────────
-  $: visibleGrid = genreResults.get(currentGenre) ?? [];
-  $: isLoading   = genreLoading || (currentGenre === "All" && loadingLib);
+  const visibleGrid = $derived(genreResults.get(currentGenre) ?? []);
+  $effect(() => { isLoading   = genreLoading || (currentGenre === "All" && loadingLib); });
 
   // ── Dedup helper — always apply id first then title ───────────────────────────
   function dedup(items: Manga[]): Manga[] {
-    return dedupeMangaByTitle(dedupeMangaById(items), $settings.mangaLinks);
+    return dedupeMangaByTitle(dedupeMangaById(items), store.settings.mangaLinks);
   }
 
   // ── Concurrent fan-out — conservative concurrency keeps connections free ──────
@@ -118,7 +119,7 @@
   // Does NOT set genreLoading = true — the local result is already showing.
   async function fanOutSources(genre: string, ctrl: AbortController) {
     if (!allSources.length) return;
-    const lang = $settings.preferredExtensionLang || "en";
+    const lang = store.settings.preferredExtensionLang || "en";
     const srcs = dedupeSources(allSources, lang);
 
     startBatchFlush();
@@ -211,9 +212,9 @@
         onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
           .then(() => cache.clear(CACHE_KEYS.LIBRARY)).catch(console.error),
       },
-      ...($settings.folders.length > 0 ? [
+      ...(store.settings.folders.length > 0 ? [
         { separator: true } as MenuEntry,
-        ...$settings.folders.map(f => ({
+        ...store.settings.folders.map(f => ({
           label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name,
           icon: Folder,
           onClick: () => assignMangaToFolder(f.id, m.id),
@@ -235,7 +236,7 @@
   // 2. Load source list in background (needed for genre fan-out, not needed for initial render)
   function loadAll() {
     loadingLib = true; loadError = false;
-    const lang = $settings.preferredExtensionLang || "en";
+    const lang = store.settings.preferredExtensionLang || "en";
 
     // Local library — populates "All" tab
     cache.get(CACHE_KEYS.DISCOVER, () =>
@@ -266,7 +267,7 @@
 </script>
 
 <!-- ── Source browse passthrough ─────────────────────────────────────────────── -->
-{#if $activeSource}
+{#if store.activeSource}
   <SourceBrowse />
 {:else}
   <div class="root">
@@ -279,7 +280,7 @@
           <button
             class="genre-tab"
             class:active={currentGenre === tab}
-            on:click={() => switchGenre(tab)}
+            onclick={() => switchGenre(tab)}
           >
             {#if tab === "All"}<Sparkle size={10} weight="fill" />{/if}
             {tab}
@@ -302,7 +303,7 @@
       {:else if loadError && visibleGrid.length === 0}
         <div class="empty">
           <span>Could not reach Suwayomi</span>
-          <button class="retry-btn" on:click={loadAll}>Retry</button>
+          <button class="retry-btn" onclick={loadAll}>Retry</button>
         </div>
 
       {:else if visibleGrid.length === 0}
@@ -313,8 +314,8 @@
           {#each visibleGrid as m (m.id)}
             <button
               class="manga-card"
-              on:click={() => previewManga.set(m)}
-              on:contextmenu={(e) => openCtx(e, m)}
+              onclick={() => setPreviewManga(m)}
+              oncontextmenu={(e) => openCtx(e, m)}
             >
               <div class="cover-wrap">
                 <img
