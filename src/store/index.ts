@@ -61,12 +61,13 @@ export interface Settings {
   markReadOnNext: boolean; readerDebounceMs: number; theme: Theme;
   libraryBranches: boolean;
   renderLimit: number;
-  /**
-   * Hero slot pinning for the Home page.
-   * 4 slots total. Index 0 = always auto (continue reading, not pinnable).
-   * Indices 1-3: null = auto (fill from recent history), number = pinned mangaId.
-   */
   heroSlots: (number | null)[];
+  /**
+   * User-defined manga links — manually registered "same series" pairs.
+   * Key: mangaId, Value: array of mangaIds this entry is linked to.
+   * Links are bidirectional at lookup time; only stored in one direction.
+   */
+  mangaLinks: Record<number, number[]>;
 }
 
 const COMPLETED_FOLDER_DEFAULT: Folder = {
@@ -87,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
   markReadOnNext: true, readerDebounceMs: 120, theme: "dark",
   libraryBranches: true, renderLimit: 48,
   heroSlots: [null, null, null, null],
+  mangaLinks: {},
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -115,6 +117,7 @@ function mergeSettings(saved: any): Settings {
     folders: [completedFolder, ...otherFolders],
     keybinds: { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
     heroSlots: saved?.settings?.heroSlots ?? [null, null, null, null],
+    mangaLinks: saved?.settings?.mangaLinks ?? {},
   };
 }
 
@@ -246,6 +249,43 @@ export function checkAndMarkCompleted(mangaId: number, chapters: Chapter[]) {
   const allRead = chapters.every(c => c.isRead);
   if (allRead) markMangaCompleted(mangaId);
   else unmarkMangaCompleted(mangaId);
+}
+
+// ── Manga links ("same series" user overrides) ────────────────────────────────
+
+/**
+ * Link two manga as "same series". Bidirectional — looking up either id
+ * will return the other. Idempotent.
+ */
+export function linkManga(idA: number, idB: number) {
+  if (idA === idB) return;
+  settings.update(s => {
+    const links = { ...s.mangaLinks };
+    links[idA] = [...new Set([...(links[idA] ?? []), idB])];
+    links[idB] = [...new Set([...(links[idB] ?? []), idA])];
+    return { ...s, mangaLinks: links };
+  });
+}
+
+/**
+ * Remove a link between two manga.
+ */
+export function unlinkManga(idA: number, idB: number) {
+  settings.update(s => {
+    const links = { ...s.mangaLinks };
+    links[idA] = (links[idA] ?? []).filter(id => id !== idB);
+    links[idB] = (links[idB] ?? []).filter(id => id !== idA);
+    if (!links[idA].length) delete links[idA];
+    if (!links[idB].length) delete links[idB];
+    return { ...s, mangaLinks: links };
+  });
+}
+
+/**
+ * Returns all mangaIds linked to a given mangaId (direct links only, not transitive).
+ */
+export function getLinkedMangaIds(mangaId: number): number[] {
+  return get(settings).mangaLinks[mangaId] ?? [];
 }
 
 // ── Hero slots ────────────────────────────────────────────────────────────────

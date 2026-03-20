@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { X, BookmarkSimple, ArrowSquareOut, Play, CircleNotch, Books, CaretDown, FolderSimplePlus, Folder } from "phosphor-svelte";
+  import { X, BookmarkSimple, ArrowSquareOut, Play, CircleNotch, Books, CaretDown, FolderSimplePlus, Folder, LinkSimpleHorizontalBreak } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_MANGA, GET_CHAPTERS, FETCH_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { settings, previewManga, activeManga, navPage, genreFilter, openReader, addToast, addFolder, assignMangaToFolder, removeMangaFromFolder, checkAndMarkCompleted } from "../../store";
-  import { groupDuplicates } from "../../lib/util";
+  import { settings, previewManga, activeManga, navPage, genreFilter, openReader, addToast, addFolder, assignMangaToFolder, removeMangaFromFolder, checkAndMarkCompleted, linkManga, unlinkManga, getLinkedMangaIds } from "../../store";
   import type { Manga, Chapter } from "../../lib/types";
+  import { GET_ALL_MANGA } from "../../lib/queries";
 
   let manga: Manga | null      = null;
   let chapters: Chapter[]      = [];
@@ -21,12 +21,45 @@
   let fetchError: string|null  = null;
   let folderRef: HTMLDivElement;
 
-  // Alternate versions of this manga from other sources (same title/desc, diff source)
-  // Populated by the parent via the `alternates` prop if available.
-  export let alternates: Manga[] = [];
-  let selectedThumb: string | null = null; // null = use manga's own thumbnail
+  // ── Link picker ──────────────────────────────────────────────────────────────
+  let linkPickerOpen  = false;
+  let linkSearch      = "";
+  let allMangaForLink: Manga[] = [];
+  let loadingLinkList = false;
 
-  $: effectiveThumb = selectedThumb ?? ($previewManga?.thumbnailUrl ?? "");
+  $: linkedIds = $previewManga ? ($settings.mangaLinks?.[$previewManga.id] ?? []) : [];
+
+  $: linkPickerResults = (() => {
+    const others = allMangaForLink.filter(m => m.id !== $previewManga?.id);
+    const q = linkSearch.trim().toLowerCase();
+    const filtered = q ? others.filter(m => m.title.toLowerCase().includes(q)) : others;
+    // Linked entries bubble to the top
+    const linked = filtered.filter(m => linkedIds.includes(m.id));
+    const rest = filtered.filter(m => !linkedIds.includes(m.id)).slice(0, 30);
+    return [...linked, ...rest];
+  })();
+
+  async function openLinkPicker() {
+    linkPickerOpen = true;
+    linkSearch = "";
+    if (allMangaForLink.length) return;
+    loadingLinkList = true;
+    gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA)
+      .then(d => { allMangaForLink = d.mangas.nodes; })
+      .catch(console.error)
+      .finally(() => { loadingLinkList = false; });
+  }
+
+  function closeLinkPicker() { linkPickerOpen = false; linkSearch = ""; }
+
+  function handleLink(other: Manga) {
+    if (!$previewManga) return;
+    if (linkedIds.includes(other.id)) {
+      unlinkManga($previewManga.id, other.id);
+    } else {
+      linkManga($previewManga.id, other.id);
+    }
+  }
 
   let detailAbort: AbortController | null  = null;
   let chapterAbort: AbortController | null = null;
@@ -36,7 +69,6 @@
     previewManga.set(null);
     manga = null; chapters = []; descExpanded = false;
     folderOpen = false; creatingFolder = false; newFolderName = ""; fetchError = null;
-    selectedThumb = null;
   }
 
   function formatDate(d: Date) { return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
@@ -70,7 +102,10 @@
     detailAbort?.abort(); chapterAbort?.abort();
     const dCtrl = new AbortController(), cCtrl = new AbortController();
     detailAbort = dCtrl; chapterAbort = cCtrl;
-    manga = null; chapters = []; descExpanded = false; fetchError = null;
+    // Pre-populate from the shallow grid entry immediately — description/genres
+    // will appear as soon as the full fetch resolves, but title/cover show now.
+    manga = $previewManga as Manga;
+    chapters = []; descExpanded = false; fetchError = null;
     loadingDetail = true; loadingChapters = true;
 
     (async (): Promise<Manga> => {
@@ -172,57 +207,29 @@
     <!-- Cover column -->
     <div class="cover-col">
       <div class="cover-wrap">
-        <img src={thumbUrl(effectiveThumb)} alt={displayManga?.title} class="cover" />
+        <img src={thumbUrl($previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" />
         {#if loadingDetail}
           <div class="cover-spinner"><CircleNotch size={18} weight="light" class="anim-spin" /></div>
         {/if}
       </div>
-
-      <!-- Alternate source thumbnails — shown when this manga exists in multiple sources -->
-      {#if alternates.length > 0}
-        <div class="thumb-switcher">
-          <span class="thumb-switcher-label">Sources</span>
-          <div class="thumb-switcher-row">
-            <!-- Primary -->
-            <button
-              class="thumb-option"
-              class:thumb-option-active={selectedThumb === null}
-              on:click={() => selectedThumb = null}
-              title={displayManga?.source?.displayName ?? "Primary"}
-            >
-              <img src={thumbUrl($previewManga?.thumbnailUrl ?? "")} alt="Primary" class="thumb-option-img" loading="lazy" />
-              {#if displayManga?.source?.displayName}
-                <span class="thumb-option-label">{displayManga.source.displayName}</span>
-              {/if}
-            </button>
-            <!-- Alternates -->
-            {#each alternates as alt (alt.id)}
-              <button
-                class="thumb-option"
-                class:thumb-option-active={selectedThumb === alt.thumbnailUrl}
-                on:click={() => selectedThumb = alt.thumbnailUrl}
-                title={alt.source?.displayName ?? alt.title}
-              >
-                <img src={thumbUrl(alt.thumbnailUrl)} alt={alt.title} class="thumb-option-img" loading="lazy" />
-                {#if alt.source?.displayName}
-                  <span class="thumb-option-label">{alt.source.displayName}</span>
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
       <div class="cover-actions">
+
+        <!-- Library -->
         <button class="action-btn" class:active={inLibrary} on:click={toggleLibrary} disabled={togglingLib || loadingDetail}>
-          <BookmarkSimple size={13} weight={inLibrary ? "fill" : "light"} />
-          {togglingLib ? "…" : inLibrary ? "In Library" : "Add to Library"}
+          <span class="action-icon"><BookmarkSimple size={13} weight={inLibrary ? "fill" : "light"} /></span>
+          <span class="action-label">{togglingLib ? "…" : inLibrary ? "In Library" : "Add to Library"}</span>
         </button>
+
+        <!-- Series Detail -->
         <button class="action-btn" on:click={openSeriesDetail}>
-          <Books size={13} weight="light" /> Series Detail
+          <span class="action-icon"><Books size={13} weight="light" /></span>
+          <span class="action-label">Series Detail</span>
         </button>
+
+        <!-- Folders -->
         <div class="folder-wrap" bind:this={folderRef}>
-          <button class="action-btn" class:folder-active={assignedFolders.length > 0} on:click={() => folderOpen = !folderOpen}>
-            <FolderSimplePlus size={13} weight={assignedFolders.length > 0 ? "fill" : "light"} />
+          <button class="action-btn" class:active={assignedFolders.length > 0} on:click={() => folderOpen = !folderOpen}>
+            <span class="action-icon"><FolderSimplePlus size={13} weight={assignedFolders.length > 0 ? "fill" : "light"} /></span>
             <span class="action-label">{assignedFolders.length > 0 ? assignedFolders.map((f) => f.name).join(", ") : "Add to folder"}</span>
           </button>
           {#if folderOpen}
@@ -249,6 +256,13 @@
             </div>
           {/if}
         </div>
+
+        <!-- Series Link -->
+        <button class="action-btn" class:active={linkedIds.length > 0} on:click={openLinkPicker}>
+          <span class="action-icon"><LinkSimpleHorizontalBreak size={13} weight={linkedIds.length > 0 ? "fill" : "light"} /></span>
+          <span class="action-label">{linkedIds.length > 0 ? `Series Link (${linkedIds.length})` : "Series Link"}</span>
+        </button>
+
       </div>
     </div>
 
@@ -364,6 +378,47 @@
     </div>
   </div>
 </div>
+
+<!-- ── Link picker modal ───────────────────────────────────────────────────── -->
+{#if linkPickerOpen}
+  <div class="link-backdrop" role="presentation"
+    on:click|self={closeLinkPicker}
+    on:keydown={(e) => e.key === "Escape" && closeLinkPicker()}>
+    <div class="link-modal">
+      <div class="link-header">
+        <span class="link-title">Link as same series</span>
+        <button class="close-btn" on:click={closeLinkPicker}><X size={14} weight="light" /></button>
+      </div>
+      <p class="link-hint">
+        Mark two manga as the same series so duplicates are merged in search and discover.
+        Click a linked entry again to unlink.
+      </p>
+      <div class="link-search-wrap">
+        <input class="link-search" placeholder="Search your library…" bind:value={linkSearch} use:focus />
+      </div>
+      <div class="link-list">
+        {#if loadingLinkList}
+          <p class="link-empty">Loading…</p>
+        {:else if linkPickerResults.length === 0}
+          <p class="link-empty">No results</p>
+        {:else}
+          {#each linkPickerResults as m (m.id)}
+            {@const isLinked = linkedIds.includes(m.id)}
+            <button class="link-row" class:link-row-linked={isLinked} on:click={() => handleLink(m)}>
+              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="link-thumb" loading="lazy" decoding="async" />
+              <div class="link-info">
+                <span class="link-manga-title">{m.title}</span>
+                {#if m.source?.displayName}<span class="link-source">{m.source.displayName}</span>{/if}
+              </div>
+              <span class="link-status">{isLinked ? "✓ Linked" : "Link"}</span>
+            </button>
+          {/each}
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
 {/if}
 
 <script context="module">
@@ -373,17 +428,24 @@
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.72); z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.12s ease both; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
   .modal { width: min(800px, calc(100vw - 48px)); height: min(560px, calc(100vh - 80px)); display: flex; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; animation: scaleIn 0.16s ease both; box-shadow: 0 0 0 1px var(--border-dim), 0 24px 64px rgba(0,0,0,0.6); }
-  .cover-col { width: 190px; flex-shrink: 0; background: var(--bg-raised); border-right: 1px solid var(--border-dim); display: flex; flex-direction: column; padding: var(--sp-5) var(--sp-4) var(--sp-4); gap: var(--sp-3); overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
-  .cover-col::-webkit-scrollbar { display: none; }
+  .cover-col { width: 190px; flex-shrink: 0; background: var(--bg-raised); border-right: 1px solid var(--border-dim); display: flex; flex-direction: column; padding: var(--sp-5) var(--sp-4) var(--sp-4); gap: var(--sp-3); overflow: hidden; }
   .cover-wrap { position: relative; width: 100%; }
   .cover { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--border-dim); display: block; }
   .cover-spinner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); border-radius: var(--radius-md); color: var(--text-faint); }
   .cover-actions { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .action-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; padding: 7px var(--sp-3); border-radius: var(--radius-md); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); border: 1px solid var(--border-strong); background: none; color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+  .action-btn {
+    display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+    padding: 7px var(--sp-3); border-radius: var(--radius-md);
+    font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+    border: 1px solid var(--border-strong); background: none; color: var(--text-muted);
+    cursor: pointer; text-align: left;
+    transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+  }
   .action-btn:hover:not(:disabled) { color: var(--accent-fg); border-color: var(--accent); background: var(--accent-muted); }
   .action-btn:disabled { opacity: 0.4; cursor: default; }
   .action-btn.active { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
-  .action-btn.folder-active { color: var(--text-secondary); border-color: var(--border-strong); }
+  /* Fixed-width icon slot — keeps all labels optically aligned */
+  .action-icon { display: flex; align-items: center; justify-content: center; width: 16px; flex-shrink: 0; }
   .action-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .folder-wrap { position: relative; width: 100%; }
   .folder-menu { position: absolute; bottom: calc(100% + 4px); left: 0; right: 0; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: var(--sp-1); display: flex; flex-direction: column; gap: 1px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 10; animation: scaleIn 0.1s ease both; transform-origin: bottom center; }
@@ -408,7 +470,8 @@
   .sk-byline { height: 14px; width: 55%; background: var(--bg-overlay); border-radius: var(--radius-sm); animation: pulse 1.4s ease infinite; }
   .close-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .close-btn:hover { color: var(--text-muted); background: var(--bg-raised); }
-  .content-body { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4); scrollbar-width: thin; }
+  .content-body { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4); scrollbar-width: none; }
+  .content-body::-webkit-scrollbar { display: none; }
   .error-banner { font-family: var(--font-ui); font-size: var(--text-xs); color: #f59e0b; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.25); border-radius: var(--radius-sm); padding: 6px var(--sp-3); }
   .sk-row { display: flex; gap: var(--sp-2); align-items: center; }
   .sk-badge { height: 20px; width: 54px; background: var(--bg-overlay); border-radius: var(--radius-sm); animation: pulse 1.4s ease infinite; }
@@ -445,40 +508,29 @@
   .meta-val { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); }
   .meta-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); color: var(--accent-fg); text-decoration: none; transition: opacity var(--t-base); }
   .meta-link:hover { opacity: 0.75; }
-  /* ── Thumbnail switcher ──────────────────────────────────────────────────── */
-  .thumb-switcher {
-    display: flex; flex-direction: column; gap: var(--sp-2);
-    border-top: 1px solid var(--border-dim); padding-top: var(--sp-3);
-  }
-  .thumb-switcher-label {
-    font-family: var(--font-ui); font-size: var(--text-2xs);
-    color: var(--text-faint); letter-spacing: var(--tracking-wider);
-    text-transform: uppercase;
-  }
-  .thumb-switcher-row {
-    display: flex; flex-wrap: wrap; gap: var(--sp-2);
-  }
-  .thumb-option {
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    background: none; border: 1px solid var(--border-dim);
-    border-radius: var(--radius-sm); padding: 4px;
-    cursor: pointer; transition: border-color var(--t-base), background var(--t-base);
-    flex: 1; min-width: 52px; max-width: 64px;
-  }
-  .thumb-option:hover { border-color: var(--border-strong); background: var(--bg-overlay); }
-  .thumb-option-active { border-color: var(--accent) !important; background: var(--accent-muted) !important; }
-  .thumb-option-img {
-    width: 100%; aspect-ratio: 2/3; object-fit: cover;
-    border-radius: 2px; display: block;
-  }
-  .thumb-option-label {
-    font-family: var(--font-ui); font-size: 9px;
-    color: var(--text-faint); letter-spacing: var(--tracking-wide);
-    text-align: center; line-height: 1.2;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    width: 100%;
-  }
-  .thumb-option-active .thumb-option-label { color: var(--accent-fg); }
+  /* ── Link picker ─────────────────────────────────────────────────────────── */
+  .link-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: calc(var(--z-settings) + 1); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); animation: fadeIn 0.1s ease both; }
+  .link-modal { width: min(460px, calc(100vw - 48px)); max-height: 70vh; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); animation: scaleIn 0.14s ease both; }
+  .link-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
+  .link-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); }
+  .link-hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); line-height: var(--leading-snug); padding: var(--sp-3) var(--sp-5) 0; flex-shrink: 0; }
+  .link-search-wrap { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
+  .link-search { width: 100%; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 6px 10px; color: var(--text-primary); font-size: var(--text-sm); outline: none; transition: border-color var(--t-base); }
+  .link-search:focus { border-color: var(--border-strong); }
+  .link-list { flex: 1; overflow-y: auto; padding: var(--sp-2); scrollbar-width: none; }
+  .link-list::-webkit-scrollbar { display: none; }
+  .link-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); padding: var(--sp-4) var(--sp-3); text-align: center; letter-spacing: var(--tracking-wide); }
+  .link-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 8px var(--sp-3); border-radius: var(--radius-md); border: none; background: none; text-align: left; cursor: pointer; transition: background var(--t-fast); }
+  .link-row:hover { background: var(--bg-raised); }
+  .link-row-linked { background: var(--accent-muted) !important; }
+  .link-thumb { width: 34px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
+  .link-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0; }
+  .link-manga-title { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .link-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .link-status { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); flex-shrink: 0; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); }
+  .link-row-linked .link-status { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
   @keyframes pulse { 0%,100% { opacity: 0.4 } 50% { opacity: 0.8 } }
+  @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

@@ -7,11 +7,6 @@ export function cn(...inputs: ClassValue[]) {
 
 // ── Source deduplication ──────────────────────────────────────────────────────
 
-/**
- * Deduplicates sources by name, preferring the given language.
- * This prevents fetching MangaDex EN + MangaDex ES + MangaDex FR separately —
- * only the preferred-lang variant (or alphabetically first fallback) is kept.
- */
 export function dedupeSources(sources: Source[], preferredLang: string): Source[] {
   const byName = new Map<string, Source[]>();
   for (const src of sources) {
@@ -30,15 +25,10 @@ export function dedupeSources(sources: Source[], preferredLang: string): Source[
 // ── Manga deduplication ───────────────────────────────────────────────────────
 
 /**
- * Normalizes a title for fuzzy matching:
- * - Lowercases and trims
- * - Strips common subtitle suffixes: "(Official)", "(Web Comic)", etc.
- * - Removes all non-alphanumeric characters (punctuation, dashes, colons)
- * - Strips leading articles: "the ", "a ", "an "
- * - Collapses whitespace
- *
- * "The Solo Leveling: Official Comic" → "solo leveling official comic"
- * "Solo Leveling (Web Comic)"         → "solo leveling web comic"
+ * Normalizes a title for fuzzy matching.
+ * Strips punctuation, articles, and common source-specific suffixes so that
+ * "The Greatest Estate Developer" and "Yeokdaegeum Yeongji Seolgyesa" won't
+ * match on title alone — but their identical descriptions will catch them.
  */
 export function normalizeTitle(title: string): string {
   return title
@@ -51,89 +41,116 @@ export function normalizeTitle(title: string): string {
 }
 
 /**
- * Builds a short fingerprint from a description — first 120 chars, normalized.
- * Used as a secondary dedup signal when titles differ but the series is the same.
- * Returns null if the description is too short to be a reliable signal (< 40 chars).
+ * Normalizes a string for fingerprinting — strip all non-alpha, collapse spaces.
  */
-function descFingerprint(desc: string | null | undefined): string | null {
-  if (!desc) return null;
-  const norm = desc.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-  if (norm.length < 40) return null;
-  return norm.slice(0, 120);
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /**
- * Deduplicates manga by normalized title OR description fingerprint, keeping the
- * first occurrence. Runs in a single O(n) pass — no nested loops.
- *
- * Use this when merging results across sources. Same series from different source
- * variants (e.g. MangaDex EN + Asura Scans) will be collapsed.
- *
- * The kept entry is the first one seen, so prefer passing library manga first so
- * the richer/preferred entry survives.
+ * Description fingerprint — first 200 normalized chars.
+ * Long enough to reliably identify the same series across sources even when
+ * translations differ in punctuation or minor wording.
+ * Returns null if too short (< 60 chars) to be a reliable signal.
  */
-export function dedupeMangaByTitle<T extends { id: number; title: string; description?: string | null }>(items: T[]): T[] {
-  const seenTitles = new Set<string>();
-  const seenDescs  = new Set<string>();
+function descFingerprint(desc: string | null | undefined): string | null {
+  if (!desc) return null;
+  const n = norm(desc);
+  if (n.length < 60) return null;
+  return n.slice(0, 200);
+}
+
+/**
+ * Author fingerprint — normalized concatenation of author + artist.
+ * Used as a tie-breaker / additional signal alongside description.
+ * Two manga with the same authors AND same description are almost certainly
+ * the same series. Returns null if no author info.
+ */
+function authorFingerprint(author?: string | null, artist?: string | null): string | null {
+  const parts = [author, artist].filter(Boolean).map(s => norm(s!));
+  if (!parts.length) return null;
+  return parts.sort().join("|");
+}
+
+/**
+ * Deduplicates manga by:
+ *   1. Normalized title
+ *   2. Description fingerprint (first 200 chars)
+ *   3. Author + description together
+ *   4. User-defined links (mangaLinks from store) — explicit "same series" overrides
+ *
+ * Pass `links` as `settings.mangaLinks` to honour user-registered pairs.
+ * When two entries match, the PREFERRED one is kept:
+ *   - Library membership wins
+ *   - Otherwise higher downloadCount wins
+ *   - Otherwise first occurrence wins
+ */
+export function dedupeMangaByTitle<T extends {
+  id: number;
+  title: string;
+  description?: string | null;
+  author?: string | null;
+  artist?: string | null;
+  inLibrary?: boolean;
+  downloadCount?: number;
+}>(items: T[], links: Record<number, number[]> = {}): T[] {
+  const byTitle      = new Map<string, number>();
+  const byDesc       = new Map<string, number>();
+  const byAuthorDesc = new Map<string, number>();
+  // id → index in out[]
+  const byId         = new Map<number, number>();
   const out: T[] = [];
+
   for (const m of items) {
     const tk = normalizeTitle(m.title);
     const dk = descFingerprint(m.description);
-    if (seenTitles.has(tk)) continue;
-    if (dk && seenDescs.has(dk)) continue;
-    seenTitles.add(tk);
-    if (dk) seenDescs.add(dk);
+    const ak = (dk && m.author) ? `${authorFingerprint(m.author, m.artist)}||${dk}` : null;
+
+    // Check user-defined links first (explicit override)
+    const linkedIds = links[m.id] ?? [];
+    const linkedIdx = linkedIds.map(lid => byId.get(lid)).find(i => i !== undefined);
+
+    const existingIdx =
+      linkedIdx ??
+      byTitle.get(tk) ??
+      (dk ? byDesc.get(dk)       : undefined) ??
+      (ak ? byAuthorDesc.get(ak) : undefined);
+
+    if (existingIdx !== undefined) {
+      const existing = out[existingIdx];
+      const mBetter =
+        (m.inLibrary && !existing.inLibrary) ||
+        (!existing.inLibrary && (m.downloadCount ?? 0) > (existing.downloadCount ?? 0));
+
+      if (mBetter) {
+        out[existingIdx] = m;
+        byTitle.set(tk, existingIdx);
+        byId.set(m.id, existingIdx);
+        if (dk) byDesc.set(dk, existingIdx);
+        if (ak) byAuthorDesc.set(ak, existingIdx);
+      }
+      continue;
+    }
+
+    const idx = out.length;
     out.push(m);
+    byTitle.set(tk, idx);
+    byId.set(m.id, idx);
+    if (dk) byDesc.set(dk, idx);
+    if (ak) byAuthorDesc.set(ak, idx);
   }
+
   return out;
 }
 
 /**
- * Deduplicates manga by id only (lossless — use when sources are already deduped).
- * Use this when merging library results with source results for the same query,
- * where the same manga id may appear in both sets.
+ * Deduplicates manga by id only (lossless).
  */
 export function dedupeMangaById<T extends { id: number }>(items: T[]): T[] {
   const seen = new Set<number>();
   const out: T[] = [];
   for (const m of items) {
     if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }
-  }
-  return out;
-}
-
-/**
- * Groups items that share a normalized title or description fingerprint.
- * Returns an array of groups — single-member groups are non-duplicates,
- * multi-member groups are the same series from different sources.
- *
- * Used by MangaPreview to show alternate thumbnails for merged entries.
- */
-export function groupDuplicates<T extends { id: number; title: string; description?: string | null }>(items: T[]): T[][] {
-  const titleMap = new Map<string, T[]>();
-  const descMap  = new Map<string, T[]>();
-
-  for (const m of items) {
-    const tk = normalizeTitle(m.title);
-    const dk = descFingerprint(m.description);
-
-    const existingGroup = titleMap.get(tk) ?? (dk ? descMap.get(dk) : undefined);
-    if (existingGroup) {
-      existingGroup.push(m);
-      if (!titleMap.has(tk)) titleMap.set(tk, existingGroup);
-      if (dk && !descMap.has(dk)) descMap.set(dk, existingGroup);
-    } else {
-      const group = [m];
-      titleMap.set(tk, group);
-      if (dk) descMap.set(dk, group);
-    }
-  }
-
-  // Return unique groups only
-  const seen = new Set<T[]>();
-  const out: T[][] = [];
-  for (const g of titleMap.values()) {
-    if (!seen.has(g)) { seen.add(g); out.push(g); }
   }
   return out;
 }

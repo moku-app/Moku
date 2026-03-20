@@ -3,10 +3,9 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle, normalizeTitle } from "../../lib/util";
+  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
   import { settings, searchPrefill, previewManga } from "../../store";
   import type { Manga, Source } from "../../lib/types";
-  import MangaPreview from "../shared/MangaPreview.svelte";
 
   
 
@@ -168,7 +167,6 @@
           ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
-        addToPool(d.fetchSourceManga.mangas);
         kw_results = kw_results.map((r) =>
           r.source.id === src.id ? { ...r, mangas: d.fetchSourceManga.mangas, loading: false } : r,
         );
@@ -224,7 +222,7 @@
     tag_searchSources
       ? [...tag_localResults, ...tag_sourceResults.filter((m) => !tag_localIds.has(m.id))]
       : tag_localResults
-  ));
+  ), $settings.mangaLinks);
   $: tag_totalVisible  = tag_mergedResults.length;
   $: tag_sourceHasMore = tag_searchSources && [...tag_srcNextPage.values()].some((p) => p > 0);
 
@@ -236,9 +234,16 @@
   }
 
   // Auto-enable source search if local results are sparse (< 20 after initial load)
-  $: if (!tag_loadingLocal && tag_activeTags.length > 0 && tag_localResults.length < 20 && !tag_searchSources && !loadingSources) {
-    tag_searchSources = true;
+  // Use a flag so this only fires once per tag set, not on every reactive update
+  let tag_autoSearchFired = false;
+  $: if (!tag_loadingLocal && tag_activeTags.length > 0 && !tag_autoSearchFired && !tag_searchSources && !loadingSources) {
+    if (tag_localResults.length < 20) {
+      tag_autoSearchFired = true;
+      tag_searchSources = true;
+    }
   }
+  // Reset the flag when tags change
+  $: { tag_activeTags; tag_autoSearchFired = false; }
 
   $: {
     const _search = tag_searchSources;
@@ -265,7 +270,6 @@
       ctrl.signal,
     ).then((d) => {
       if (ctrl.signal.aborted) return;
-      addToPool(d.mangas.nodes);
       tag_localResults  = d.mangas.nodes;
       tag_totalCount    = d.mangas.totalCount;
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
@@ -282,7 +286,8 @@
     const ctrl = new AbortController();
     tag_abortSource = ctrl;
 
-    tag_sourceResults     = [];
+    // Don't blank existing results — keep them visible while new ones load.
+    // Only reset if the tags actually changed (tracked by the calling reactive block).
     tag_srcNextPage       = new Map();
     tag_loadingSourceSearch = true;
 
@@ -323,8 +328,7 @@
         : result.mangas;
 
       if (matching.length > 0) {
-        addToPool(matching);
-        tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]));
+        tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), $settings.mangaLinks);
         tag_loadingSourceSearch = false;
       }
     }, ctrl.signal).finally(() => {
@@ -397,8 +401,7 @@
           : result.mangas;
 
         if (matching.length > 0) {
-          addToPool(matching);
-          tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]));
+          tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), $settings.mangaLinks);
         }
       }, ctrl.signal);
     } finally {
@@ -487,26 +490,6 @@
   }
 
   
-
-  // ── Raw pool + alternates for MangaPreview thumbnail switcher ────────────────
-  // All manga seen across all sources — keyed by normalised title.
-  const rawPool = new Map<string, Manga[]>();
-
-  function addToPool(items: Manga[]) {
-    for (const m of items) {
-      const k = normalizeTitle(m.title);
-      if (!rawPool.has(k)) rawPool.set(k, []);
-      const g = rawPool.get(k)!;
-      if (!g.some(x => x.id === m.id)) g.push(m);
-    }
-  }
-
-  let previewAlternates: Manga[] = [];
-  function openPreview(m: Manga) {
-    const k = normalizeTitle(m.title);
-    previewAlternates = (rawPool.get(k) ?? []).filter(x => x.id !== m.id);
-    previewManga.set(m);
-  }
 
   onDestroy(() => {
     kw_abortCtrl?.abort();
@@ -710,7 +693,7 @@
             {:else if mangas.length > 0}
               <div class="sourceRow">
                 {#each mangas.slice(0, ($settings.renderLimit ?? 48)) as m (m.id)}
-                  <button class="card" on:click={() => openPreview(m)}>
+                  <button class="card" on:click={() => previewManga.set(m)}>
                     <div class="coverWrap">
                       <img
                         src={thumbUrl(m.thumbnailUrl)}
@@ -860,7 +843,7 @@
           {:else if tag_mergedResults.length > 0}
             <div class="tagGrid">
               {#each tag_mergedResults as m (m.id)}
-                <button class="card" on:click={() => openPreview(m)}>
+                <button class="card" on:click={() => previewManga.set(m)}>
                   <div class="coverWrap">
                     <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
@@ -1039,7 +1022,7 @@
           {:else if src_browseResults.length > 0}
             <div class="tagGrid">
               {#each src_browseResults as m (m.id)}
-                <button class="card" on:click={() => openPreview(m)}>
+                <button class="card" on:click={() => previewManga.set(m)}>
                   <div class="coverWrap">
                     <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
@@ -1082,8 +1065,6 @@
     </div>
   {/if}
 </div>
-
-<MangaPreview alternates={previewAlternates} />
 
 <style>
   /* ── Root ──────────────────────────────────────────────────────────────── */

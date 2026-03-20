@@ -33,15 +33,18 @@
   }
 
   function fetchLibrary() {
-    return cache.get(CACHE_KEYS.LIBRARY, () =>
-      gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then((d) => d.mangas.nodes)
+    return cache.get(
+      CACHE_KEYS.LIBRARY,
+      () => gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then((d) => d.mangas.nodes),
+      DEFAULT_TTL_MS,
+      CACHE_GROUPS.LIBRARY,
     );
   }
 
   function loadData() {
     fetchLibrary()
       .then((nodes) => {
-        allManga = dedupeMangaByTitle(dedupeMangaById(nodes));
+        allManga = dedupeMangaByTitle(dedupeMangaById(nodes), $settings.mangaLinks);
         error = null;
       })
       .catch((e) => error = e.message)
@@ -52,7 +55,7 @@
       DEFAULT_TTL_MS,
       CACHE_GROUPS.LIBRARY,
     ).then((nodes) => {
-      allMangaUnfiltered = dedupeMangaByTitle(dedupeMangaById(nodes));
+      allMangaUnfiltered = dedupeMangaByTitle(dedupeMangaById(nodes), $settings.mangaLinks);
     }).catch(console.error);
   }
 
@@ -136,8 +139,7 @@
   async function removeFromLibrary(manga: Manga) {
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
     allManga = allManga.filter((m) => m.id !== manga.id);
-    cache.clear(CACHE_KEYS.LIBRARY);
-    cache.clearGroup(CACHE_GROUPS.LIBRARY);
+    cache.clearGroup(CACHE_GROUPS.LIBRARY); // clears "library" + "all_manga_unfiltered" + notifies subscribers
   }
 
   async function deleteAllDownloads(manga: Manga) {
