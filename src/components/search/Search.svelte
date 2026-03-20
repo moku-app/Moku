@@ -3,9 +3,10 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
+  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle, normalizeTitle } from "../../lib/util";
   import { settings, searchPrefill, previewManga } from "../../store";
   import type { Manga, Source } from "../../lib/types";
+  import MangaPreview from "../shared/MangaPreview.svelte";
 
   
 
@@ -167,6 +168,7 @@
           ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
+        addToPool(d.fetchSourceManga.mangas);
         kw_results = kw_results.map((r) =>
           r.source.id === src.id ? { ...r, mangas: d.fetchSourceManga.mangas, loading: false } : r,
         );
@@ -263,6 +265,7 @@
       ctrl.signal,
     ).then((d) => {
       if (ctrl.signal.aborted) return;
+      addToPool(d.mangas.nodes);
       tag_localResults  = d.mangas.nodes;
       tag_totalCount    = d.mangas.totalCount;
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
@@ -320,6 +323,7 @@
         : result.mangas;
 
       if (matching.length > 0) {
+        addToPool(matching);
         tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]));
         tag_loadingSourceSearch = false;
       }
@@ -392,8 +396,10 @@
           ? result.mangas.filter((m) => matchesAllTags(m, tag_activeTags))
           : result.mangas;
 
-        if (matching.length > 0)
+        if (matching.length > 0) {
+          addToPool(matching);
           tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]));
+        }
       }, ctrl.signal);
     } finally {
       if (!ctrl.signal.aborted) tag_loadingMoreSource = false;
@@ -481,6 +487,26 @@
   }
 
   
+
+  // ── Raw pool + alternates for MangaPreview thumbnail switcher ────────────────
+  // All manga seen across all sources — keyed by normalised title.
+  const rawPool = new Map<string, Manga[]>();
+
+  function addToPool(items: Manga[]) {
+    for (const m of items) {
+      const k = normalizeTitle(m.title);
+      if (!rawPool.has(k)) rawPool.set(k, []);
+      const g = rawPool.get(k)!;
+      if (!g.some(x => x.id === m.id)) g.push(m);
+    }
+  }
+
+  let previewAlternates: Manga[] = [];
+  function openPreview(m: Manga) {
+    const k = normalizeTitle(m.title);
+    previewAlternates = (rawPool.get(k) ?? []).filter(x => x.id !== m.id);
+    previewManga.set(m);
+  }
 
   onDestroy(() => {
     kw_abortCtrl?.abort();
@@ -684,7 +710,7 @@
             {:else if mangas.length > 0}
               <div class="sourceRow">
                 {#each mangas.slice(0, ($settings.renderLimit ?? 48)) as m (m.id)}
-                  <button class="card" on:click={() => previewManga.set(m)}>
+                  <button class="card" on:click={() => openPreview(m)}>
                     <div class="coverWrap">
                       <img
                         src={thumbUrl(m.thumbnailUrl)}
@@ -834,7 +860,7 @@
           {:else if tag_mergedResults.length > 0}
             <div class="tagGrid">
               {#each tag_mergedResults as m (m.id)}
-                <button class="card" on:click={() => previewManga.set(m)}>
+                <button class="card" on:click={() => openPreview(m)}>
                   <div class="coverWrap">
                     <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
@@ -1013,7 +1039,7 @@
           {:else if src_browseResults.length > 0}
             <div class="tagGrid">
               {#each src_browseResults as m (m.id)}
-                <button class="card" on:click={() => previewManga.set(m)}>
+                <button class="card" on:click={() => openPreview(m)}>
                   <div class="coverWrap">
                     <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
@@ -1056,6 +1082,8 @@
     </div>
   {/if}
 </div>
+
+<MangaPreview alternates={previewAlternates} />
 
 <style>
   /* ── Root ──────────────────────────────────────────────────────────────── */

@@ -3,7 +3,7 @@
   import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_LIBRARY, GET_ALL_MANGA, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
-  import { cache, CACHE_KEYS } from "../../lib/cache";
+  import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
   import { settings, activeManga, libraryFilter, genreFilter, activeChapter } from "../../store";
   import { addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders } from "../../store";
@@ -39,7 +39,6 @@
   }
 
   function loadData() {
-    // Saved tab — library only (inLibrary: true)
     fetchLibrary()
       .then((nodes) => {
         allManga = dedupeMangaByTitle(dedupeMangaById(nodes));
@@ -48,10 +47,10 @@
       .catch((e) => error = e.message)
       .finally(() => loading = false);
 
-    // Folder tabs — all manga regardless of inLibrary.
-    // Cached separately so it doesn't bust the library cache.
-    cache.get("all_manga_unfiltered", () =>
-      gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA).then((d) => d.mangas.nodes)
+    cache.get(CACHE_KEYS.ALL_MANGA, () =>
+      gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA).then((d) => d.mangas.nodes),
+      DEFAULT_TTL_MS,
+      CACHE_GROUPS.LIBRARY,
     ).then((nodes) => {
       allMangaUnfiltered = dedupeMangaByTitle(dedupeMangaById(nodes));
     }).catch(console.error);
@@ -138,7 +137,7 @@
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
     allManga = allManga.filter((m) => m.id !== manga.id);
     cache.clear(CACHE_KEYS.LIBRARY);
-    cache.clear("all_manga_unfiltered");
+    cache.clearGroup(CACHE_GROUPS.LIBRARY);
   }
 
   async function deleteAllDownloads(manga: Manga) {

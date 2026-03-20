@@ -30,16 +30,60 @@ export function dedupeSources(sources: Source[], preferredLang: string): Source[
 // ── Manga deduplication ───────────────────────────────────────────────────────
 
 /**
- * Deduplicates manga by title (case-insensitive), keeping the first occurrence.
- * Use this when merging results across sources — eliminates the same series
- * appearing multiple times in grids from different source variants.
+ * Normalizes a title for fuzzy matching:
+ * - Lowercases and trims
+ * - Strips common subtitle suffixes: "(Official)", "(Web Comic)", etc.
+ * - Removes all non-alphanumeric characters (punctuation, dashes, colons)
+ * - Strips leading articles: "the ", "a ", "an "
+ * - Collapses whitespace
+ *
+ * "The Solo Leveling: Official Comic" → "solo leveling official comic"
+ * "Solo Leveling (Web Comic)"         → "solo leveling web comic"
  */
-export function dedupeMangaByTitle<T extends { id: number; title: string }>(items: T[]): T[] {
-  const seen = new Set<string>();
+export function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\(official\)|\(web comic\)|\(webtoon\)|\(manhwa\)|\(manhua\)/gi, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/^(the|a|an)\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Builds a short fingerprint from a description — first 120 chars, normalized.
+ * Used as a secondary dedup signal when titles differ but the series is the same.
+ * Returns null if the description is too short to be a reliable signal (< 40 chars).
+ */
+function descFingerprint(desc: string | null | undefined): string | null {
+  if (!desc) return null;
+  const norm = desc.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (norm.length < 40) return null;
+  return norm.slice(0, 120);
+}
+
+/**
+ * Deduplicates manga by normalized title OR description fingerprint, keeping the
+ * first occurrence. Runs in a single O(n) pass — no nested loops.
+ *
+ * Use this when merging results across sources. Same series from different source
+ * variants (e.g. MangaDex EN + Asura Scans) will be collapsed.
+ *
+ * The kept entry is the first one seen, so prefer passing library manga first so
+ * the richer/preferred entry survives.
+ */
+export function dedupeMangaByTitle<T extends { id: number; title: string; description?: string | null }>(items: T[]): T[] {
+  const seenTitles = new Set<string>();
+  const seenDescs  = new Set<string>();
   const out: T[] = [];
   for (const m of items) {
-    const key = m.title.toLowerCase().trim();
-    if (!seen.has(key)) { seen.add(key); out.push(m); }
+    const tk = normalizeTitle(m.title);
+    const dk = descFingerprint(m.description);
+    if (seenTitles.has(tk)) continue;
+    if (dk && seenDescs.has(dk)) continue;
+    seenTitles.add(tk);
+    if (dk) seenDescs.add(dk);
+    out.push(m);
   }
   return out;
 }
@@ -54,6 +98,42 @@ export function dedupeMangaById<T extends { id: number }>(items: T[]): T[] {
   const out: T[] = [];
   for (const m of items) {
     if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }
+  }
+  return out;
+}
+
+/**
+ * Groups items that share a normalized title or description fingerprint.
+ * Returns an array of groups — single-member groups are non-duplicates,
+ * multi-member groups are the same series from different sources.
+ *
+ * Used by MangaPreview to show alternate thumbnails for merged entries.
+ */
+export function groupDuplicates<T extends { id: number; title: string; description?: string | null }>(items: T[]): T[][] {
+  const titleMap = new Map<string, T[]>();
+  const descMap  = new Map<string, T[]>();
+
+  for (const m of items) {
+    const tk = normalizeTitle(m.title);
+    const dk = descFingerprint(m.description);
+
+    const existingGroup = titleMap.get(tk) ?? (dk ? descMap.get(dk) : undefined);
+    if (existingGroup) {
+      existingGroup.push(m);
+      if (!titleMap.has(tk)) titleMap.set(tk, existingGroup);
+      if (dk && !descMap.has(dk)) descMap.set(dk, existingGroup);
+    } else {
+      const group = [m];
+      titleMap.set(tk, group);
+      if (dk) descMap.set(dk, group);
+    }
+  }
+
+  // Return unique groups only
+  const seen = new Set<T[]>();
+  const out: T[][] = [];
+  for (const g of titleMap.values()) {
+    if (!seen.has(g)) { seen.add(g); out.push(g); }
   }
   return out;
 }

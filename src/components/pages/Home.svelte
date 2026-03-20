@@ -128,6 +128,9 @@
 
   $: heroEntry = activeSlot?.kind === "continue" ? activeSlot.entry : null;
 
+  // Svelte action — focuses element on mount, avoiding the a11y autofocus warning
+  function focusEl(node: HTMLElement) { node.focus(); }
+
   function cycleNext() { activeIdx = (activeIdx + 1) % TOTAL_SLOTS; }
   function cyclePrev() { activeIdx = (activeIdx - 1 + TOTAL_SLOTS) % TOTAL_SLOTS; }
   function goToSlot(i: number) { activeIdx = i; }
@@ -437,7 +440,7 @@
       </div>
       <div class="picker-search-wrap">
         <MagnifyingGlass size={13} weight="light" class="picker-search-icon" />
-        <input class="picker-search" placeholder="Search library…" bind:value={pickerSearch} autofocus />
+        <input class="picker-search" placeholder="Search library…" bind:value={pickerSearch} use:focusEl />
       </div>
       <div class="picker-list">
         {#if loadingLibrary}

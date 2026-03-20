@@ -1,58 +1,107 @@
 /**
- * Session-level request cache.
+ * Session-level request cache — v3.
  *
- * Key design decisions (v1, preserved):
+ * Key design decisions (preserved from v1/v2):
  * - Stores the Promise itself — concurrent callers await the same fetch (no thundering herd).
  * - On real errors the entry is evicted so the next call retries.
- * - AbortErrors do NOT evict — the request was cancelled by the user, not failed.
- *   This is critical: if we evicted on abort, rapid open/close would drain the browser's
- *   connection pool (Chromium allows only 6 concurrent connections to the same origin).
- * - Subscribers are notified when a key is explicitly cleared (for reactive invalidation).
+ * - AbortErrors do NOT evict — cancellation ≠ failure.
+ * - Subscribers are notified when a key is explicitly cleared or updated.
  *
- * v2 additions:
- * - TTL-aware get(): stale entries are re-fetched automatically (default 5 min).
- *   Pass Infinity to pin an entry for the session (source list, extension list).
- * - getPageSet(): lightweight page-number tracker for multi-page browse sessions.
- *   Mirrors Suwayomi's CACHE_PAGES_KEY pattern so GenreDrillPage / Search TagTab
- *   can resume a session without re-fetching pages already in memory.
- * - Stable multi-tag cache keys: tag arrays are sorted before joining so
- *   ["Action","Romance"] and ["Romance","Action"] share the same bucket.
+ * v3 additions:
+ * - cache.set(): direct write without a fetcher — for optimistic updates and
+ *   post-mutation cache patching. Notifies subscribers immediately.
+ * - Invalidation groups: tag a cache key with one or more group strings.
+ *   cache.clearGroup("library") clears ALL keys tagged with "library" in one call.
+ *   This replaces the pattern of manually calling cache.clear() on every related key.
+ * - Subscriber notifications on set() — reactive components re-render when the
+ *   cache is updated, not just when it's cleared.
+ * - cache.update(): atomically patch a cached value (read → transform → write).
  */
 
 interface Entry<T> {
   promise:   Promise<T>;
-  fetchedAt: number; // ms since epoch
+  fetchedAt: number;
 }
 
-const store = new Map<string, Entry<unknown>>();
-const subs  = new Map<string, Set<() => void>>();
+const store  = new Map<string, Entry<unknown>>();
+const subs   = new Map<string, Set<() => void>>();
+const groups = new Map<string, Set<string>>(); // groupTag → Set<cacheKey>
 
-/** Default revalidation window: 5 min (matches Suwayomi's browse-page TTL). */
 export const DEFAULT_TTL_MS = 5 * 60 * 1_000;
+
+function notify(key: string) {
+  subs.get(key)?.forEach((cb) => cb());
+}
 
 export const cache = {
   /**
-   * Return a cached promise.
-   * Re-fetches automatically once the entry is older than `ttl` ms.
-   * Pass `Infinity` to cache for the entire session (e.g. source/extension lists).
+   * Return a cached promise. Re-fetches once older than `ttl` ms.
+   * Pass `Infinity` to pin for the session.
    */
-  get<T>(key: string, fetcher: () => Promise<T>, ttl: number = DEFAULT_TTL_MS): Promise<T> {
+  get<T>(
+    key:     string,
+    fetcher: () => Promise<T>,
+    ttl:     number = DEFAULT_TTL_MS,
+    group?:  string | string[],
+  ): Promise<T> {
     const existing = store.get(key) as Entry<T> | undefined;
     if (existing && Date.now() - existing.fetchedAt < ttl) return existing.promise;
 
     const promise = fetcher().catch((err) => {
-      // Only evict on real failures, not user cancellations
       if (err?.name !== "AbortError") store.delete(key);
       return Promise.reject(err);
     }) as Promise<T>;
 
     store.set(key, { promise, fetchedAt: Date.now() });
+
+    // Register in invalidation groups
+    if (group) {
+      const tags = Array.isArray(group) ? group : [group];
+      for (const tag of tags) {
+        if (!groups.has(tag)) groups.set(tag, new Set());
+        groups.get(tag)!.add(key);
+      }
+    }
+
+    // Notify subscribers once the fetch resolves (reactive update on new data)
+    promise.then(() => notify(key)).catch(() => {});
+
     return promise;
+  },
+
+  /**
+   * Directly write a value into the cache — for optimistic updates and
+   * post-mutation patching. Notifies subscribers immediately.
+   */
+  set<T>(key: string, value: T, group?: string | string[]) {
+    const promise = Promise.resolve(value);
+    store.set(key, { promise, fetchedAt: Date.now() });
+
+    if (group) {
+      const tags = Array.isArray(group) ? group : [group];
+      for (const tag of tags) {
+        if (!groups.has(tag)) groups.set(tag, new Set());
+        groups.get(tag)!.add(key);
+      }
+    }
+
+    notify(key);
+  },
+
+  /**
+   * Atomically patch a cached value.
+   * If the key doesn't exist, does nothing.
+   */
+  update<T>(key: string, fn: (prev: T) => T) {
+    const existing = store.get(key) as Entry<T> | undefined;
+    if (!existing) return;
+    const next = existing.promise.then(fn);
+    store.set(key, { promise: next, fetchedAt: Date.now() });
+    next.then(() => notify(key)).catch(() => {});
   },
 
   has(key: string): boolean { return store.has(key); },
 
-  /** How old (ms) a cached entry is, or undefined if absent. */
   ageOf(key: string): number | undefined {
     const e = store.get(key);
     return e ? Date.now() - e.fetchedAt : undefined;
@@ -60,15 +109,30 @@ export const cache = {
 
   clear(key: string) {
     store.delete(key);
-    subs.get(key)?.forEach((cb) => cb());
+    notify(key);
+  },
+
+  /**
+   * Clear all keys belonging to an invalidation group.
+   * e.g. cache.clearGroup("library") clears "library", "all_manga_unfiltered", etc.
+   */
+  clearGroup(tag: string) {
+    const keys = groups.get(tag);
+    if (!keys) return;
+    for (const key of keys) {
+      store.delete(key);
+      notify(key);
+    }
+    groups.delete(tag);
   },
 
   clearAll() {
+    const allKeys = [...store.keys()];
     store.clear();
-    subs.forEach((set) => set.forEach((cb) => cb()));
+    groups.clear();
+    allKeys.forEach(notify);
   },
 
-  /** Subscribe to cache invalidation for a key. Returns unsubscribe fn. */
   subscribe(key: string, cb: () => void): () => void {
     if (!subs.has(key)) subs.set(key, new Set());
     subs.get(key)!.add(cb);
@@ -78,24 +142,24 @@ export const cache = {
 
 // ── Cache key constants ───────────────────────────────────────────────────────
 
+/**
+ * Invalidation group tags.
+ * cache.clearGroup(CACHE_GROUPS.LIBRARY) clears all library-related keys at once.
+ */
+export const CACHE_GROUPS = {
+  LIBRARY: "g:library",   // library + all_manga_unfiltered
+  SOURCES: "g:sources",   // sources list + per-source page caches
+} as const;
+
 export const CACHE_KEYS = {
-  LIBRARY:  "library",
-  SOURCES:  "sources",
-  POPULAR:  "popular",
+  LIBRARY:             "library",
+  ALL_MANGA:           "all_manga_unfiltered",
+  SOURCES:             "sources",
+  POPULAR:             "popular",
   GENRE:    (genre: string) => `genre:${genre}`,
   MANGA:    (id: number)    => `manga:${id}`,
   CHAPTERS: (id: number)    => `chapters:${id}`,
 
-  /**
-   * Stable key for a browse session's page-number set.
-   * Tag arrays are sorted so order never creates duplicate buckets —
-   * ["Action","Romance"] and ["Romance","Action"] share one key.
-   *
-   * Examples:
-   *   CACHE_KEYS.sourceMangaPages("src123", "POPULAR")
-   *   CACHE_KEYS.sourceMangaPages("src123", "SEARCH", "naruto")
-   *   CACHE_KEYS.sourceMangaPages("src123", "SEARCH", ["Action","Romance"])
-   */
   sourceMangaPages(
     sourceId: string,
     type:     "POPULAR" | "LATEST" | "SEARCH",
@@ -105,7 +169,6 @@ export const CACHE_KEYS = {
     return `pages:${sourceId}:${type}:${q}`;
   },
 
-  /** Per-page result key. Always pair with sourceMangaPages(). */
   sourceMangaPage(
     sourceId: string,
     type:     "POPULAR" | "LATEST" | "SEARCH",

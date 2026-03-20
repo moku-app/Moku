@@ -5,6 +5,7 @@
   import { GET_MANGA, GET_CHAPTERS, FETCH_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
   import { settings, previewManga, activeManga, navPage, genreFilter, openReader, addToast, addFolder, assignMangaToFolder, removeMangaFromFolder, checkAndMarkCompleted } from "../../store";
+  import { groupDuplicates } from "../../lib/util";
   import type { Manga, Chapter } from "../../lib/types";
 
   let manga: Manga | null      = null;
@@ -20,6 +21,13 @@
   let fetchError: string|null  = null;
   let folderRef: HTMLDivElement;
 
+  // Alternate versions of this manga from other sources (same title/desc, diff source)
+  // Populated by the parent via the `alternates` prop if available.
+  export let alternates: Manga[] = [];
+  let selectedThumb: string | null = null; // null = use manga's own thumbnail
+
+  $: effectiveThumb = selectedThumb ?? ($previewManga?.thumbnailUrl ?? "");
+
   let detailAbort: AbortController | null  = null;
   let chapterAbort: AbortController | null = null;
 
@@ -28,6 +36,7 @@
     previewManga.set(null);
     manga = null; chapters = []; descExpanded = false;
     folderOpen = false; creatingFolder = false; newFolderName = ""; fetchError = null;
+    selectedThumb = null;
   }
 
   function formatDate(d: Date) { return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
@@ -157,17 +166,52 @@
 </script>
 
 {#if $previewManga}
-<div class="backdrop" on:click={(e) => { if (e.target === e.currentTarget) close(); }}>
+<div class="backdrop" role="presentation" on:click={(e) => { if (e.target === e.currentTarget) close(); }} on:keydown={(e) => { if (e.key === "Escape") close(); }}>
   <div class="modal" role="dialog" aria-label="Manga preview">
 
     <!-- Cover column -->
     <div class="cover-col">
       <div class="cover-wrap">
-        <img src={thumbUrl($previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" />
+        <img src={thumbUrl(effectiveThumb)} alt={displayManga?.title} class="cover" />
         {#if loadingDetail}
           <div class="cover-spinner"><CircleNotch size={18} weight="light" class="anim-spin" /></div>
         {/if}
       </div>
+
+      <!-- Alternate source thumbnails — shown when this manga exists in multiple sources -->
+      {#if alternates.length > 0}
+        <div class="thumb-switcher">
+          <span class="thumb-switcher-label">Sources</span>
+          <div class="thumb-switcher-row">
+            <!-- Primary -->
+            <button
+              class="thumb-option"
+              class:thumb-option-active={selectedThumb === null}
+              on:click={() => selectedThumb = null}
+              title={displayManga?.source?.displayName ?? "Primary"}
+            >
+              <img src={thumbUrl($previewManga?.thumbnailUrl ?? "")} alt="Primary" class="thumb-option-img" loading="lazy" />
+              {#if displayManga?.source?.displayName}
+                <span class="thumb-option-label">{displayManga.source.displayName}</span>
+              {/if}
+            </button>
+            <!-- Alternates -->
+            {#each alternates as alt (alt.id)}
+              <button
+                class="thumb-option"
+                class:thumb-option-active={selectedThumb === alt.thumbnailUrl}
+                on:click={() => selectedThumb = alt.thumbnailUrl}
+                title={alt.source?.displayName ?? alt.title}
+              >
+                <img src={thumbUrl(alt.thumbnailUrl)} alt={alt.title} class="thumb-option-img" loading="lazy" />
+                {#if alt.source?.displayName}
+                  <span class="thumb-option-label">{alt.source.displayName}</span>
+                {/if}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
       <div class="cover-actions">
         <button class="action-btn" class:active={inLibrary} on:click={toggleLibrary} disabled={togglingLib || loadingDetail}>
           <BookmarkSimple size={13} weight={inLibrary ? "fill" : "light"} />
@@ -401,5 +445,40 @@
   .meta-val { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); }
   .meta-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); color: var(--accent-fg); text-decoration: none; transition: opacity var(--t-base); }
   .meta-link:hover { opacity: 0.75; }
+  /* ── Thumbnail switcher ──────────────────────────────────────────────────── */
+  .thumb-switcher {
+    display: flex; flex-direction: column; gap: var(--sp-2);
+    border-top: 1px solid var(--border-dim); padding-top: var(--sp-3);
+  }
+  .thumb-switcher-label {
+    font-family: var(--font-ui); font-size: var(--text-2xs);
+    color: var(--text-faint); letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+  }
+  .thumb-switcher-row {
+    display: flex; flex-wrap: wrap; gap: var(--sp-2);
+  }
+  .thumb-option {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: none; border: 1px solid var(--border-dim);
+    border-radius: var(--radius-sm); padding: 4px;
+    cursor: pointer; transition: border-color var(--t-base), background var(--t-base);
+    flex: 1; min-width: 52px; max-width: 64px;
+  }
+  .thumb-option:hover { border-color: var(--border-strong); background: var(--bg-overlay); }
+  .thumb-option-active { border-color: var(--accent) !important; background: var(--accent-muted) !important; }
+  .thumb-option-img {
+    width: 100%; aspect-ratio: 2/3; object-fit: cover;
+    border-radius: 2px; display: block;
+  }
+  .thumb-option-label {
+    font-family: var(--font-ui); font-size: 9px;
+    color: var(--text-faint); letter-spacing: var(--tracking-wide);
+    text-align: center; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    width: 100%;
+  }
+  .thumb-option-active .thumb-option-label { color: var(--accent-fg); }
+
   @keyframes pulse { 0%,100% { opacity: 0.4 } 50% { opacity: 0.8 } }
 </style>

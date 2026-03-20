@@ -4,12 +4,13 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaByTitle, dedupeMangaById } from "../../lib/util";
+  import { dedupeSources, dedupeMangaByTitle, dedupeMangaById, groupDuplicates, normalizeTitle } from "../../lib/util";
   import { settings, previewManga, activeSource, addFolder, assignMangaToFolder } from "../../store";
   import type { Manga, Source } from "../../lib/types";
   import ContextMenu from "../shared/ContextMenu.svelte";
   import type { MenuEntry } from "../shared/ContextMenu.svelte";
   import SourceBrowse from "../sources/SourceBrowse.svelte";
+  import MangaPreview from "../shared/MangaPreview.svelte";
 
   // ── Config ────────────────────────────────────────────────────────────────────
   const GENRE_TABS      = ["All", "Action", "Romance", "Fantasy", "Comedy", "Drama", "Horror", "Sci-Fi", "Adventure", "Thriller"];
@@ -56,6 +57,32 @@
   // Context menu
   let ctx: { x: number; y: number; manga: Manga } | null = null;
 
+  // Raw pool of ALL items before dedup — used to find alternates for the preview switcher.
+  // Keyed by normalised title → array of Manga with that title from different sources.
+  let rawPool = new Map<string, Manga[]>();
+
+  function addToPool(items: Manga[]) {
+    for (const m of items) {
+      const k = normalizeTitle(m.title);
+      if (!rawPool.has(k)) rawPool.set(k, []);
+      const group = rawPool.get(k)!;
+      if (!group.some(x => x.id === m.id)) group.push(m);
+    }
+  }
+
+  // Get alternates (other source variants) for a given manga, excluding itself
+  function getAlternates(m: Manga): Manga[] {
+    const k = normalizeTitle(m.title);
+    return (rawPool.get(k) ?? []).filter(x => x.id !== m.id);
+  }
+
+  // Open preview with alternates pre-computed
+  let previewAlternates: Manga[] = [];
+  function openPreview(m: Manga) {
+    previewAlternates = getAlternates(m);
+    previewManga.set(m);
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────────
   $: visibleGrid = genreResults.get(currentGenre) ?? [];
   $: isLoading   = genreLoading || (currentGenre === "All" && loadingLib);
@@ -86,11 +113,12 @@
     batchTimer = setInterval(() => {
       if (batchAccum.size === 0) return;
       for (const [genre, incoming] of batchAccum) {
+        addToPool(incoming);
         const current = genreResults.get(genre) ?? [];
         genreResults.set(genre, dedup([...current, ...incoming]).slice(0, GRID_LIMIT));
       }
       batchAccum.clear();
-      genreResults = new Map(genreResults); // single Svelte reactivity trigger
+      genreResults = new Map(genreResults);
     }, BATCH_INTERVAL);
   }
 
@@ -242,6 +270,7 @@
       gql<{ mangas: { nodes: Manga[] } }>(EXPLORE_ALL_MANGA).then(d => d.mangas.nodes)
     ).then(m => {
       allManga = dedupeMangaById(m);
+      addToPool(allManga);
       genreResults.set("All", dedup(allManga).slice(0, GRID_LIMIT));
       genreResults = new Map(genreResults);
     }).catch(e => { console.error(e); loadError = true; })
@@ -313,7 +342,7 @@
           {#each visibleGrid as m (m.id)}
             <button
               class="manga-card"
-              on:click={() => previewManga.set(m)}
+              on:click={() => openPreview(m)}
               on:contextmenu={(e) => openCtx(e, m)}
             >
               <div class="cover-wrap">
@@ -342,6 +371,8 @@
 {#if ctx}
   <ContextMenu x={ctx.x} y={ctx.y} items={buildCtxItems(ctx.manga)} onClose={() => ctx = null} />
 {/if}
+
+<MangaPreview alternates={previewAlternates} />
 
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }

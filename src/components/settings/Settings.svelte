@@ -863,7 +863,6 @@
   .perf-stat { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
 
   /* Storage limit */
-  .storage-limit-row { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
   .storage-limit-input {
     width: 64px; text-align: center;
     background: var(--bg-raised); border: 1px solid var(--border-dim);
@@ -876,5 +875,4 @@
   .storage-limit-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .storage-limit-input:focus { border-color: var(--border-strong); }
   .storage-limit-unit { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
-  .storage-limit-note { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); padding: 0 var(--sp-3) var(--sp-2); }
 </style>
