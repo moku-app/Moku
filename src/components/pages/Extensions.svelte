@@ -231,7 +231,6 @@
               <span class="name">{base}</span>
               <span class="meta"><span class="lang-tag">{primary.lang.toUpperCase()}</span> v{primary.versionName}</span>
             </div>
-            {#if primary.hasUpdate}<span class="update-badge">Update</span>{/if}
             {#if working.has(primary.pkgName)}
               <CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" />
             {:else if primary.hasUpdate}
