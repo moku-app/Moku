@@ -10,7 +10,16 @@ export const GET_LIBRARY = `
         inLibrary
         downloadCount
         unreadCount
+        description
+        status
+        author
+        artist
         genre
+        source {
+          id
+          name
+          displayName
+        }
         chapters {
           totalCount
         }

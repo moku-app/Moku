@@ -1,13 +1,10 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { gql } from "./lib/client";
   import { GET_DOWNLOAD_STATUS } from "./lib/queries";
-  import {
-    activeChapter, settingsOpen, settings,
-    activeDownloads, addToast,
-  } from "./store";
+  import { activeChapter, settingsOpen, settings, activeDownloads, addToast } from "./store";
   import type { DownloadStatus, DownloadQueueItem } from "./lib/types";
   import Layout       from "./components/layout/Layout.svelte";
   import Reader       from "./components/reader/Reader.svelte";
@@ -19,15 +16,16 @@
 
   const MAX_ATTEMPTS = 30;
 
-  let serverProbeOk = !$settings.autoStartServer;
-  let appReady      = !$settings.autoStartServer;
-  let failed        = false;
-  let retryKey      = 0;
-  let idle          = false;
-  let devSplash     = false;
+  let serverProbeOk = $state(!settings.autoStartServer);
+  let appReady      = $state(!settings.autoStartServer);
+  let failed        = $state(false);
+  let idle          = $state(false);
+  let devSplash     = $state(false);
 
   let prevQueue: DownloadQueueItem[] = [];
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let pollInterval: ReturnType<typeof setInterval>;
+  let unlistenDownload: (() => void) | undefined;
 
   function detectCompletions(prev: DownloadQueueItem[], next: DownloadQueueItem[]) {
     for (const item of prev) {
@@ -44,46 +42,51 @@
   function applyQueue(next: DownloadQueueItem[]) {
     detectCompletions(prevQueue, next);
     prevQueue = next;
-    activeDownloads.set(next.map(item => ({
+    activeDownloads = next.map(item => ({
       chapterId: item.chapter.id, mangaId: item.chapter.mangaId, progress: item.progress,
-    })));
+    }));
   }
 
   function resetIdle() {
     if (idle) return;
     if (idleTimer) clearTimeout(idleTimer);
-    const ms = ($settings.idleTimeoutMin ?? 5) * 60 * 1000;
+    const ms = (settings.idleTimeoutMin ?? 5) * 60 * 1000;
     if (ms === 0) return;
     idleTimer = setTimeout(() => idle = true, ms);
   }
 
-  const idleEvents = ["mousemove","mousedown","keydown","touchstart","wheel"] as const;
+  const idleEvents = ["mousemove", "mousedown", "keydown", "touchstart", "wheel"] as const;
 
-  $: if (appReady) {
+  $effect(() => {
+    if (!appReady) return;
     idleEvents.forEach(e => window.addEventListener(e, resetIdle, { passive: true }));
     resetIdle();
-  }
+    return () => idleEvents.forEach(e => window.removeEventListener(e, resetIdle));
+  });
 
-  $: document.documentElement.style.zoom = `${$settings.uiScale * 1.5}%`;
-  $: document.documentElement.setAttribute("data-theme", $settings.theme ?? "dark");
+  $effect(() => {
+    document.documentElement.style.zoom = `${settings.uiScale * 1.5}%`;
+  });
 
-  let pollInterval: ReturnType<typeof setInterval>;
-  $: if (appReady) {
+  $effect(() => {
+    document.documentElement.setAttribute("data-theme", settings.theme ?? "dark");
+  });
+
+  $effect(() => {
+    if (!appReady) return;
     const poll = () => gql<{ downloadStatus: DownloadStatus }>(GET_DOWNLOAD_STATUS)
       .then(d => applyQueue(d.downloadStatus.queue)).catch(console.error);
     poll();
     pollInterval = setInterval(poll, 2000);
-  }
-
-  let unlistenDownload: (() => void) | undefined;
+    return () => clearInterval(pollInterval);
+  });
 
   onMount(async () => {
     document.addEventListener("contextmenu", e => e.preventDefault());
-
     (window as any).__mokuShowSplash = () => devSplash = true;
 
-    if ($settings.autoStartServer) {
-      invoke("spawn_server", { binary: $settings.serverBinary }).catch(err =>
+    if (settings.autoStartServer) {
+      invoke("spawn_server", { binary: settings.serverBinary }).catch(err =>
         console.warn("Could not start server:", err));
     }
 
@@ -93,7 +96,7 @@
         if (cancelled) return;
         tries++;
         try {
-          const res = await fetch(`${$settings.serverUrl}/api/graphql`, {
+          const res = await fetch(`${settings.serverUrl}/api/graphql`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query: "{ __typename }" }),
             signal: AbortSignal.timeout(2000),
@@ -107,59 +110,45 @@
     }
 
     type P = { chapterId: number; mangaId: number; progress: number }[];
-    unlistenDownload = await listen<P>("download-progress", e =>
-      activeDownloads.set(e.payload));
+    unlistenDownload = await listen<P>("download-progress", e => { activeDownloads = e.payload; });
+
+    return () => {
+      if (settings.autoStartServer) invoke("kill_server").catch(() => {});
+      if (idleTimer) clearTimeout(idleTimer);
+      if (pollInterval) clearInterval(pollInterval);
+      unlistenDownload?.();
+      delete (window as any).__mokuShowSplash;
+    };
   });
 
-  onDestroy(() => {
-    if ($settings.autoStartServer) invoke("kill_server").catch(() => {});
-    idleEvents.forEach(e => window.removeEventListener(e, resetIdle));
-    if (idleTimer) clearTimeout(idleTimer);
-    if (pollInterval) clearInterval(pollInterval);
-    unlistenDownload?.();
-    delete (window as any).__mokuShowSplash;
-  });
-
-  function handleRetry() {
-    failed = false;
-    serverProbeOk = false;
-    retryKey++;
-  }
+  function handleRetry() { failed = false; serverProbeOk = false; }
 </script>
 
 {#if devSplash}
-  <SplashScreen mode="idle" showFps showCards={$settings.splashCards ?? true}
+  <SplashScreen mode="idle" showFps showCards={settings.splashCards ?? true}
     onDismiss={() => setTimeout(() => devSplash = false, 340)} />
 {:else if !appReady}
   <SplashScreen mode="loading" ringFull={serverProbeOk} {failed}
-    showCards={$settings.splashCards ?? true}
+    showCards={settings.splashCards ?? true}
     onReady={() => appReady = true}
     onRetry={handleRetry} />
 {:else}
   <div class="root">
-    {#if idle && !$activeChapter}
-      <SplashScreen mode="idle" showCards={$settings.splashCards ?? true}
+    {#if idle && !activeChapter}
+      <SplashScreen mode="idle" showCards={settings.splashCards ?? true}
         onDismiss={() => setTimeout(() => idle = false, 340)} />
     {/if}
-    {#if !$activeChapter}<TitleBar />{/if}
+    {#if !activeChapter}<TitleBar />{/if}
     <div class="content">
-      {#if $activeChapter}<Reader />{:else}<Layout />{/if}
+      {#if activeChapter}<Reader />{:else}<Layout />{/if}
     </div>
-    {#if $settingsOpen}<Settings />{/if}
+    {#if settingsOpen}<Settings />{/if}
     <MangaPreview />
     <Toaster />
   </div>
 {/if}
 
 <style>
-  .root {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-  }
-  .content {
-    flex: 1;
-    overflow: hidden;
-  }
+  .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .content { flex: 1; overflow: hidden; }
 </style>
