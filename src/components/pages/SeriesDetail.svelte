@@ -12,7 +12,7 @@
     ENQUEUE_CHAPTERS_DOWNLOAD,
   } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
-  import { settings, activeManga, activeChapter, genreFilter, navPage, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader } from "../../store";
+  import { settings, activeManga, activeChapter, genreFilter, navPage, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader, checkAndMarkCompleted } from "../../store";
   import type { Manga, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
   import MigrateModal from "./MigrateModal.svelte";
@@ -64,6 +64,12 @@
 
   function applyChapters(nodes: Chapter[]) {
     chapters = nodes;
+    // Passive completion check — runs every time the chapter list is loaded
+    // or refreshed. Covers: opening SeriesDetail, returning from reader,
+    // background refresh. Only checks if manga is already in library.
+    if ($activeManga && nodes.length > 0) {
+      checkAndMarkCompleted($activeManga.id, nodes);
+    }
   }
 
   $: sortDir = $settings.chapterSortDir;
@@ -217,7 +223,10 @@
   async function markRead(chapterId: number, isRead: boolean) {
     await gql(MARK_CHAPTER_READ, { id: chapterId, isRead }).catch(console.error);
     chapters = chapters.map((c) => c.id === chapterId ? { ...c, isRead } : c);
-    if ($activeManga) chapterStore.set($activeManga.id, { data: chapters, fetchedAt: Date.now() });
+    if ($activeManga) {
+      chapterStore.set($activeManga.id, { data: chapters, fetchedAt: Date.now() });
+      checkAndMarkCompleted($activeManga.id, chapters);
+    }
   }
 
   async function markBulk(ids: number[], isRead: boolean) {
@@ -225,7 +234,10 @@
     await gql(MARK_CHAPTERS_READ, { ids, isRead }).catch(console.error);
     const idSet = new Set(ids);
     chapters = chapters.map((c) => idSet.has(c.id) ? { ...c, isRead } : c);
-    if ($activeManga) chapterStore.set($activeManga.id, { data: chapters, fetchedAt: Date.now() });
+    if ($activeManga) {
+      chapterStore.set($activeManga.id, { data: chapters, fetchedAt: Date.now() });
+      checkAndMarkCompleted($activeManga.id, chapters);
+    }
   }
 
   const markAboveRead   = (i: number) => markBulk(sortedChapters.slice(0, i + 1).filter((c) => !c.isRead).map((c) => c.id), true);

@@ -5,6 +5,7 @@
   import { gql } from "../../lib/client";
   import { GET_DOWNLOADS_PATH } from "../../lib/queries";
   import { settings, settingsOpen, history, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab } from "../../store";
+  import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store";
   import type { Keybinds } from "../../lib/keybinds";
@@ -96,6 +97,68 @@
     const units = ["B","KB","MB","GB","TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
+  }
+
+  // ── Performance metrics ───────────────────────────────────────────────────────
+  // Pulled from the session cache on demand — lightweight, no extra fetches.
+  interface PerfSnapshot {
+    cacheEntries: number;
+    cacheKeys:    string[];
+    oldestEntryMs: number | null;
+    newestEntryMs: number | null;
+  }
+
+  let perfSnapshot: PerfSnapshot | null = null;
+
+  function refreshPerfMetrics() {
+    // cache.list() isn't exported, but we can probe known keys to build a snapshot
+    const knownPrefixes = ["library", "sources", "popular", "genre:", "manga:", "chapters:", "page:", "pages:"];
+    let entries = 0;
+    let oldest: number | null = null;
+    let newest: number | null = null;
+    const foundKeys: string[] = [];
+
+    // We walk the cache via ageOf — non-zero means the key exists
+    // For a real count we introspect via a set of likely keys
+    // (The cache module doesn't expose an iterator, so we sample)
+    const checkKey = (k: string) => {
+      const age = cache.ageOf(k);
+      if (age !== undefined) {
+        entries++;
+        foundKeys.push(k);
+        const ts = Date.now() - age;
+        if (oldest === null || ts < oldest) oldest = ts;
+        if (newest === null || ts > newest) newest = ts;
+      }
+    };
+
+    ["library", "sources", "popular"].forEach(checkKey);
+    ["Action","Romance","Fantasy","Comedy","Drama","Horror","Sci-Fi","Adventure","Thriller",
+     "Isekai","Supernatural","Historical","Psychological","Sports","Mystery","Mecha",
+     "Slice of Life","School Life","Martial Arts","Magic","Military"].forEach(g => checkKey(`genre:${g}`));
+
+    perfSnapshot = { cacheEntries: entries, cacheKeys: foundKeys, oldestEntryMs: oldest, newestEntryMs: newest };
+  }
+
+  $: if (tab === "performance") refreshPerfMetrics();
+
+  function fmtAge(ts: number | null): string {
+    if (ts === null) return "—";
+    const secs = Math.floor((Date.now() - ts) / 1000);
+    if (secs < 60) return `${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ago`;
+  }
+
+  // Storage limit input state
+  let storageLimitInput = String($settings.storageLimitGb ?? "");
+
+  function applyStorageLimit() {
+    const v = storageLimitInput.trim();
+    if (v === "" || v === "0") { updateSettings({ storageLimitGb: null }); return; }
+    const n = parseFloat(v);
+    if (!isNaN(n) && n > 0) updateSettings({ storageLimitGb: n });
   }
 
   
@@ -387,6 +450,27 @@
         
         {:else if tab === "performance"}
           <div class="panel">
+
+            <div class="section">
+              <p class="section-title">Render Limit</p>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Items per page</span>
+                  <span class="toggle-desc">Library and Search render this many items before showing a "Load more" button. Lower = faster scrolling on large libraries.</span>
+                </div>
+                <div class="step-controls">
+                  <button class="step-btn" on:click={() => updateSettings({ renderLimit: Math.max(12, ($settings.renderLimit ?? 48) - 12) })} disabled={($settings.renderLimit ?? 48) <= 12}>−</button>
+                  <span class="step-val">{$settings.renderLimit ?? 48}</span>
+                  <button class="step-btn" on:click={() => updateSettings({ renderLimit: Math.min(200, ($settings.renderLimit ?? 48) + 12) })} disabled={($settings.renderLimit ?? 48) >= 200}>+</button>
+                </div>
+              </div>
+              <p class="scale-hint">
+                {#each [12, 24, 48, 96, 200] as v}
+                  <button class="scale-preset" class:active={($settings.renderLimit ?? 48) === v} on:click={() => updateSettings({ renderLimit: v })}>{v}</button>
+                {/each}
+              </p>
+            </div>
+
             <div class="section">
               <p class="section-title">Rendering</p>
               <label class="toggle-row">
@@ -394,6 +478,7 @@
                 <button role="switch" aria-checked={$settings.gpuAcceleration} aria-label="GPU acceleration" class="toggle" class:on={$settings.gpuAcceleration} on:click={() => updateSettings({ gpuAcceleration: !$settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
+
             <div class="section">
               <p class="section-title">Idle / Splash Screen</p>
               <label class="toggle-row">
@@ -401,6 +486,7 @@
                 <button role="switch" aria-checked={$settings.splashCards ?? true} aria-label="Animated card background" class="toggle" class:on={$settings.splashCards ?? true} on:click={() => updateSettings({ splashCards: !($settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
+
             <div class="section">
               <p class="section-title">Interface</p>
               <label class="toggle-row">
@@ -408,6 +494,37 @@
                 <button role="switch" aria-checked={$settings.compactSidebar} aria-label="Compact sidebar" class="toggle" class:on={$settings.compactSidebar} on:click={() => updateSettings({ compactSidebar: !$settings.compactSidebar })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
+
+            <div class="section">
+              <p class="section-title">Session Cache</p>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Cache entries</span>
+                  <span class="toggle-desc">In-memory request cache for this session (library, sources, genre pages). Cleared on restart.</span>
+                </div>
+                <div class="perf-stat-group">
+                  <span class="perf-stat">{perfSnapshot?.cacheEntries ?? 0} entries</span>
+                  <button class="kb-reset" on:click={refreshPerfMetrics} title="Refresh">↺</button>
+                </div>
+              </div>
+              {#if perfSnapshot && perfSnapshot.cacheEntries > 0}
+                <div class="step-row">
+                  <div class="toggle-info"><span class="toggle-label">Oldest entry</span></div>
+                  <span class="perf-stat">{fmtAge(perfSnapshot.oldestEntryMs)}</span>
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info"><span class="toggle-label">Newest entry</span></div>
+                  <span class="perf-stat">{fmtAge(perfSnapshot.newestEntryMs)}</span>
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Cached keys</span>
+                    <span class="toggle-desc">{perfSnapshot.cacheKeys.join(", ")}</span>
+                  </div>
+                </div>
+              {/if}
+            </div>
+
           </div>
 
         
@@ -478,6 +595,45 @@
                 <button class="danger-btn" on:click={handleClearCache} disabled={clearing}>
                   {cleared ? "Cleared" : clearing ? "Clearing…" : "Clear cache"}
                 </button>
+              </div>
+            </div>
+            <div class="section">
+              <p class="section-title">Storage Limit</p>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Limit download storage</span>
+                  <span class="toggle-desc">
+                    {$settings.storageLimitGb === null
+                      ? "No limit — uses full drive capacity"
+                      : `Warn when downloads exceed ${$settings.storageLimitGb} GB`}
+                  </span>
+                </div>
+                {#if $settings.storageLimitGb === null}
+                  <button class="step-btn" style="width:auto;padding:0 var(--sp-3);font-size:var(--text-xs);letter-spacing:var(--tracking-wide)"
+                    on:click={() => updateSettings({ storageLimitGb: 10 })}>
+                    Set limit
+                  </button>
+                {:else}
+                  <div class="step-controls">
+                    <button class="step-btn"
+                      on:click={() => updateSettings({ storageLimitGb: Math.max(1, ($settings.storageLimitGb ?? 10) - 1) })}
+                      disabled={($settings.storageLimitGb ?? 10) <= 1}>−</button>
+                    <input
+                      type="number" min="1" step="1"
+                      class="storage-limit-input"
+                      value={$settings.storageLimitGb}
+                      on:input={(e) => {
+                        const n = parseFloat(e.currentTarget.value);
+                        if (!isNaN(n) && n > 0) updateSettings({ storageLimitGb: n });
+                      }}
+                    />
+                    <span class="storage-limit-unit">GB</span>
+                    <button class="step-btn"
+                      on:click={() => updateSettings({ storageLimitGb: ($settings.storageLimitGb ?? 10) + 1 })}>+</button>
+                    <button class="kb-reset" title="Remove limit"
+                      on:click={() => updateSettings({ storageLimitGb: null })}>↺</button>
+                  </div>
+                {/if}
               </div>
             </div>
           </div>
@@ -701,4 +857,24 @@
   /* About */
   .about-block { padding: 0 var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
   .about-line { font-size: var(--text-sm); color: var(--text-muted); line-height: var(--leading-base); }
+
+  /* Perf metrics */
+  .perf-stat-group { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+  .perf-stat { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+
+  /* Storage limit */
+  .storage-limit-row { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+  .storage-limit-input {
+    width: 64px; text-align: center;
+    background: var(--bg-raised); border: 1px solid var(--border-dim);
+    border-radius: var(--radius-sm); padding: 3px 6px;
+    color: var(--text-secondary); font-family: var(--font-ui); font-size: var(--text-xs);
+    outline: none; transition: border-color var(--t-base);
+    -moz-appearance: textfield;
+  }
+  .storage-limit-input::-webkit-inner-spin-button,
+  .storage-limit-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .storage-limit-input:focus { border-color: var(--border-strong); }
+  .storage-limit-unit { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+  .storage-limit-note { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); padding: 0 var(--sp-3) var(--sp-2); }
 </style>

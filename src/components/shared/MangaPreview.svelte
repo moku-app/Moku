@@ -4,7 +4,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_MANGA, GET_CHAPTERS, FETCH_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { settings, previewManga, activeManga, navPage, genreFilter, openReader, addToast, addFolder, assignMangaToFolder, removeMangaFromFolder } from "../../store";
+  import { settings, previewManga, activeManga, navPage, genreFilter, openReader, addToast, addFolder, assignMangaToFolder, removeMangaFromFolder, checkAndMarkCompleted } from "../../store";
   import type { Manga, Chapter } from "../../lib/types";
 
   let manga: Manga | null      = null;
@@ -97,7 +97,11 @@
             if (!cCtrl.signal.aborted) nodes = [...fetched.fetchChapters.chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
           } catch (e: any) { if (e?.name === "AbortError") return; }
         }
-        if (!cCtrl.signal.aborted) chapters = nodes;
+        if (!cCtrl.signal.aborted) {
+          chapters = nodes;
+          // Passive check — MangaPreview has the full chapter list, use it
+          if (nodes.length > 0) checkAndMarkCompleted(id, nodes);
+        }
       })
       .catch(() => {})
       .finally(() => { if (!cCtrl.signal.aborted) loadingChapters = false; });

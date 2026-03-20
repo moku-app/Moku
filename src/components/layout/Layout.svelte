@@ -1,13 +1,14 @@
 <script lang="ts">
   import { navPage, activeManga } from "../../store";
-  import Sidebar    from "./Sidebar.svelte";
-  import Library    from "../pages/Library.svelte";
+  import Sidebar     from "./Sidebar.svelte";
+  import Home        from "../pages/Home.svelte";
+  import Library     from "../pages/Library.svelte";
   import SeriesDetail from "../pages/SeriesDetail.svelte";
-  import History    from "../history/History.svelte";
-  import Search     from "../search/Search.svelte";
-  import Explore    from "../pages/Explore.svelte";
-  import Downloads  from "../downloads/Downloads.svelte";
-  import Extensions from "../pages/Extensions.svelte";
+  import History     from "../history/History.svelte";
+  import Search      from "../search/Search.svelte";
+  import Discover    from "../pages/Discover.svelte";
+  import Downloads   from "../downloads/Downloads.svelte";
+  import Extensions  from "../pages/Extensions.svelte";
 </script>
 
 <div class="root">
@@ -15,6 +16,8 @@
   <main class="main">
     {#if $activeManga}
       <SeriesDetail />
+    {:else if $navPage === "home"}
+      <Home />
     {:else if $navPage === "library"}
       <Library />
     {:else if $navPage === "search"}
@@ -22,13 +25,13 @@
     {:else if $navPage === "history"}
       <History />
     {:else if $navPage === "explore" || $navPage === "sources"}
-      <Explore />
+      <Discover />
     {:else if $navPage === "downloads"}
       <Downloads />
     {:else if $navPage === "extensions"}
       <Extensions />
     {:else}
-      <Library />
+      <Home />
     {/if}
   </main>
 </div>

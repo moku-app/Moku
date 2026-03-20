@@ -21,10 +21,11 @@
 
   
 
-  const CONCURRENCY        = 4;
-  const RESULTS_PER_SOURCE = 8;
-  const TAG_PAGE_SIZE      = 48;
-  const MAX_TAG_SOURCES    = 10;
+  const CONCURRENCY        = 6;  // more parallel source requests
+  // RESULTS_PER_SOURCE and TAG_PAGE_SIZE are driven by $settings.renderLimit
+  // (accessed inline) so changing the setting takes effect immediately.
+  // No MAX_TAG_SOURCES cap — we fan out to all deduped sources so the grid
+  // is fully populated. Concurrency + caching keep this fast.
 
   const COMMON_GENRES = [
     "Action","Adventure","Comedy","Drama","Fantasy","Romance",
@@ -217,10 +218,12 @@
 
   $: tag_hasActiveTags = tag_activeTags.length > 0;
   $: tag_localIds      = new Set(tag_localResults.map((m) => m.id));
-  $: tag_mergedResults = tag_searchSources
-    ? [...tag_localResults, ...tag_sourceResults.filter((m) => !tag_localIds.has(m.id))]
-    : tag_localResults;
-  $: tag_totalVisible  = tag_localResults.length + (tag_searchSources ? tag_sourceResults.length : 0);
+  $: tag_mergedResults = dedupeMangaByTitle(dedupeMangaById(
+    tag_searchSources
+      ? [...tag_localResults, ...tag_sourceResults.filter((m) => !tag_localIds.has(m.id))]
+      : tag_localResults
+  ));
+  $: tag_totalVisible  = tag_mergedResults.length;
   $: tag_sourceHasMore = tag_searchSources && [...tag_srcNextPage.values()].some((p) => p > 0);
 
   
@@ -230,7 +233,11 @@
     tagFetchLocal(_activeTags, _tagMode);
   }
 
-  
+  // Auto-enable source search if local results are sparse (< 20 after initial load)
+  $: if (!tag_loadingLocal && tag_activeTags.length > 0 && tag_localResults.length < 20 && !tag_searchSources && !loadingSources) {
+    tag_searchSources = true;
+  }
+
   $: {
     const _search = tag_searchSources;
     const _tags   = tag_activeTags;
@@ -252,14 +259,14 @@
 
     gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean }; totalCount: number } }>(
       MANGAS_BY_GENRE,
-      { filter: buildGenreFilter(activeTags, tagMode), first: TAG_PAGE_SIZE, offset: 0 },
+      { filter: buildGenreFilter(activeTags, tagMode), first: ($settings.renderLimit ?? 48), offset: 0 },
       ctrl.signal,
     ).then((d) => {
       if (ctrl.signal.aborted) return;
       tag_localResults  = d.mangas.nodes;
       tag_totalCount    = d.mangas.totalCount;
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
-      tag_localOffset   = TAG_PAGE_SIZE;
+      tag_localOffset   = ($settings.renderLimit ?? 48);
     }).catch((e: any) => {
       if (e?.name !== "AbortError") console.error(e);
     }).finally(() => {
@@ -276,7 +283,9 @@
     tag_srcNextPage       = new Map();
     tag_loadingSourceSearch = true;
 
-    const sources    = dedupeSources(allSources, preferredLang).slice(0, MAX_TAG_SOURCES);
+    // Fan out to ALL deduped sources — no arbitrary cap.
+    // Concurrency (6) + per-page caching keeps this fast without hammering connections.
+    const sources    = dedupeSources(allSources, preferredLang);
     const primaryTag = activeTags[0];
 
     for (const src of sources) tag_srcNextPage.set(src.id, -1);
@@ -311,7 +320,7 @@
         : result.mangas;
 
       if (matching.length > 0) {
-        tag_sourceResults = dedupeMangaById([...tag_sourceResults, ...matching]);
+        tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]));
         tag_loadingSourceSearch = false;
       }
     }, ctrl.signal).finally(() => {
@@ -328,13 +337,13 @@
     try {
       const d = await gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean } } }>(
         MANGAS_BY_GENRE,
-        { filter: buildGenreFilter(tag_activeTags, tag_tagMode), first: TAG_PAGE_SIZE, offset: tag_localOffset },
+        { filter: buildGenreFilter(tag_activeTags, tag_tagMode), first: ($settings.renderLimit ?? 48), offset: tag_localOffset },
         ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
       tag_localResults  = [...tag_localResults, ...d.mangas.nodes];
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
-      tag_localOffset  += TAG_PAGE_SIZE;
+      tag_localOffset  += ($settings.renderLimit ?? 48);
     } catch (e: any) {
       if (e?.name !== "AbortError") console.error(e);
     } finally {
@@ -350,7 +359,6 @@
     tag_abortSource = ctrl;
 
     const sources    = dedupeSources(allSources, preferredLang)
-      .slice(0, MAX_TAG_SOURCES)
       .filter((src) => (tag_srcNextPage.get(src.id) ?? -1) > 0);
     const primaryTag = tag_activeTags[0];
 
@@ -385,7 +393,7 @@
           : result.mangas;
 
         if (matching.length > 0)
-          tag_sourceResults = dedupeMangaById([...tag_sourceResults, ...matching]);
+          tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]));
       }, ctrl.signal);
     } finally {
       if (!ctrl.signal.aborted) tag_loadingMoreSource = false;
@@ -675,7 +683,7 @@
               </div>
             {:else if mangas.length > 0}
               <div class="sourceRow">
-                {#each mangas.slice(0, RESULTS_PER_SOURCE) as m (m.id)}
+                {#each mangas.slice(0, ($settings.renderLimit ?? 48)) as m (m.id)}
                   <button class="card" on:click={() => previewManga.set(m)}>
                     <div class="coverWrap">
                       <img

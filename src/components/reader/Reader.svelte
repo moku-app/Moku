@@ -7,7 +7,7 @@
   } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
-  import { settings, activeManga, activeChapter, activeChapterList, pageUrls, pageNumber, closeReader, openReader, settingsOpen, addHistory, updateSettings } from "../../store";
+  import { settings, activeManga, activeChapter, activeChapterList, pageUrls, pageNumber, closeReader, openReader, settingsOpen, addHistory, updateSettings, checkAndMarkCompleted } from "../../store";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import type { FitMode } from "../../store";
 
@@ -148,7 +148,14 @@
     const ch = $activeChapter;
     if (!ch || !markOnNext || markedRead.has(ch.id)) return;
     markedRead.add(ch.id);
-    gql(MARK_CHAPTER_READ, { id: ch.id, isRead: true }).catch((e) => { markedRead.delete(ch.id); console.error(e); });
+    gql(MARK_CHAPTER_READ, { id: ch.id, isRead: true })
+      .then(() => {
+        if ($activeManga) {
+          const updated = $activeChapterList.map(c => c.id === ch.id ? { ...c, isRead: true } : c);
+          checkAndMarkCompleted($activeManga.id, updated);
+        }
+      })
+      .catch((e) => { markedRead.delete(ch.id); console.error(e); });
   }
 
   function showUi() {
@@ -260,14 +267,30 @@
         const total = chunk ? chunk.urls.length : $pageUrls.length;
         if (total > 0 && activeLocalPage >= total - 1 && !markedRead.has(activeChId)) {
           markedRead.add(activeChId);
-          gql(MARK_CHAPTER_READ, { id: activeChId, isRead: true }).catch((e) => { markedRead.delete(activeChId!); console.error(e); });
+          const chIdSnap = activeChId;
+          gql(MARK_CHAPTER_READ, { id: chIdSnap, isRead: true })
+            .then(() => {
+              if ($activeManga) {
+                const updated = $activeChapterList.map(c => c.id === chIdSnap ? { ...c, isRead: true } : c);
+                checkAndMarkCompleted($activeManga.id, updated);
+              }
+            })
+            .catch((e) => { markedRead.delete(chIdSnap); console.error(e); });
         }
       }
       if (containerEl.scrollTop + containerEl.clientHeight < containerEl.scrollHeight - 40) return;
       const last = stripChapters[stripChapters.length - 1];
       if (last && $settings.autoMarkRead && !markedRead.has(last.chapterId)) {
         markedRead.add(last.chapterId);
-        gql(MARK_CHAPTER_READ, { id: last.chapterId, isRead: true }).catch(console.error);
+        const lastIdSnap = last.chapterId;
+        gql(MARK_CHAPTER_READ, { id: lastIdSnap, isRead: true })
+          .then(() => {
+            if ($activeManga) {
+              const updated = $activeChapterList.map(c => c.id === lastIdSnap ? { ...c, isRead: true } : c);
+              checkAndMarkCompleted($activeManga.id, updated);
+            }
+          })
+          .catch(console.error);
       }
     }
     function onScroll80() {
@@ -340,7 +363,15 @@
     if (style !== "longstrip" && $settings.autoMarkRead && $pageNumber === lastPage) {
       if (!markedRead.has($activeChapter.id)) {
         markedRead.add($activeChapter.id);
-        gql(MARK_CHAPTER_READ, { id: $activeChapter.id, isRead: true }).catch(console.error);
+        const chIdSnap = $activeChapter.id;
+        gql(MARK_CHAPTER_READ, { id: chIdSnap, isRead: true })
+          .then(() => {
+            if ($activeManga) {
+              const updated = $activeChapterList.map(c => c.id === chIdSnap ? { ...c, isRead: true } : c);
+              checkAndMarkCompleted($activeManga.id, updated);
+            }
+          })
+          .catch(console.error);
       }
     }
   }

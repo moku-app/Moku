@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { MagnifyingGlass, Books, DownloadSimple, X, Folder, FolderSimplePlus, Trash } from "phosphor-svelte";
+  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
+  import { GET_LIBRARY, GET_ALL_MANGA, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { settings, activeManga, libraryFilter, libraryTagFilter, genreFilter, activeChapter } from "../../store";
+  import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
+  import { settings, activeManga, libraryFilter, genreFilter, activeChapter } from "../../store";
   import { addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders } from "../../store";
   import type { Manga, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
@@ -12,11 +13,13 @@
   const CARD_MIN_W = 130;
   const CARD_GAP   = 16;
 
-  let allManga: Manga[]     = [];
+  let allManga: Manga[]           = []; // inLibrary only — used for Saved tab, tags, counts
+  let allMangaUnfiltered: Manga[] = []; // every manga Suwayomi knows — used for folder tabs
   let loading               = true;
   let error: string | null  = null;
   let retryCount            = 0;
   let search                = "";
+  let renderVisible         = 0;
   let scrollEl: HTMLDivElement;
   let containerWidth        = 800;
   let ctx: { x: number; y: number; manga: Manga } | null = null;
@@ -36,10 +39,22 @@
   }
 
   function loadData() {
+    // Saved tab — library only (inLibrary: true)
     fetchLibrary()
-      .then((nodes) => { allManga = nodes; error = null; })
+      .then((nodes) => {
+        allManga = dedupeMangaByTitle(dedupeMangaById(nodes));
+        error = null;
+      })
       .catch((e) => error = e.message)
       .finally(() => loading = false);
+
+    // Folder tabs — all manga regardless of inLibrary.
+    // Cached separately so it doesn't bust the library cache.
+    cache.get("all_manga_unfiltered", () =>
+      gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA).then((d) => d.mangas.nodes)
+    ).then((nodes) => {
+      allMangaUnfiltered = dedupeMangaByTitle(dedupeMangaById(nodes));
+    }).catch(console.error);
   }
 
   $: {
@@ -56,40 +71,74 @@
     if (f && !f.showTab) libraryFilter.set("library");
   }
 
-  const isBuiltin = (f: string) => f === "all" || f === "library" || f === "downloaded";
+  const isBuiltin = (f: string) => f === "library" || f === "downloaded";
 
   $: filtered = (() => {
-    let items = allManga;
-    if ($libraryFilter === "library")         items = items.filter((m) => m.inLibrary);
-    else if ($libraryFilter === "downloaded") items = items.filter((m) => (m.downloadCount ?? 0) > 0);
-    else if (!isBuiltin($libraryFilter)) {
-      const folder = $settings.folders.find((f) => f.id === $libraryFilter);
-      if (folder) items = items.filter((m) => folder.mangaIds.includes(m.id));
+    if ($libraryFilter === "library") {
+      let items = allManga;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        items = items.filter((m) => m.title.toLowerCase().includes(q));
+      }
+      return items;
     }
-    if ($libraryTagFilter.length)
-      items = items.filter((m) => $libraryTagFilter.every((t) => (m.genre ?? []).includes(t)));
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      items = items.filter((m) => m.title.toLowerCase().includes(q));
+    if ($libraryFilter === "downloaded") {
+      let items = allManga.filter((m) => (m.downloadCount ?? 0) > 0);
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        items = items.filter((m) => m.title.toLowerCase().includes(q));
+      }
+      return items;
     }
-    return items;
+    // Folder tab — use folderPool (library manga + non-library manga merged)
+    const folder = $settings.folders.find((f) => f.id === $libraryFilter);
+    if (folder) {
+      let items = folderPool.filter((m) => folder.mangaIds.includes(m.id));
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        items = items.filter((m) => m.title.toLowerCase().includes(q));
+      }
+      return items;
+    }
+    return [];
   })();
 
   $: cols = Math.max(1, Math.floor((containerWidth + CARD_GAP) / (CARD_MIN_W + CARD_GAP)));
 
-  $: counts = {
-    all:        allManga.length,
-    library:    allManga.filter((m) => m.inLibrary).length,
-    downloaded: allManga.filter((m) => (m.downloadCount ?? 0) > 0).length,
-    ...$settings.folders.reduce((a, f) => ({ ...a, [f.id]: allManga.filter((m) => f.mangaIds.includes(m.id)).length }), {}),
-  };
+  // Reset visible count whenever the filtered set changes (filter/search/tab switch)
+  $: { filtered; renderVisible = $settings.renderLimit ?? 48; }
 
-  $: allTags = [...new Set(allManga.filter((m) => m.inLibrary).flatMap((m) => m.genre ?? []))].sort();
+  $: visibleManga  = filtered.slice(0, renderVisible);
+  $: hasMore       = filtered.length > renderVisible;
+  $: remainingCount = filtered.length - renderVisible;
+
+  function loadMore() {
+    renderVisible += $settings.renderLimit ?? 48;
+  }
+
+  // Merged pool for folder resolution: library manga first (instant), then any
+  // non-library manga from the unfiltered fetch. This means Completed and other
+  // folders whose manga are saved to the library render immediately without
+  // waiting for the allMangaUnfiltered fetch to complete.
+  $: folderPool = (() => {
+    const seen = new Set(allManga.map(m => m.id));
+    return [...allManga, ...allMangaUnfiltered.filter(m => !seen.has(m.id))];
+  })();
+
+  $: counts = {
+    library:    allManga.length,
+    downloaded: allManga.filter((m) => (m.downloadCount ?? 0) > 0).length,
+    ...$settings.folders.reduce((a, f) => ({
+      ...a,
+      [f.id]: folderPool.filter((m) => f.mangaIds.includes(m.id)).length,
+    }), {} as Record<string, number>),
+  };
 
   async function removeFromLibrary(manga: Manga) {
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
-    allManga = allManga.map((m) => m.id === manga.id ? { ...m, inLibrary: false } : m);
+    allManga = allManga.filter((m) => m.id !== manga.id);
     cache.clear(CACHE_KEYS.LIBRARY);
+    cache.clear("all_manga_unfiltered");
   }
 
   async function deleteAllDownloads(manga: Manga) {
@@ -156,10 +205,6 @@
     }];
   }
 
-  function toggleTag(tag: string) {
-    libraryTagFilter.update((t) => t.includes(tag) ? t.filter((x) => x !== tag) : [...t, tag]);
-  }
-
   onMount(() => {
     const ro = new ResizeObserver(([e]) => containerWidth = e.contentRect.width);
     ro.observe(scrollEl);
@@ -210,7 +255,7 @@
       <div class="header-left">
         <span class="heading">Library</span>
         <div class="tabs">
-          {#each [["library","Saved"], ["downloaded","Downloaded"], ["all","All"]] as [f, label]}
+          {#each [["library","Saved"], ["downloaded","Downloaded"]] as [f, label]}
             <button class="tab" class:active={$libraryFilter === f} on:click={() => libraryFilter.set(f)}>
               {#if f === "library"}<Books size={11} weight="bold" />
               {:else if f === "downloaded"}<DownloadSimple size={11} weight="bold" />{/if}
@@ -233,21 +278,6 @@
       </div>
     </div>
 
-    {#if allTags.length > 0}
-      <div class="tag-panel">
-        {#if $libraryTagFilter.length > 0}
-          <button class="tag-clear" on:click={() => libraryTagFilter.set([])}>
-            <X size={11} weight="bold" /> Clear
-          </button>
-        {/if}
-        {#each allTags as tag}
-          <button class="tag-chip" class:active={$libraryTagFilter.includes(tag)} on:click={() => toggleTag(tag)}>
-            {tag}
-          </button>
-        {/each}
-      </div>
-    {/if}
-
     {#if loading}
       <div class="grid">
         {#each Array(12) as _}
@@ -261,12 +291,11 @@
       <div class="center">
         {$libraryFilter === "library" ? "No manga saved to library — browse sources to add some."
           : $libraryFilter === "downloaded" ? "No downloaded manga."
-          : !isBuiltin($libraryFilter) ? "No manga in this folder yet. Right-click manga to assign them."
-          : "No manga found."}
+          : "No manga in this folder yet. Right-click manga anywhere to assign them."}
       </div>
     {:else}
       <div class="grid" style="--cols:{cols}">
-        {#each filtered as m (m.id)}
+        {#each visibleManga as m (m.id)}
           <button
             class="card"
             on:click={() => activeManga.set(m)}
@@ -286,6 +315,14 @@
           </button>
         {/each}
       </div>
+      {#if hasMore}
+        <div class="load-more-row">
+          <button class="load-more-btn" on:click={loadMore}>
+            Show {Math.min(remainingCount, $settings.renderLimit ?? 48)} more
+            <span class="load-more-count">({remainingCount} remaining)</span>
+          </button>
+        </div>
+      {/if}
     {/if}
   {/if}
 </div>
@@ -362,30 +399,6 @@
   .search::placeholder { color: var(--text-faint); }
   .search:focus { border-color: var(--border-strong); }
 
-  .tag-panel {
-    position: relative; z-index: 1;
-    display: flex; flex-wrap: wrap; gap: var(--sp-1);
-    margin-bottom: var(--sp-3);
-  }
-  .tag-chip {
-    font-family: var(--font-ui); font-size: var(--text-2xs);
-    letter-spacing: var(--tracking-wide); padding: 3px 8px;
-    border-radius: var(--radius-sm); border: 1px solid var(--border-dim);
-    color: var(--text-faint); cursor: pointer;
-    transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
-  }
-  .tag-chip:hover { color: var(--text-muted); border-color: var(--border-strong); }
-  .tag-chip.active { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
-  .tag-clear {
-    display: flex; align-items: center; gap: 4px;
-    font-family: var(--font-ui); font-size: var(--text-2xs);
-    letter-spacing: var(--tracking-wide); padding: 3px 8px;
-    border-radius: var(--radius-sm); border: 1px solid var(--color-error);
-    color: var(--color-error); cursor: pointer;
-    transition: background var(--t-base);
-  }
-  .tag-clear:hover { background: var(--color-error-bg); }
-
   .grid {
     position: relative; z-index: 1;
     display: grid;
@@ -436,6 +449,21 @@
   .card-skeleton { padding: 0; }
   .cover-skeleton { aspect-ratio: 2/3; border-radius: var(--radius-md); }
   .title-skeleton { height: 12px; margin-top: var(--sp-2); width: 80%; border-radius: var(--radius-sm); }
+
+  .load-more-row {
+    display: flex; justify-content: center;
+    padding: var(--sp-5) 0 var(--sp-2);
+    position: relative; z-index: 1;
+  }
+  .load-more-btn {
+    display: flex; align-items: center; gap: var(--sp-2);
+    font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+    padding: 8px 20px; border-radius: var(--radius-full);
+    border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-muted);
+    cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+  }
+  .load-more-btn:hover { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .load-more-count { color: var(--text-faint); font-size: var(--text-2xs); }
 
   .center {
     position: relative; z-index: 1;
