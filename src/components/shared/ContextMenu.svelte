@@ -1,32 +1,32 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
-
   export interface MenuItem {
-    label: string;
-    icon?: any;
-    onClick: () => void;
-    danger?: boolean;
-    disabled?: boolean;
+    label:      string;
+    icon?:      any;
+    onClick:    () => void;
+    danger?:    boolean;
+    disabled?:  boolean;
     separator?: never;
   }
   export interface MenuSeparator { separator: true }
   export type MenuEntry = MenuItem | MenuSeparator;
 
-  export let x: number;
-  export let y: number;
-  export let items: MenuEntry[];
-  export let onClose: () => void;
+  interface Props {
+    x:       number;
+    y:       number;
+    items:   MenuEntry[];
+    onClose: () => void;
+  }
 
-  let focused = -1;
-  let el: HTMLDivElement;
+  let { x, y, items, onClose }: Props = $props();
+
+  let focused = $state(-1);
+  let el      = $state<HTMLDivElement | undefined>(undefined);
 
   const actionable = items
     .map((_, i) => i)
     .filter((i) => !("separator" in items[i]) && !(items[i] as MenuItem).disabled);
 
-  $: if (actionable.length) focused = actionable[0];
-
-  function getPos() {
+  const pos = $derived.by(() => {
     const zoom  = parseFloat(document.documentElement.style.zoom || "100") / 100 || 1;
     const menuW = 200, menuH = items.length * 34;
     const vw = window.innerWidth / zoom, vh = window.innerHeight / zoom;
@@ -35,7 +35,9 @@
       left: Math.max(4, sx + menuW > vw ? sx - menuW : sx),
       top:  Math.max(4, sy + menuH > vh ? sy - menuH : sy),
     };
-  }
+  });
+
+  if (actionable.length) focused = actionable[0];
 
   function onMouseDown(e: MouseEvent) {
     if (el && !el.contains(e.target as Node)) onClose();
@@ -62,20 +64,18 @@
     }
   }
 
-  onMount(() => {
+  $effect(() => {
     document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
   });
-  onDestroy(() => {
-    document.removeEventListener("mousedown", onMouseDown, true);
-    document.removeEventListener("keydown", onKey, true);
-  });
-
-  $: pos = getPos();
 </script>
 
 <div bind:this={el} class="menu" role="menu" style="left:{pos.left}px;top:{pos.top}px"
-  on:contextmenu|preventDefault>
+  oncontextmenu={(e) => e.preventDefault()}>
   {#each items as item, i}
     {#if "separator" in item}
       <div class="sep"></div>
@@ -87,12 +87,12 @@
         class:disabled={mi.disabled}
         class:focused={focused === i}
         disabled={mi.disabled}
-        on:click={() => { if (!mi.disabled) { mi.onClick(); onClose(); } }}
-        on:mouseenter={() => { if (!mi.disabled) focused = i; }}
-        on:mouseleave={() => focused = -1}
+        onclick={() => { if (!mi.disabled) { mi.onClick(); onClose(); } }}
+        onmouseenter={() => { if (!mi.disabled) focused = i; }}
+        onmouseleave={() => focused = -1}
       >
         <span class="icon" class:icon-danger={mi.danger}>
-          {#if mi.icon}<svelte:component this={mi.icon} size={13} weight="light" />{/if}
+          {#if mi.icon}<mi.icon size={13} weight="light" />{/if}
         </span>
         <span class="label">{mi.label}</span>
       </button>

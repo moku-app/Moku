@@ -1,41 +1,41 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { MagnifyingGlass, CircleNotch, CaretDown, CaretRight } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES } from "../../lib/queries";
   import { activeSource } from "../../store";
   import type { Source } from "../../lib/types";
 
-  let sources: Source[] = [];
-  let loading           = true;
-  let lang              = "all";
-  let search            = "";
-  let expanded          = new Set<string>();
+  let sources:  Source[]   = $state([]);
+  let loading              = $state(true);
+  let lang                 = $state("all");
+  let search               = $state("");
+  let expanded             = $state(new Set<string>());
 
-  onMount(() => {
+  $effect(() => {
     gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-      .then((d) => sources = d.sources.nodes)
+      .then((d) => { sources = d.sources.nodes; })
       .catch(console.error)
-      .finally(() => loading = false);
+      .finally(() => { loading = false; });
   });
 
-  $: langs = ["all", ...Array.from(new Set(sources.map((s) => s.lang))).sort()];
+  const langs = $derived(["all", ...Array.from(new Set(sources.map((s) => s.lang))).sort()]);
 
-  $: filtered = sources.filter((src) => {
+  const filtered = $derived(sources.filter((src) => {
     if (src.id === "0") return false;
     const matchLang   = lang === "all" || src.lang === lang;
-    const matchSearch = src.name.toLowerCase().includes(search.toLowerCase()) || src.displayName.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = src.name.toLowerCase().includes(search.toLowerCase())
+                     || src.displayName.toLowerCase().includes(search.toLowerCase());
     return matchLang && matchSearch;
-  });
+  }));
 
-  $: groups = (() => {
+  const groups = $derived.by(() => {
     const map = new Map<string, { name: string; icon: string; sources: Source[] }>();
     for (const src of filtered) {
       if (!map.has(src.name)) map.set(src.name, { name: src.name, icon: src.iconUrl, sources: [] });
       map.get(src.name)!.sources.push(src);
     }
     return Array.from(map.values());
-  })();
+  });
 
   function toggleGroup(name: string) {
     const next = new Set(expanded);
@@ -55,7 +55,7 @@
 
   <div class="lang-row">
     {#each langs as l}
-      <button class="lang-btn" class:active={lang === l} on:click={() => lang = l}>
+      <button class="lang-btn" class:active={lang === l} onclick={() => lang = l}>
         {l === "all" ? "All" : l.toUpperCase()}
       </button>
     {/each}
@@ -71,8 +71,9 @@
         {@const single = g.sources.length === 1}
         {@const open   = expanded.has(g.name)}
         <div>
-          <button class="row" on:click={() => single ? activeSource.set(g.sources[0]) : toggleGroup(g.name)}>
-            <img src={thumbUrl(g.icon)} alt={g.name} class="icon" on:error={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+          <button class="row" onclick={() => single ? activeSource = g.sources[0] : toggleGroup(g.name)}>
+            <img src={thumbUrl(g.icon)} alt={g.name} class="icon"
+              onerror={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
             <div class="info">
               <span class="name">{g.name}</span>
               <span class="meta">{single ? `${g.sources[0].lang.toUpperCase()}${g.sources[0].isNsfw ? " · NSFW" : ""}` : `${g.sources.length} languages`}</span>
@@ -83,7 +84,7 @@
           </button>
           {#if !single && open}
             {#each g.sources as src}
-              <button class="row row-indented" on:click={() => activeSource.set(src)}>
+              <button class="row row-indented" onclick={() => activeSource = src}>
                 <div class="indent-spacer"></div>
                 <div class="info"><span class="name">{src.lang.toUpperCase()}{src.isNsfw ? " · NSFW" : ""}</span></div>
                 <span class="arrow">→</span>

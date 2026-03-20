@@ -1,116 +1,119 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
   import { X, BookmarkSimple, ArrowSquareOut, Play, CircleNotch, Books, CaretDown, FolderSimplePlus, Folder, LinkSimpleHorizontalBreak } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_MANGA, GET_CHAPTERS, FETCH_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
-  import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { settings, previewManga, activeManga, navPage, genreFilter, openReader, addToast, addFolder, assignMangaToFolder, removeMangaFromFolder, checkAndMarkCompleted, linkManga, unlinkManga, getLinkedMangaIds } from "../../store";
-  import type { Manga, Chapter } from "../../lib/types";
   import { GET_ALL_MANGA } from "../../lib/queries";
+  import { cache, CACHE_KEYS } from "../../lib/cache";
+  import { settings, previewManga, activeManga, navPage, genreFilter, openReader, addToast, addFolder, assignMangaToFolder, removeMangaFromFolder, checkAndMarkCompleted, linkManga, unlinkManga } from "../../store";
+  import type { Manga, Chapter } from "../../lib/types";
 
-  let manga: Manga | null      = null;
-  let chapters: Chapter[]      = [];
-  let loadingDetail            = false;
-  let loadingChapters          = false;
-  let togglingLib              = false;
-  let descExpanded             = false;
-  let folderOpen               = false;
-  let newFolderName            = "";
-  let creatingFolder           = false;
-  let queueingAll              = false;
-  let fetchError: string|null  = null;
-  let folderRef: HTMLDivElement;
+  let manga:         Manga | null  = $state(null);
+  let chapters:      Chapter[]     = $state([]);
+  let loadingDetail                = $state(false);
+  let loadingChapters              = $state(false);
+  let togglingLib                  = $state(false);
+  let descExpanded                 = $state(false);
+  let folderOpen                   = $state(false);
+  let newFolderName                = $state("");
+  let creatingFolder               = $state(false);
+  let queueingAll                  = $state(false);
+  let fetchError:    string | null = $state(null);
+  let folderRef      = $state<HTMLDivElement | undefined>(undefined);
 
-  // ── Link picker ──────────────────────────────────────────────────────────────
-  let linkPickerOpen  = false;
-  let linkSearch      = "";
-  let allMangaForLink: Manga[] = [];
-  let loadingLinkList = false;
+  let linkPickerOpen               = $state(false);
+  let linkSearch                   = $state("");
+  let allMangaForLink: Manga[]     = $state([]);
+  let loadingLinkList              = $state(false);
 
-  $: linkedIds = $previewManga ? ($settings.mangaLinks?.[$previewManga.id] ?? []) : [];
+  const linkedIds = $derived(previewManga ? (settings.mangaLinks?.[previewManga.id] ?? []) : []);
 
-  $: linkPickerResults = (() => {
-    const others = allMangaForLink.filter(m => m.id !== $previewManga?.id);
-    const q = linkSearch.trim().toLowerCase();
-    const filtered = q ? others.filter(m => m.title.toLowerCase().includes(q)) : others;
-    // Linked entries bubble to the top
-    const linked = filtered.filter(m => linkedIds.includes(m.id));
-    const rest = filtered.filter(m => !linkedIds.includes(m.id)).slice(0, 30);
+  const linkPickerResults = $derived.by(() => {
+    const others   = allMangaForLink.filter((m) => m.id !== previewManga?.id);
+    const q        = linkSearch.trim().toLowerCase();
+    const filtered = q ? others.filter((m) => m.title.toLowerCase().includes(q)) : others;
+    const linked   = filtered.filter((m) => linkedIds.includes(m.id));
+    const rest     = filtered.filter((m) => !linkedIds.includes(m.id)).slice(0, 30);
     return [...linked, ...rest];
-  })();
+  });
 
-  async function openLinkPicker() {
-    linkPickerOpen = true;
-    linkSearch = "";
-    if (allMangaForLink.length) return;
-    loadingLinkList = true;
-    gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA)
-      .then(d => { allMangaForLink = d.mangas.nodes; })
-      .catch(console.error)
-      .finally(() => { loadingLinkList = false; });
-  }
+  const displayManga    = $derived(manga ?? previewManga);
+  const totalCount      = $derived(chapters.length);
+  const readCount       = $derived(chapters.filter((c) => c.isRead).length);
+  const unreadCount     = $derived(totalCount - readCount);
+  const downloadedCount = $derived(chapters.filter((c) => c.isDownloaded).length);
+  const bookmarkCount   = $derived(chapters.filter((c) => c.isBookmarked).length);
+  const inLibrary       = $derived(manga?.inLibrary ?? previewManga?.inLibrary ?? false);
+  const scanlators      = $derived([...new Set(chapters.map((c) => c.scanlator).filter((s): s is string => !!s?.trim()))]);
+  const uploadDates     = $derived(chapters.map((c) => c.uploadDate ? new Date(c.uploadDate).getTime() : null).filter((d): d is number => d !== null && !isNaN(d)));
+  const firstUpload     = $derived(uploadDates.length ? new Date(Math.min(...uploadDates)) : null);
+  const lastUpload      = $derived(uploadDates.length ? new Date(Math.max(...uploadDates)) : null);
+  const statusLabel     = $derived(displayManga?.status ? displayManga.status.charAt(0) + displayManga.status.slice(1).toLowerCase() : null);
+  const assignedFolders = $derived(previewManga ? settings.folders.filter((f) => f.mangaIds.includes(previewManga!.id)) : []);
 
-  function closeLinkPicker() { linkPickerOpen = false; linkSearch = ""; }
-
-  function handleLink(other: Manga) {
-    if (!$previewManga) return;
-    if (linkedIds.includes(other.id)) {
-      unlinkManga($previewManga.id, other.id);
-    } else {
-      linkManga($previewManga.id, other.id);
-    }
-  }
-
-  let detailAbort: AbortController | null  = null;
-  let chapterAbort: AbortController | null = null;
-
-  function close() {
-    detailAbort?.abort(); chapterAbort?.abort();
-    previewManga.set(null);
-    manga = null; chapters = []; descExpanded = false;
-    folderOpen = false; creatingFolder = false; newFolderName = ""; fetchError = null;
-  }
-
-  function formatDate(d: Date) { return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
-
-  $: displayManga   = manga ?? $previewManga;
-  $: totalCount     = chapters.length;
-  $: readCount      = chapters.filter((c) => c.isRead).length;
-  $: unreadCount    = totalCount - readCount;
-  $: downloadedCount = chapters.filter((c) => c.isDownloaded).length;
-  $: bookmarkCount  = chapters.filter((c) => c.isBookmarked).length;
-  $: inLibrary      = manga?.inLibrary ?? $previewManga?.inLibrary ?? false;
-  $: scanlators     = [...new Set(chapters.map((c) => c.scanlator).filter((s): s is string => !!s?.trim()))];
-  $: uploadDates    = chapters.map((c) => c.uploadDate ? new Date(c.uploadDate).getTime() : null).filter((d): d is number => d !== null && !isNaN(d));
-  $: firstUpload    = uploadDates.length ? new Date(Math.min(...uploadDates)) : null;
-  $: lastUpload     = uploadDates.length ? new Date(Math.max(...uploadDates)) : null;
-  $: statusLabel    = displayManga?.status ? displayManga.status.charAt(0) + displayManga.status.slice(1).toLowerCase() : null;
-  $: assignedFolders = $previewManga ? $settings.folders.filter((f) => f.mangaIds.includes($previewManga!.id)) : [];
-
-  $: continueChapter = (() => {
+  const continueChapter = $derived.by(() => {
     if (!chapters.length) return null;
     const inProgress = chapters.find((c) => !c.isRead && (c.lastPageRead ?? 0) > 0);
     if (inProgress) return { ch: inProgress, label: `Continue · Ch.${inProgress.chapterNumber}` };
     const firstUnread = chapters.find((c) => !c.isRead);
     if (firstUnread) return { ch: firstUnread, label: `Start · Ch.${firstUnread.chapterNumber}` };
     return { ch: chapters[0], label: "Read again" };
-  })();
+  });
 
-  $: if ($previewManga) load($previewManga.id);
+  let detailAbort:  AbortController | null = null;
+  let chapterAbort: AbortController | null = null;
+
+  $effect(() => {
+    if (previewManga) load(previewManga.id);
+  });
+
+  $effect(() => {
+    return () => { window.removeEventListener("keydown", onKey); detailAbort?.abort(); chapterAbort?.abort(); };
+  });
+
+  $effect(() => {
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  $effect(() => {
+    if (!folderOpen) {
+      document.removeEventListener("mousedown", handleFolderOutside);
+      return;
+    }
+    const timer = setTimeout(() => document.addEventListener("mousedown", handleFolderOutside), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handleFolderOutside);
+    };
+  });
+
+  function close() {
+    detailAbort?.abort(); chapterAbort?.abort();
+    previewManga     = null;
+    manga            = null;
+    chapters         = [];
+    descExpanded     = false;
+    folderOpen       = false;
+    creatingFolder   = false;
+    newFolderName    = "";
+    fetchError       = null;
+  }
+
+  function formatDate(d: Date) {
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
 
   async function load(id: number) {
     detailAbort?.abort(); chapterAbort?.abort();
     const dCtrl = new AbortController(), cCtrl = new AbortController();
     detailAbort = dCtrl; chapterAbort = cCtrl;
-    // Pre-populate from the shallow grid entry immediately — description/genres
-    // will appear as soon as the full fetch resolves, but title/cover show now.
-    manga = $previewManga as Manga;
+    manga = previewManga as Manga;
     chapters = []; descExpanded = false; fetchError = null;
     loadingDetail = true; loadingChapters = true;
 
     (async (): Promise<Manga> => {
       const key = CACHE_KEYS.MANGA(id);
-      if (cache.has(key)) return cache.get(key, () => Promise.resolve($previewManga as Manga)) as Promise<Manga>;
+      if (cache.has(key)) return cache.get(key, () => Promise.resolve(previewManga as Manga)) as Promise<Manga>;
       try {
         const d = await gql<{ fetchManga: { manga: Manga } }>(FETCH_MANGA, { id }, dCtrl.signal);
         return d.fetchManga.manga;
@@ -126,8 +129,8 @@
       manga = fullManga; loadingDetail = false;
     }).catch((e) => {
       if (e?.name === "AbortError") return;
-      manga = $previewManga as Manga;
-      fetchError = "Could not load full details — showing cached data";
+      manga = previewManga as Manga;
+      fetchError    = "Could not load full details — showing cached data";
       loadingDetail = false;
     });
 
@@ -143,7 +146,6 @@
         }
         if (!cCtrl.signal.aborted) {
           chapters = nodes;
-          // Passive check — MangaPreview has the full chapter list, use it
           if (nodes.length > 0) checkAndMarkCompleted(id, nodes);
         }
       })
@@ -154,7 +156,7 @@
   async function toggleLibrary() {
     if (!manga) return;
     togglingLib = true;
-    const next = !manga.inLibrary;
+    const next  = !manga.inLibrary;
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: next }).catch(console.error);
     manga = { ...manga, inLibrary: next };
     cache.clear(CACHE_KEYS.MANGA(manga.id));
@@ -175,39 +177,60 @@
 
   function openSeriesDetail() {
     if (!displayManga) return;
-    activeManga.set(displayManga);
-    navPage.set("library");
+    activeManga = displayManga;
+    navPage     = "library";
     close();
   }
 
   function handleFolderCreate() {
     const name = newFolderName.trim();
-    if (!name || !$previewManga) return;
+    if (!name || !previewManga) return;
     const id = addFolder(name);
-    assignMangaToFolder(id, $previewManga.id);
+    assignMangaToFolder(id, previewManga.id);
     newFolderName = ""; creatingFolder = false;
   }
 
   function handleFolderOutside(e: MouseEvent) {
-    if (folderRef && !folderRef.contains(e.target as Node)) { folderOpen = false; creatingFolder = false; newFolderName = ""; }
+    if (folderRef && !folderRef.contains(e.target as Node)) {
+      folderOpen = false; creatingFolder = false; newFolderName = "";
+    }
   }
 
-  $: if (folderOpen) setTimeout(() => document.addEventListener("mousedown", handleFolderOutside), 0);
-  else document.removeEventListener("mousedown", handleFolderOutside);
-
   function onKey(e: KeyboardEvent) { if (e.key === "Escape") close(); }
-  onMount(() => window.addEventListener("keydown", onKey));
-  onDestroy(() => { window.removeEventListener("keydown", onKey); detailAbort?.abort(); chapterAbort?.abort(); });
+
+  async function openLinkPicker() {
+    linkPickerOpen = true;
+    linkSearch     = "";
+    if (allMangaForLink.length) return;
+    loadingLinkList = true;
+    gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA)
+      .then((d) => { allMangaForLink = d.mangas.nodes; })
+      .catch(console.error)
+      .finally(() => { loadingLinkList = false; });
+  }
+
+  function closeLinkPicker() { linkPickerOpen = false; linkSearch = ""; }
+
+  function handleLink(other: Manga) {
+    if (!previewManga) return;
+    if (linkedIds.includes(other.id)) {
+      unlinkManga(previewManga.id, other.id);
+    } else {
+      linkManga(previewManga.id, other.id);
+    }
+  }
 </script>
 
-{#if $previewManga}
-<div class="backdrop" role="presentation" on:click={(e) => { if (e.target === e.currentTarget) close(); }} on:keydown={(e) => { if (e.key === "Escape") close(); }}>
+{#if previewManga}
+<div class="backdrop" role="presentation"
+  onclick={(e) => { if (e.target === e.currentTarget) close(); }}
+  onkeydown={(e) => { if (e.key === "Escape") close(); }}>
   <div class="modal" role="dialog" aria-label="Manga preview">
 
     <!-- Cover column -->
     <div class="cover-col">
       <div class="cover-wrap">
-        <img src={thumbUrl($previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" />
+        <img src={thumbUrl(previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" />
         {#if loadingDetail}
           <div class="cover-spinner"><CircleNotch size={18} weight="light" class="anim-spin" /></div>
         {/if}
@@ -215,30 +238,30 @@
       <div class="cover-actions">
 
         <!-- Library -->
-        <button class="action-btn" class:active={inLibrary} on:click={toggleLibrary} disabled={togglingLib || loadingDetail}>
+        <button class="action-btn" class:active={inLibrary} onclick={toggleLibrary} disabled={togglingLib || loadingDetail}>
           <span class="action-icon"><BookmarkSimple size={13} weight={inLibrary ? "fill" : "light"} /></span>
           <span class="action-label">{togglingLib ? "…" : inLibrary ? "In Library" : "Add to Library"}</span>
         </button>
 
         <!-- Series Detail -->
-        <button class="action-btn" on:click={openSeriesDetail}>
+        <button class="action-btn" onclick={openSeriesDetail}>
           <span class="action-icon"><Books size={13} weight="light" /></span>
           <span class="action-label">Series Detail</span>
         </button>
 
         <!-- Folders -->
         <div class="folder-wrap" bind:this={folderRef}>
-          <button class="action-btn" class:active={assignedFolders.length > 0} on:click={() => folderOpen = !folderOpen}>
+          <button class="action-btn" class:active={assignedFolders.length > 0} onclick={() => folderOpen = !folderOpen}>
             <span class="action-icon"><FolderSimplePlus size={13} weight={assignedFolders.length > 0 ? "fill" : "light"} /></span>
             <span class="action-label">{assignedFolders.length > 0 ? assignedFolders.map((f) => f.name).join(", ") : "Add to folder"}</span>
           </button>
           {#if folderOpen}
             <div class="folder-menu">
-              {#if $settings.folders.length === 0 && !creatingFolder}<p class="folder-empty">No folders yet</p>{/if}
-              {#each $settings.folders as f}
-                {@const isIn = $previewManga ? f.mangaIds.includes($previewManga.id) : false}
+              {#if settings.folders.length === 0 && !creatingFolder}<p class="folder-empty">No folders yet</p>{/if}
+              {#each settings.folders as f}
+                {@const isIn = previewManga ? f.mangaIds.includes(previewManga.id) : false}
                 <button class="folder-item" class:folder-item-on={isIn}
-                  on:click={() => $previewManga && (isIn ? removeMangaFromFolder(f.id, $previewManga.id) : assignMangaToFolder(f.id, $previewManga.id))}>
+                  onclick={() => previewManga && (isIn ? removeMangaFromFolder(f.id, previewManga.id) : assignMangaToFolder(f.id, previewManga.id))}>
                   <Folder size={12} weight={isIn ? "fill" : "light"} />{isIn ? "✓ " : ""}{f.name}
                 </button>
               {/each}
@@ -246,19 +269,19 @@
               {#if creatingFolder}
                 <div class="folder-create-row">
                   <input class="folder-input" placeholder="Folder name…" bind:value={newFolderName}
-                    on:keydown={(e) => { if (e.key === "Enter") handleFolderCreate(); if (e.key === "Escape") { creatingFolder = false; newFolderName = ""; } }}
-                    use:focus />
-                  <button class="folder-ok" on:click={handleFolderCreate} disabled={!newFolderName.trim()}>Add</button>
+                    autofocus
+                    onkeydown={(e) => { if (e.key === "Enter") handleFolderCreate(); if (e.key === "Escape") { creatingFolder = false; newFolderName = ""; } }} />
+                  <button class="folder-ok" onclick={handleFolderCreate} disabled={!newFolderName.trim()}>Add</button>
                 </div>
               {:else}
-                <button class="folder-new" on:click={() => creatingFolder = true}>+ New folder</button>
+                <button class="folder-new" onclick={() => creatingFolder = true}>+ New folder</button>
               {/if}
             </div>
           {/if}
         </div>
 
         <!-- Series Link -->
-        <button class="action-btn" class:active={linkedIds.length > 0} on:click={openLinkPicker}>
+        <button class="action-btn" class:active={linkedIds.length > 0} onclick={openLinkPicker}>
           <span class="action-icon"><LinkSimpleHorizontalBreak size={13} weight={linkedIds.length > 0 ? "fill" : "light"} /></span>
           <span class="action-label">{linkedIds.length > 0 ? `Series Link (${linkedIds.length})` : "Series Link"}</span>
         </button>
@@ -277,7 +300,7 @@
             <p class="byline">{[displayManga?.author, displayManga?.artist].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(" · ")}</p>
           {/if}
         </div>
-        <button class="close-btn" on:click={close}><X size={15} weight="light" /></button>
+        <button class="close-btn" onclick={close}><X size={15} weight="light" /></button>
       </div>
 
       <div class="content-body">
@@ -309,7 +332,7 @@
                 {totalCount} {totalCount === 1 ? "chapter" : "chapters"}{readCount > 0 ? ` · ${readCount} read` : ""}{unreadCount > 0 && readCount > 0 ? ` · ${unreadCount} left` : ""}{downloadedCount > 0 ? ` · ${downloadedCount} dl` : ""}
               </span>
               {#if unreadCount > 0}
-                <button class="dl-all-btn" on:click={downloadAll} disabled={queueingAll}>
+                <button class="dl-all-btn" onclick={downloadAll} disabled={queueingAll}>
                   {#if queueingAll}<CircleNotch size={11} weight="light" class="anim-spin" />{/if}
                   {queueingAll ? "Queuing…" : "Download unread"}
                 </button>
@@ -319,7 +342,7 @@
               <div class="progress-track"><div class="progress-fill" style="width:{(readCount / totalCount) * 100}%"></div></div>
             {/if}
             {#if continueChapter}
-              <button class="read-btn" on:click={() => { openReader(continueChapter!.ch, chapters); close(); }}>
+              <button class="read-btn" onclick={() => { openReader(continueChapter!.ch, chapters); close(); }}>
                 <Play size={12} weight="fill" />{continueChapter.label}
               </button>
             {/if}
@@ -339,7 +362,7 @@
           <div class="desc-block">
             <p class="desc" class:desc-open={descExpanded}>{displayManga.description}</p>
             {#if displayManga.description.length > 220}
-              <button class="desc-toggle" on:click={() => descExpanded = !descExpanded}>
+              <button class="desc-toggle" onclick={() => descExpanded = !descExpanded}>
                 {descExpanded ? "Show less" : "Show more"}
                 <CaretDown size={10} weight="light" style="transform:{descExpanded ? 'rotate(180deg)' : 'none'};transition:transform 0.15s ease" />
               </button>
@@ -351,7 +374,7 @@
         {#if !loadingDetail && displayManga?.genre?.length}
           <div class="genres">
             {#each displayManga.genre as g}
-              <button class="genre-tag" on:click={() => { genreFilter.set(g); navPage.set("explore"); close(); }}>{g}</button>
+              <button class="genre-tag" onclick={() => { genreFilter = g; navPage = "explore"; close(); }}>{g}</button>
             {/each}
           </div>
         {/if}
@@ -379,22 +402,22 @@
   </div>
 </div>
 
-<!-- ── Link picker modal ───────────────────────────────────────────────────── -->
+<!-- Link picker modal -->
 {#if linkPickerOpen}
   <div class="link-backdrop" role="presentation"
-    on:click|self={closeLinkPicker}
-    on:keydown={(e) => e.key === "Escape" && closeLinkPicker()}>
+    onclick={(e) => { if (e.target === e.currentTarget) closeLinkPicker(); }}
+    onkeydown={(e) => e.key === "Escape" && closeLinkPicker()}>
     <div class="link-modal">
       <div class="link-header">
         <span class="link-title">Link as same series</span>
-        <button class="close-btn" on:click={closeLinkPicker}><X size={14} weight="light" /></button>
+        <button class="close-btn" onclick={closeLinkPicker}><X size={14} weight="light" /></button>
       </div>
       <p class="link-hint">
         Mark two manga as the same series so duplicates are merged in search and discover.
         Click a linked entry again to unlink.
       </p>
       <div class="link-search-wrap">
-        <input class="link-search" placeholder="Search your library…" bind:value={linkSearch} use:focus />
+        <input class="link-search" placeholder="Search your library…" bind:value={linkSearch} autofocus />
       </div>
       <div class="link-list">
         {#if loadingLinkList}
@@ -404,7 +427,7 @@
         {:else}
           {#each linkPickerResults as m (m.id)}
             {@const isLinked = linkedIds.includes(m.id)}
-            <button class="link-row" class:link-row-linked={isLinked} on:click={() => handleLink(m)}>
+            <button class="link-row" class:link-row-linked={isLinked} onclick={() => handleLink(m)}>
               <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="link-thumb" loading="lazy" decoding="async" />
               <div class="link-info">
                 <span class="link-manga-title">{m.title}</span>
@@ -420,10 +443,6 @@
 {/if}
 
 {/if}
-
-<script context="module">
-  function focus(node: HTMLElement) { node.focus(); }
-</script>
 
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.72); z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.12s ease both; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
@@ -444,7 +463,6 @@
   .action-btn:hover:not(:disabled) { color: var(--accent-fg); border-color: var(--accent); background: var(--accent-muted); }
   .action-btn:disabled { opacity: 0.4; cursor: default; }
   .action-btn.active { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
-  /* Fixed-width icon slot — keeps all labels optically aligned */
   .action-icon { display: flex; align-items: center; justify-content: center; width: 16px; flex-shrink: 0; }
   .action-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .folder-wrap { position: relative; width: 100%; }
@@ -508,7 +526,6 @@
   .meta-val { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); }
   .meta-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); color: var(--accent-fg); text-decoration: none; transition: opacity var(--t-base); }
   .meta-link:hover { opacity: 0.75; }
-  /* ── Link picker ─────────────────────────────────────────────────────────── */
   .link-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: calc(var(--z-settings) + 1); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); animation: fadeIn 0.1s ease both; }
   .link-modal { width: min(460px, calc(100vw - 48px)); max-height: 70vh; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); animation: scaleIn 0.14s ease both; }
   .link-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
