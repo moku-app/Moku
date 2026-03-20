@@ -55,7 +55,7 @@
       DEFAULT_TTL_MS,
       CACHE_GROUPS.LIBRARY,
     ).then((nodes) => {
-      allMangaUnfiltered = dedupeMangaByTitle(dedupeMangaById(nodes), $settings.mangaLinks);
+      allMangaUnfiltered = dedupeMangaById(nodes);
     }).catch(console.error);
   }
 

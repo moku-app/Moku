@@ -9,7 +9,7 @@
   import type { Manga, Source } from "../../lib/types";
   import ContextMenu from "../shared/ContextMenu.svelte";
   import type { MenuEntry } from "../shared/ContextMenu.svelte";
-  import SourceBrowse from "../sources/SourceBrowse.svelte";
+  import SourceBrowse from "../shared/SourceBrowse.svelte";
 
   // ── Config ────────────────────────────────────────────────────────────────────
   const GENRE_TABS      = ["All", "Action", "Romance", "Fantasy", "Comedy", "Drama", "Horror", "Sci-Fi", "Adventure", "Thriller"];

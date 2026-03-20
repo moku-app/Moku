@@ -4,10 +4,10 @@
   import Home        from "../pages/Home.svelte";
   import Library     from "../pages/Library.svelte";
   import SeriesDetail from "../pages/SeriesDetail.svelte";
-  import History     from "../history/History.svelte";
-  import Search      from "../search/Search.svelte";
+  import History     from "../pages/History.svelte";
+  import Search      from "../pages/Search.svelte";
   import Discover    from "../pages/Discover.svelte";
-  import Downloads   from "../downloads/Downloads.svelte";
+  import Downloads   from "../pages/Downloads.svelte";
   import Extensions  from "../pages/Extensions.svelte";
 </script>
 

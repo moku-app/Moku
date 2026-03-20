@@ -4,7 +4,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { gql } from "../../lib/client";
   import { GET_DOWNLOADS_PATH } from "../../lib/queries";
-  import { settings, settingsOpen, history, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab } from "../../store";
+  import { settings, settingsOpen, history, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData } from "../../store";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store";
@@ -442,7 +442,14 @@
               <p class="section-title">History</p>
               <div class="step-row">
                 <div class="toggle-info"><span class="toggle-label">Reading history</span><span class="toggle-desc">{$history.length} entries stored</span></div>
-                <button class="danger-btn" on:click={() => history.set([])} disabled={$history.length === 0}>Clear history</button>
+                <button class="danger-btn" on:click={clearHistory} disabled={$history.length === 0}>Clear activity</button>
+              </div>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Full data cleanse</span>
+                  <span class="toggle-desc">Removes history, stats, completed list, hero pins, and manga links</span>
+                </div>
+                <button class="danger-btn" on:click={wipeAllData}>Wipe all data</button>
               </div>
             </div>
           </div>

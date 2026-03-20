@@ -28,9 +28,12 @@
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
   function formatReadTime(mins: number): string {
-    if (mins < 60) return `${mins}m`;
+    if (mins < 1)   return `${Math.round(mins * 60)}s`;
+    if (mins < 60)  return `${Math.round(mins)}m`;
     const h = Math.floor(mins / 60), r = mins % 60;
-    return r === 0 ? `${h}h` : `${h}h ${r}m`;
+    if (h < 24) return r === 0 ? `${h}h` : `${h}h ${r}m`;
+    const d = Math.floor(h / 24), rh = h % 24;
+    return rh === 0 ? `${d}d` : `${d}d ${rh}h`;
   }
   function focusEl(node: HTMLElement) { node.focus(); }
 
@@ -209,7 +212,7 @@
     : [];
   $: recentHistory = $history.slice(0, 8);
   $: stats    = $readingStats;
-  $: hasStats = stats.totalChaptersRead > 0 || stats.totalMangaRead > 0;
+  $: hasStats = true;
 
   function handleRowWheel(e: WheelEvent) {
     if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
@@ -437,90 +440,88 @@
       </div>
     {/if}
 
-    <!-- ══ BOTTOM ROW: Completed (left) + Stats (right) ═══════════════════════ -->
+    <!-- ══ BOTTOM ROW ══════════════════════════════════════════════════════════ -->
     <div class="bottom-row">
 
-      <!-- Left: Recently Completed -->
+      <!-- Left: Completed -->
       <div class="bottom-col">
+        <div class="bottom-section-hd">
+          <span class="section-title"><CheckCircle size={10} weight="bold" /> Completed</span>
+          {#if completedManga.length > 0}
+            <button class="see-all" on:click={() => navPage.set("library")}>View all <ArrowRight size={9} weight="bold" /></button>
+          {/if}
+        </div>
         {#if completedManga.length > 0}
-          <div class="section-header">
-            <span class="section-title"><CheckCircle size={10} weight="bold" /> Completed</span>
-            <button class="see-all" on:click={() => navPage.set("library")}>
-              View all <ArrowRight size={9} weight="bold" />
-            </button>
-          </div>
           <div class="mini-row" on:wheel|preventDefault={handleRowWheel}>
             {#each completedManga as m (m.id)}
               <button class="mini-card" on:click={() => previewManga.set(m)}>
                 <div class="mini-cover-wrap">
                   <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="mini-cover" loading="lazy" decoding="async" />
-                  <span class="mini-check"><CheckCircle size={12} weight="fill" /></span>
+                  <div class="mini-gradient"></div>
+                  <div class="mini-footer">
+                    <p class="mini-card-title">{m.title}</p>
+                    {#if m.source?.displayName}<p class="mini-card-source">{m.source.displayName}</p>{/if}
+                  </div>
                 </div>
-                <p class="mini-title">{m.title}</p>
               </button>
             {/each}
           </div>
         {:else}
-          <div class="section-header">
-            <span class="section-title"><CheckCircle size={10} weight="bold" /> Completed</span>
-          </div>
           <p class="bottom-empty">Finish a manga to see it here</p>
         {/if}
       </div>
 
+      <div class="bottom-divider"></div>
+
       <!-- Right: Stats -->
-      <div class="bottom-col stats-col">
-        <div class="section-header">
+      <div class="bottom-col">
+        <div class="bottom-section-hd">
           <span class="section-title"><TrendUp size={10} weight="bold" /> Your Stats</span>
         </div>
-        {#if hasStats}
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-icon-wrap stat-fire"><Fire size={18} weight="fill" /></div>
-              <div class="stat-body">
-                <span class="stat-val">{stats.currentStreakDays}</span>
-                <span class="stat-label">Day streak</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon-wrap stat-accent"><BookOpen size={18} weight="light" /></div>
-              <div class="stat-body">
-                <span class="stat-val">{stats.totalChaptersRead}</span>
-                <span class="stat-label">Chapters read</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon-wrap stat-neutral"><Clock size={18} weight="light" /></div>
-              <div class="stat-body">
-                <span class="stat-val">{formatReadTime(stats.totalMinutesRead)}</span>
-                <span class="stat-label">Total read time</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon-wrap stat-neutral"><TrendUp size={18} weight="light" /></div>
-              <div class="stat-body">
-                <span class="stat-val">{stats.totalMangaRead}</span>
-                <span class="stat-label">Series started</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon-wrap stat-green"><CheckCircle size={18} weight="light" /></div>
-              <div class="stat-body">
-                <span class="stat-val">{completedIds.length}</span>
-                <span class="stat-label">Completed</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon-wrap stat-neutral"><CalendarBlank size={18} weight="light" /></div>
-              <div class="stat-body">
-                <span class="stat-val">{stats.longestStreakDays}d</span>
-                <span class="stat-label">Best streak</span>
-              </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon-wrap stat-fire"><Fire size={16} weight="fill" /></div>
+            <div class="stat-body">
+              <span class="stat-val">{stats.currentStreakDays}</span>
+              <span class="stat-label">Day streak</span>
             </div>
           </div>
-        {:else}
-          <p class="bottom-empty">Start reading to see your stats</p>
-        {/if}
+          <div class="stat-card">
+            <div class="stat-icon-wrap stat-accent"><BookOpen size={16} weight="light" /></div>
+            <div class="stat-body">
+              <span class="stat-val">{stats.totalChaptersRead}</span>
+              <span class="stat-label">Chapters read</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon-wrap stat-neutral"><Clock size={16} weight="light" /></div>
+            <div class="stat-body">
+              <span class="stat-val">{formatReadTime(stats.totalMinutesRead)}</span>
+              <span class="stat-label">Read time</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon-wrap stat-neutral"><TrendUp size={16} weight="light" /></div>
+            <div class="stat-body">
+              <span class="stat-val">{stats.totalMangaRead}</span>
+              <span class="stat-label">Series started</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon-wrap stat-green"><CheckCircle size={16} weight="light" /></div>
+            <div class="stat-body">
+              <span class="stat-val">{completedIds.length}</span>
+              <span class="stat-label">Completed</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon-wrap stat-neutral"><CalendarBlank size={16} weight="light" /></div>
+            <div class="stat-body">
+              <span class="stat-val">{stats.longestStreakDays}d</span>
+              <span class="stat-label">Best streak</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -781,8 +782,8 @@
   .ch-view-all:hover { color: var(--accent-fg); }
 
   /* ══ SECTIONS ════════════════════════════════════════════════════════════════ */
-  .section { padding: var(--sp-5) 0 0; }
-  .section-header { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-5) var(--sp-3); }
+  .section { border-top: 1px solid var(--border-dim); margin-top: var(--sp-4); }
+  .section-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-5) var(--sp-2); }
   .section-title { display: inline-flex; align-items: center; gap: var(--sp-2); font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .see-all { display: flex; align-items: center; gap: 4px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 0; transition: color var(--t-base); }
   .see-all:hover { color: var(--accent-fg); }
@@ -801,38 +802,52 @@
 
   /* ── Bottom row ───────────────────────────────────────────────────────────── */
   .bottom-row {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: var(--sp-5); padding: var(--sp-5) var(--sp-5) 0;
-    align-items: start;
+    display: grid; grid-template-columns: 1fr 1px 1fr;
+    padding: 0 var(--sp-5) 0; margin-top: var(--sp-4);
+    border-top: 1px solid var(--border-dim); align-items: start;
   }
-  .bottom-col { display: flex; flex-direction: column; min-width: 0; }
-  .bottom-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-1); }
+  .bottom-divider { background: var(--border-dim); align-self: stretch; min-height: 100%; }
+  .bottom-col { display: flex; flex-direction: column; min-width: 0; padding-top: var(--sp-3); }
+  .bottom-col:first-child { padding-right: var(--sp-5); }
+  .bottom-col:last-child  { padding-left:  var(--sp-5); }
+  .bottom-section-hd { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--sp-2); }
+  .bottom-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-2) 0; }
 
-  /* Mini row (completed) */
-  .mini-row { display: flex; gap: var(--sp-3); overflow-x: auto; scrollbar-width: none; padding-bottom: var(--sp-1); }
+  /* Completed cards — Discover format */
+  .mini-row { display: flex; gap: var(--sp-3); overflow-x: auto; scrollbar-width: none; padding-bottom: var(--sp-2); }
   .mini-row::-webkit-scrollbar { display: none; }
-  .mini-card { flex-shrink: 0; width: 90px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .mini-card:hover .mini-cover { filter: brightness(1.08); }
-  .mini-card:hover .mini-title { color: var(--text-primary); }
-  .mini-cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); }
-  .mini-cover { width: 100%; height: 100%; object-fit: cover; transition: filter var(--t-base); }
-  .mini-check { position: absolute; top: var(--sp-1); right: var(--sp-1); color: #22c55e; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5)); }
-  .mini-title { margin-top: var(--sp-1); font-size: var(--text-2xs); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); }
-
-  /* Stats grid — 2×3 cards */
-  .stats-col { }
-  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
-  .stat-card {
-    display: flex; align-items: center; gap: var(--sp-3);
-    background: var(--bg-raised); border: 1px solid var(--border-dim);
-    border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-4);
+  .mini-card { flex-shrink: 0; width: 120px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+  .mini-card:hover .mini-cover { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
+  .mini-card:hover { will-change: transform; }
+  .mini-cover-wrap {
+    position: relative; aspect-ratio: 2/3; overflow: hidden;
+    border-radius: var(--radius-md); background: var(--bg-raised);
+    border: 1px solid var(--border-dim); box-shadow: 0 2px 12px rgba(0,0,0,0.35);
   }
-  .stat-icon-wrap { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--radius-md); flex-shrink: 0; }
+  .mini-cover { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.15s ease, transform 0.15s ease; }
+  .mini-gradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.1) 55%, transparent 75%); pointer-events: none; }
+  .mini-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: var(--sp-2); pointer-events: none; }
+  .mini-card-title {
+    font-size: var(--text-xs); font-weight: var(--weight-medium);
+    color: rgba(255,255,255,0.92); line-height: var(--leading-snug);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+  }
+  .mini-card-source { font-family: var(--font-ui); font-size: 9px; color: rgba(255,255,255,0.45); letter-spacing: var(--tracking-wide); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Stats grid */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+  .stat-card {
+    display: flex; align-items: center; gap: var(--sp-2);
+    background: var(--bg-raised); border: 1px solid var(--border-dim);
+    border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3);
+  }
+  .stat-icon-wrap { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0; }
   .stat-fire    { background: rgba(251,146,60,0.15); color: #fb923c; }
   .stat-accent  { background: var(--accent-muted); color: var(--accent-fg); }
   .stat-neutral { background: var(--bg-overlay); color: var(--text-faint); }
   .stat-green   { background: rgba(34,197,94,0.12); color: #22c55e; }
-  .stat-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .stat-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .stat-val { font-family: var(--font-ui); font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); line-height: 1; }
   .stat-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); white-space: nowrap; }
 
