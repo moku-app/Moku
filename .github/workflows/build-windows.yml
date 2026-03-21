@@ -6,6 +6,10 @@ on:
       version:
         description: "Version to build (e.g. 0.4.0)"
         required: true
+      branch:
+        description: "Branch to build (e.g. svelte-rewrite)"
+        required: false
+        default: "main"
 
 jobs:
   frontend:
@@ -13,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -43,6 +49,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
       - name: Download frontend dist
         uses: actions/download-artifact@v4
