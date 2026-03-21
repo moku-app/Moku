@@ -78,27 +78,21 @@ jobs:
           curl -fsSL \
             "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-windows-x64.zip" \
             -o suwayomi-windows.zip
-
           echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | sha256sum -c -
-
           unzip -q suwayomi-windows.zip -d suwayomi-raw
 
       - name: Extract Suwayomi bundle
         shell: bash
         run: |
           mkdir -p suwayomi-extracted
-
-          # Handle both zip layouts: single top-level dir, or files at root
           TOP_DIRS=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d | wc -l)
           TOP_FILES=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type f | wc -l)
-
           if [ "$TOP_DIRS" -eq 1 ] && [ "$TOP_FILES" -eq 0 ]; then
             INNER=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d | head -1)
             cp -r "$INNER"/. suwayomi-extracted/
           else
             cp -r suwayomi-raw/. suwayomi-extracted/
           fi
-
           echo "Extracted bundle contents (top-level):"
           ls -la suwayomi-extracted/
 
@@ -106,63 +100,39 @@ jobs:
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
-
           JAVAW=$(find suwayomi-extracted -path "*/jre/bin/javaw.exe" | head -1)
           JAR=$(find suwayomi-extracted -name "Suwayomi-Launcher.jar" | head -1)
-
           if [ -z "$JAVAW" ]; then
             echo "ERROR: jre/bin/javaw.exe not found. Bundle contents:"
             find suwayomi-extracted -type f | head -50
             exit 1
           fi
-
           if [ -z "$JAR" ]; then
             echo "ERROR: Suwayomi-Launcher.jar not found. Bundle contents:"
             find suwayomi-extracted -type f | head -50
             exit 1
           fi
-
           echo "Found javaw: $JAVAW"
           echo "Found jar:   $JAR"
-
-          # Copy full bundle as resources — lib.rs invokes the bundled
-          # java directly via resource_dir/suwayomi-bundle/jre/bin/javaw.exe.
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
 
       - name: Validate staging
         shell: bash
         run: |
-          echo "--- Validating bundle javaw ---"
           find src-tauri/binaries/suwayomi-bundle -path "*/jre/bin/javaw.exe" \
-            | grep -q . \
-            || (echo "ERROR: jre/bin/javaw.exe missing" && exit 1)
-
-          echo "--- Validating bundle jar ---"
+            | grep -q . || (echo "ERROR: jre/bin/javaw.exe missing" && exit 1)
           find src-tauri/binaries/suwayomi-bundle -name "Suwayomi-Launcher.jar" \
-            | grep -q . \
-            || (echo "ERROR: Suwayomi-Launcher.jar missing" && exit 1)
-
+            | grep -q . || (echo "ERROR: Suwayomi-Launcher.jar missing" && exit 1)
           echo "Staging OK"
 
       - name: Patch tauri.conf.json for CI
         shell: bash
         run: |
-          # Suppress the frontend rebuild (dist/ already built by frontend job).
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
-
-          # Remove externalBin entirely for Windows — we invoke the bundled
-          # javaw directly as a raw path, no sidecar registration needed.
-          # Inject the suwayomi-bundle resource glob.
-          python3 - << 'PYEOF'
-import json
-with open("src-tauri/tauri.conf.json") as f:
-    conf = json.load(f)
-conf["bundle"]["resources"] = ["binaries/suwayomi-bundle/**"]
-conf["bundle"]["externalBin"] = []
-with open("src-tauri/tauri.conf.json", "w") as f:
-    json.dump(conf, f, indent=2)
-print("tauri.conf.json patched — resources injected, externalBin cleared")
-PYEOF
+          jq '.bundle.resources = ["binaries/suwayomi-bundle/**"] | .bundle.externalBin = []' \
+            src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+          echo "tauri.conf.json patched:"
+          cat src-tauri/tauri.conf.json
 
       - name: Build Tauri app (Windows x64)
         uses: tauri-apps/tauri-action@v0
