@@ -125,15 +125,15 @@ jobs:
         shell: bash
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
-          jq '.bundle.resources = ["binaries/suwayomi-bundle/**"]' src-tauri/tauri.conf.json > tmp.json
-          mv tmp.json src-tauri/tauri.conf.json
 
       - name: Build Tauri app (Windows x64)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target x86_64-pc-windows-msvc
+          args: >-
+            --target x86_64-pc-windows-msvc
+            --config '{"bundle":{"resources":["binaries/suwayomi-bundle/**"]}}'  
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
