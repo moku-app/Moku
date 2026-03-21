@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 0.3.0)"
+        description: "Version to build (e.g. 0.4.0)"
         required: true
 
 jobs:
@@ -81,58 +81,39 @@ jobs:
 
           echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | sha256sum -c -
 
-          unzip -q suwayomi-windows.zip -d suwayomi-extracted-raw
+          unzip -q suwayomi-windows.zip -d suwayomi-raw
 
-          # Detect whether the zip has a single top-level directory wrapper.
-          # If exactly one entry exists at depth-1 and it is a directory, strip it.
-          TOP_DIRS=$(find suwayomi-extracted-raw -mindepth 1 -maxdepth 1 -type d)
-          TOP_FILES=$(find suwayomi-extracted-raw -mindepth 1 -maxdepth 1 -type f)
+          TOP_DIRS=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d)
+          TOP_FILES=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type f)
           TOP_DIR_COUNT=$(echo "$TOP_DIRS" | grep -c . || true)
 
           mkdir -p suwayomi-extracted
           if [ "$TOP_DIR_COUNT" -eq 1 ] && [ -z "$TOP_FILES" ]; then
-            # Single wrapping directory — strip it
             mv "$TOP_DIRS"/* suwayomi-extracted/
           else
-            # Files already at root level — move everything as-is
-            mv suwayomi-extracted-raw/* suwayomi-extracted/
+            mv suwayomi-raw/* suwayomi-extracted/
           fi
 
-      - name: Inspect Suwayomi launcher
-        shell: bash
-        run: |
-          echo "=== Top-level contents ==="
-          ls -la suwayomi-extracted/
-          echo "=== All .exe files ==="
-          find suwayomi-extracted -name "*.exe" | head -20
-          echo "=== All .cmd/.bat files ==="
-          find suwayomi-extracted -name "*.cmd" -o -name "*.bat" | head -20
-
-      - name: Stage Suwayomi sidecar
+      - name: Stage Suwayomi bundle
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
 
-          # The Windows bundle has no standalone launcher exe — it ships
-          # "Suwayomi Launcher.bat" which calls jre\bin\javaw.exe -jar Suwayomi-Launcher.jar.
-          # Tauri sidecars must be real executables, so we stage javaw.exe as the
-          # sidecar. lib.rs will invoke it with the correct -jar + working-dir args.
           JAVAW=$(find suwayomi-extracted -path "*/jre/bin/javaw.exe" | head -1)
 
           if [ -z "$JAVAW" ]; then
-            echo "ERROR: could not find jre/bin/javaw.exe"
-            ls -lR suwayomi-extracted/
+            echo "ERROR: could not find jre/bin/javaw.exe — bundle contents:"
+            find suwayomi-extracted -type f | head -40
             exit 1
           fi
 
-          echo "Using javaw: $JAVAW"
-          cp "$JAVAW" "src-tauri/binaries/suwayomi-server-x86_64-pc-windows-msvc.exe"
+          echo "Found javaw: $JAVAW"
 
-          # Copy the full bundle so the .jar and jre/ tree are available at runtime.
-          # lib.rs sets the working directory to this folder before spawning.
+          # Copy full bundle so jar + jre tree are available at runtime.
+          # lib.rs looks for suwayomi-bundle/jre/bin/javaw.exe in the resource dir.
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
 
-      - name: Patch tauri.conf.json for CI
+      - name: Suppress frontend rebuild
         shell: bash
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json

@@ -247,25 +247,20 @@ fn resolve_server_binary(
     }
 
     // Fall back to PATH — covers Nix, distro packages, and any system install.
-    {
-        #[cfg(target_os = "windows")]
-        let which_cmd = "where";
-        #[cfg(not(target_os = "windows"))]
-        let which_cmd = "which";
-
-        for name in &["tachidesk-server", "suwayomi-server"] {
-            if std::process::Command::new(which_cmd)
-                .arg(name)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-            {
-                return Ok(ServerInvocation {
-                    bin: std::ffi::OsString::from(name),
-                    prefix_args: vec![],
-                    working_dir: None,
-                });
-            }
+    // Windows always hits the early return above so this block is Linux/macOS only.
+    #[cfg(not(target_os = "windows"))]
+    for name in &["tachidesk-server", "suwayomi-server"] {
+        if std::process::Command::new("which")
+            .arg(name)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Ok(ServerInvocation {
+                bin: std::ffi::OsString::from(name),
+                prefix_args: vec![],
+                working_dir: None,
+            });
         }
     }
 
