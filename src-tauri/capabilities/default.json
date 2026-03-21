@@ -10,13 +10,10 @@
     {
       "identifier": "shell:allow-spawn",
       "allow": [
-        { "name": "tachidesk-server" },
-        { "name": "suwayomi-server" },
-        { "name": "suwayomi-server-aarch64-apple-darwin" },
-        { "name": "suwayomi-server-x86_64-apple-darwin" },
-        { "name": "javaw", "args": true },
-        { "name": "which" },
-        { "name": "where" }
+        { "name": "java",              "args": true },
+        { "name": "javaw",             "args": true },
+        { "name": "suwayomi-server",   "args": true },
+        { "name": "tachidesk-server",  "args": true }
       ]
     }
   ]

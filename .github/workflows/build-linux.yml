@@ -1,4 +1,4 @@
-name: Build Windows
+name: Build Linux
 
 on:
   workflow_dispatch:
@@ -32,14 +32,14 @@ jobs:
       - name: Upload dist
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-dist-windows
+          name: frontend-dist-linux
           path: dist/
           retention-days: 1
 
   tauri:
-    name: Tauri (Windows x64)
+    name: Tauri (Linux x64)
     needs: frontend
-    runs-on: windows-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
@@ -47,13 +47,23 @@ jobs:
       - name: Download frontend dist
         uses: actions/download-artifact@v4
         with:
-          name: frontend-dist-windows
+          name: frontend-dist-linux
           path: dist/
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: x86_64-unknown-linux-gnu
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -72,46 +82,29 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download Suwayomi (Windows x64)
-        shell: bash
+      - name: Download Suwayomi (Linux x64)
         run: |
           curl -fsSL \
-            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-windows-x64.zip" \
-            -o suwayomi-windows.zip
+            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-linux-x64.tar.gz" \
+            -o suwayomi-linux.tar.gz
 
-          echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | sha256sum -c -
+          echo "b2344bd73c4e26bede63cdb4b44b1b4168d8a8500b3b2b1a0219519a3ef708fe  suwayomi-linux.tar.gz" | sha256sum -c -
 
-          unzip -q suwayomi-windows.zip -d suwayomi-raw
-
-      - name: Extract Suwayomi bundle
-        shell: bash
-        run: |
           mkdir -p suwayomi-extracted
-
-          # Handle both zip layouts: single top-level dir, or files at root
-          TOP_DIRS=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d | wc -l)
-          TOP_FILES=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type f | wc -l)
-
-          if [ "$TOP_DIRS" -eq 1 ] && [ "$TOP_FILES" -eq 0 ]; then
-            INNER=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d | head -1)
-            cp -r "$INNER"/. suwayomi-extracted/
-          else
-            cp -r suwayomi-raw/. suwayomi-extracted/
-          fi
+          tar -xzf suwayomi-linux.tar.gz -C suwayomi-extracted --strip-components=1
 
           echo "Extracted bundle contents (top-level):"
           ls -la suwayomi-extracted/
 
       - name: Stage Suwayomi bundle
-        shell: bash
         run: |
           mkdir -p src-tauri/binaries
 
-          JAVAW=$(find suwayomi-extracted -path "*/jre/bin/javaw.exe" | head -1)
+          JAVA=$(find suwayomi-extracted -path "*/jre/bin/java" | head -1)
           JAR=$(find suwayomi-extracted -name "Suwayomi-Launcher.jar" | head -1)
 
-          if [ -z "$JAVAW" ]; then
-            echo "ERROR: jre/bin/javaw.exe not found. Bundle contents:"
+          if [ -z "$JAVA" ]; then
+            echo "ERROR: jre/bin/java not found. Bundle contents:"
             find suwayomi-extracted -type f | head -50
             exit 1
           fi
@@ -122,20 +115,19 @@ jobs:
             exit 1
           fi
 
-          echo "Found javaw: $JAVAW"
-          echo "Found jar:   $JAR"
+          echo "Found java: $JAVA"
+          echo "Found jar:  $JAR"
 
-          # Copy full bundle as resources — lib.rs invokes the bundled
-          # java directly via resource_dir/suwayomi-bundle/jre/bin/javaw.exe.
+          # Copy full bundle as resources so jar + jre tree are available
+          # at runtime via resource_dir/suwayomi-bundle/.
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
 
       - name: Validate staging
-        shell: bash
         run: |
-          echo "--- Validating bundle javaw ---"
-          find src-tauri/binaries/suwayomi-bundle -path "*/jre/bin/javaw.exe" \
+          echo "--- Validating bundle java ---"
+          find src-tauri/binaries/suwayomi-bundle -path "*/jre/bin/java" \
             | grep -q . \
-            || (echo "ERROR: jre/bin/javaw.exe missing" && exit 1)
+            || (echo "ERROR: jre/bin/java missing" && exit 1)
 
           echo "--- Validating bundle jar ---"
           find src-tauri/binaries/suwayomi-bundle -name "Suwayomi-Launcher.jar" \
@@ -145,13 +137,12 @@ jobs:
           echo "Staging OK"
 
       - name: Patch tauri.conf.json for CI
-        shell: bash
         run: |
           # Suppress the frontend rebuild (dist/ already built by frontend job).
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
-          # Remove externalBin entirely for Windows — we invoke the bundled
-          # javaw directly as a raw path, no sidecar registration needed.
+          # Remove externalBin entirely for Linux — we use bundled resources,
+          # no sidecar registration needed.
           # Inject the suwayomi-bundle resource glob.
           python3 - << 'PYEOF'
 import json
@@ -164,16 +155,23 @@ with open("src-tauri/tauri.conf.json", "w") as f:
 print("tauri.conf.json patched — resources injected, externalBin cleared")
 PYEOF
 
-      - name: Build Tauri app (Windows x64)
+      - name: Build Tauri app (Linux x64)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target x86_64-pc-windows-msvc
+          args: --target x86_64-unknown-linux-gnu
 
-      - name: Upload Windows installer
+      - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: moku-windows-x64
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          name: moku-linux-x64-appimage
+          path: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+          retention-days: 7
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: moku-linux-x64-deb
+          path: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
           retention-days: 7

@@ -39,6 +39,9 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
+    "externalBin": [
+      "binaries/suwayomi-server"
+    ],
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
