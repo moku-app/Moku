@@ -132,7 +132,7 @@ export const DEFAULT_SETTINGS: Settings = {
   compactSidebar:         false,
   gpuAcceleration:        true,
   serverUrl:              "http://localhost:4567",
-  serverBinary:           "tachidesk-server",
+  serverBinary:           "",
   autoStartServer:        true,
   preferredExtensionLang: "en",
   keybinds:               DEFAULT_KEYBINDS,
@@ -151,6 +151,14 @@ export const DEFAULT_SETTINGS: Settings = {
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
+const STORE_VERSION = 2;
+
+// Fields reset to their DEFAULT_SETTINGS value on each version bump.
+// Add a key here whenever its default changes meaning between releases.
+const RESET_ON_UPGRADE: (keyof Settings)[] = [
+  "serverBinary",
+];
+
 function loadPersisted(): any {
   try {
     const raw = localStorage.getItem("moku-store");
@@ -167,7 +175,26 @@ function persist(patch: Record<string, unknown>) {
   } catch {}
 }
 
-const saved = loadPersisted();
+const saved = (() => {
+  const data = loadPersisted();
+  if (!data) return null;
+  if ((data.storeVersion ?? 1) < STORE_VERSION) {
+    const resetPatch: Partial<Settings> = {};
+    for (const key of RESET_ON_UPGRADE) {
+      (resetPatch as any)[key] = (DEFAULT_SETTINGS as any)[key];
+    }
+    const migrated = {
+      ...data,
+      storeVersion: STORE_VERSION,
+      settings: { ...data.settings, ...resetPatch },
+    };
+    try {
+      localStorage.setItem("moku-store", JSON.stringify(migrated));
+    } catch {}
+    return migrated;
+  }
+  return data;
+})();
 
 function mergeSettings(saved: any): Settings {
   const userFolders: Folder[]   = saved?.settings?.folders ?? [];
@@ -222,6 +249,7 @@ class Store {
 
   constructor() {
     $effect.root(() => {
+      $effect(() => { persist({ storeVersion:  STORE_VERSION            }); });
       $effect(() => { persist({ navPage:       this.navPage       }); });
       $effect(() => { persist({ libraryFilter: this.libraryFilter }); });
       $effect(() => { persist({ history:       this.history       }); });

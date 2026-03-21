@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Allow launching suwayomi-server sidecar",
+  "description": "Default permissions for Moku",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -10,10 +10,11 @@
     {
       "identifier": "shell:allow-spawn",
       "allow": [
-        {
-          "name": "binaries/suwayomi-server",
-          "sidecar": true
-        }
+        { "name": "tachidesk-server" },
+        { "name": "suwayomi-server" },
+        { "name": "suwayomi-server-aarch64-apple-darwin" },
+        { "name": "suwayomi-server-x86_64-apple-darwin" },
+        { "name": "javaw" }
       ]
     }
   ]

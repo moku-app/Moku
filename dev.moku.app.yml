@@ -181,7 +181,7 @@ modules:
         path: .
       - type: file
         path: packaging/frontend-dist.tar.gz
-        sha256: c9bb5ee6613b2bc61e69a92cc1ef0029da3b61138d51b01d363f8ea524e51996
+        sha256: c78a3f002f898011c4e70e1af781b37dac0fd995b5623170256d88339c90ca74
       - packaging/cargo-sources.json
       - type: inline
         dest: src-tauri/.cargo

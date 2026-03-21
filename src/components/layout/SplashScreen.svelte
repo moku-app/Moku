@@ -1,21 +1,23 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { store } from "../../store/state.svelte";
   import logoUrl from "../../assets/moku-icon.svg";
 
   interface Props {
-    mode?:      "loading" | "idle";
-    ringFull?:  boolean;
-    failed?:    boolean;
-    showCards?: boolean;
-    showFps?:   boolean;
-    onReady?:   () => void;
-    onRetry?:   () => void;
-    onDismiss?: () => void;
+    mode?:          "loading" | "idle";
+    ringFull?:      boolean;
+    failed?:        boolean;
+    notConfigured?: boolean;
+    showCards?:     boolean;
+    showFps?:       boolean;
+    onReady?:       () => void;
+    onRetry?:       () => void;
+    onDismiss?:     () => void;
   }
 
-  let { mode = "loading", ringFull = false, failed = false, showCards = true,
-        showFps = false, onReady, onRetry, onDismiss }: Props = $props();
+  let { mode = "loading", ringFull = false, failed = false, notConfigured = false,
+        showCards = true, showFps = false, onReady, onRetry, onDismiss }: Props = $props();
 
   const EXIT_MS = 320;
 
@@ -90,10 +92,22 @@
         const h     = w * 1.44;
         const speed = cfg.speedMin + hash(seed + 5) * (cfg.speedMax - cfg.speedMin);
         const travel = vh + h + BUF;
-        cards.push({ cx: (col + 0.5) * laneW + (hash(seed + 2) * 2 - 1) * Math.max(0, (laneW - w) / 2 - 2), w, h, lines: 1 + Math.floor(hash(seed + 7) * 3), alpha: cfg.alpha, speed, cycleSec: travel / speed, phase: ((col / COLS) + hash(seed + 6) * 0.6 + layer * 0.23) % 1, travel, yStart: vh + h / 2 + BUF / 2, angleStart: hash(seed + 3) * 50 - 25, tilt: (hash(seed + 4) * 2 - 1) * 18 });
+        cards.push({
+          cx: (col + 0.5) * laneW + (hash(seed + 2) * 2 - 1) * Math.max(0, (laneW - w) / 2 - 2),
+          w, h, lines: 1 + Math.floor(hash(seed + 7) * 3), alpha: cfg.alpha, speed,
+          cycleSec: travel / speed,
+          phase: ((col / COLS) + hash(seed + 6) * 0.6 + layer * 0.23) % 1,
+          travel, yStart: vh + h / 2 + BUF / 2,
+          angleStart: hash(seed + 3) * 50 - 25,
+          tilt: (hash(seed + 4) * 2 - 1) * 18,
+        });
       }
     }
-    const trigs: CardTrig[] = cards.map(c => ({ cosA: Math.cos(c.angleStart * (Math.PI / 180)), sinA: Math.sin(c.angleStart * (Math.PI / 180)), tiltRad: c.tilt * (Math.PI / 180) }));
+    const trigs: CardTrig[] = cards.map(c => ({
+      cosA: Math.cos(c.angleStart * (Math.PI / 180)),
+      sinA: Math.sin(c.angleStart * (Math.PI / 180)),
+      tiltRad: c.tilt * (Math.PI / 180),
+    }));
     return { cards, trigs };
   }
 
@@ -140,7 +154,10 @@
     return oc;
   }
 
-  function drawFrame(ctx: CanvasRenderingContext2D, t: number, cw: number, ch: number, dpr: number, cards: CardDef[], trigs: CardTrig[], stamps: HTMLCanvasElement[], vignette: HTMLCanvasElement) {
+  function drawFrame(
+    ctx: CanvasRenderingContext2D, t: number, cw: number, ch: number, dpr: number,
+    cards: CardDef[], trigs: CardTrig[], stamps: HTMLCanvasElement[], vignette: HTMLCanvasElement,
+  ) {
     ctx.clearRect(0, 0, cw, ch);
     for (let i = 0; i < cards.length; i++) {
       const c = cards[i];
@@ -174,9 +191,13 @@
   function mountCanvas(el: HTMLCanvasElement) {
     const win = getCurrentWindow();
     const ctx = el.getContext("2d")!;
-    interface RenderState { cards: CardDef[]; trigs: CardTrig[]; stamps: HTMLCanvasElement[]; vignette: HTMLCanvasElement; CW: number; CH: number; scale: number; }
+    interface RenderState {
+      cards: CardDef[]; trigs: CardTrig[]; stamps: HTMLCanvasElement[];
+      vignette: HTMLCanvasElement; CW: number; CH: number; scale: number;
+    }
     let live: RenderState | null = null;
     let lastLogW = 0, lastLogH = 0, lastScale = 0, buildGen = 0;
+
     async function syncSize() {
       const gen = ++buildGen;
       const [phys, scale] = await Promise.all([win.innerSize(), win.scaleFactor()]);
@@ -190,8 +211,10 @@
       el.width = phys.width; el.height = phys.height;
       live = { cards: built.cards, trigs: built.trigs, stamps, vignette: vig, CW: phys.width, CH: phys.height, scale };
     }
+
     const ro = new ResizeObserver(() => syncSize());
     ro.observe(el); syncSize();
+
     let raf = 0, t0 = -1;
     function frame(now: number) {
       raf = requestAnimationFrame(frame);
@@ -205,14 +228,14 @@
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }
 
-  const ringR    = $derived(44);
-  const ringPad  = $derived(8);
+  const ringR    = $derived(70);
+  const ringPad  = $derived(12);
   const ringSize = $derived((ringR + ringPad) * 2);
   const ringC    = $derived(ringR + ringPad);
   const ringCirc = $derived(2 * Math.PI * ringR);
   const ringArc  = $derived(ringCirc * Math.min(Math.max(ringProg, 0.025), 0.999));
-  const ringTop  = $derived(-((ringSize - 80) / 2));
-  const ringLeft = $derived(-((ringSize - 80) / 2));
+  const ringTop  = $derived(-((ringSize - 140) / 2));
+  const ringLeft = $derived(-((ringSize - 140) / 2));
 </script>
 
 <div class="splash" class:exiting style="cursor: {mode === 'idle' ? 'pointer' : 'default'}">
@@ -232,21 +255,32 @@
       <p class="hint">press any key to continue</p>
     </div>
   {:else}
-    <div style="position:relative;width:80px;height:80px;margin-bottom:20px;z-index:1">
-      {#if !failed}
+    <div style="position:relative;width:140px;height:140px;margin-bottom:20px;z-index:1">
+      {#if !failed && !notConfigured}
         <svg width={ringSize} height={ringSize} style="position:absolute;pointer-events:none;top:{ringTop}px;left:{ringLeft}px">
           <circle cx={ringC} cy={ringC} r={ringR} fill="none" stroke="var(--border-base)" stroke-width="2" />
           <circle cx={ringC} cy={ringC} r={ringR} fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="{ringArc} {ringCirc}" transform="rotate(-90 {ringC} {ringC})" style="transition: stroke-dasharray 0.4s cubic-bezier(0.4,0,0.2,1)" />
         </svg>
       {/if}
-      <img src={logoUrl} alt="Moku" style="width:80px;height:80px;border-radius:18px;display:block" />
+      <img src={logoUrl} alt="Moku" style="width:140px;height:140px;border-radius:32px;display:block" />
     </div>
     <p class="title-label">moku</p>
     <div style="z-index:1;display:flex;flex-direction:column;align-items:center;gap:8px">
-      {#if failed}
-        <p style="font-family:var(--font-ui);font-size:11px;color:var(--color-error);letter-spacing:0.1em;margin:0">Could not reach Suwayomi</p>
-        <p style="font-family:var(--font-ui);font-size:10px;color:var(--text-faint);letter-spacing:0.05em;margin:0;text-align:center;max-width:240px;line-height:1.6">Make sure tachidesk-server is on your PATH</p>
-        <button class="retry-btn" onclick={onRetry}>Retry</button>
+      {#if notConfigured}
+        <div class="error-box">
+          <p class="error-title">Server not configured</p>
+          <p class="error-body">Set the server path in Settings, then retry</p>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="retry-btn" onclick={() => { store.settingsOpen = true; }}>Settings</button>
+            <button class="retry-btn" onclick={onRetry}>Retry</button>
+          </div>
+        </div>
+      {:else if failed}
+        <div class="error-box error-box--danger">
+          <p class="error-title" style="color:var(--color-error)">Could not reach Suwayomi</p>
+          <p class="error-body">Make sure tachidesk-server is on your PATH</p>
+          <button class="retry-btn" style="margin-top:8px" onclick={onRetry}>Retry</button>
+        </div>
       {:else}
         <p style="font-family:var(--font-ui);font-size:10px;color:var(--text-faint);letter-spacing:0.12em;margin:0;min-width:160px;text-align:center">
           {ringFull ? "Ready" : `Initializing server${dots}`}
@@ -268,4 +302,9 @@
   .hint { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); letter-spacing: 0.22em; text-transform: uppercase; margin: 0; user-select: none; animation: hintFade 3.5s ease-in-out infinite; }
   .title-label { font-family: var(--font-ui); font-size: 11px; font-weight: 500; letter-spacing: 0.26em; text-transform: uppercase; color: var(--text-secondary); margin: 0 0 8px; z-index: 1; user-select: none; }
   .retry-btn { margin-top: 4px; padding: 5px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.08em; }
+  .retry-btn:hover { border-color: var(--border-strong); color: var(--text-secondary); }
+  .error-box { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 20px; border-radius: var(--radius-lg); background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12); max-width: 260px; text-align: center; backdrop-filter: blur(4px); }
+  .error-box--danger { border-color: rgba(220,50,50,0.5); }
+  .error-title { font-family: var(--font-ui); font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0.1em; margin: 0; }
+  .error-body { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); letter-spacing: 0.05em; margin: 0; line-height: 1.6; }
 </style>

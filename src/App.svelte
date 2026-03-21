@@ -16,11 +16,12 @@
 
   const MAX_ATTEMPTS = 30;
 
-  let serverProbeOk = $state(!store.settings.autoStartServer);
-  let appReady      = $state(!store.settings.autoStartServer);
-  let failed        = $state(false);
-  let idle          = $state(false);
-  let devSplash     = $state(false);
+  let serverProbeOk   = $state(!store.settings.autoStartServer);
+  let appReady        = $state(!store.settings.autoStartServer);
+  let failed          = $state(false);
+  let notConfigured   = $state(false);
+  let idle            = $state(false);
+  let devSplash       = $state(false);
 
   let prevQueue: DownloadQueueItem[] = [];
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -68,7 +69,6 @@
     const scale = store.settings.uiScale * 1.5;
     document.documentElement.style.zoom = `${scale}%`;
     document.documentElement.style.setProperty("--ui-scale", String(scale));
-    // --visual-vh gives true viewport height independent of zoom
     document.documentElement.style.setProperty("--visual-vh", `${window.innerHeight / (scale / 100)}px`);
   });
 
@@ -90,8 +90,13 @@
     (window as any).__mokuShowSplash = () => devSplash = true;
 
     if (store.settings.autoStartServer) {
-      invoke("spawn_server", { binary: store.settings.serverBinary }).catch(err =>
-        console.warn("Could not start server:", err));
+      invoke<void>("spawn_server", { binary: store.settings.serverBinary }).catch((err: any) => {
+        if (err?.kind === "NotConfigured") {
+          notConfigured = true;
+        } else {
+          console.warn("Could not start server:", err);
+        }
+      });
     }
 
     if (!serverProbeOk) {
@@ -117,6 +122,7 @@
     unlistenDownload = await listen<P>("download-progress", e => { setActiveDownloads(e.payload); });
 
     return () => {
+      cancelled = true;
       if (store.settings.autoStartServer) invoke("kill_server").catch(() => {});
       if (idleTimer) clearTimeout(idleTimer);
       if (pollInterval) clearInterval(pollInterval);
@@ -125,14 +131,14 @@
     };
   });
 
-  function handleRetry() { failed = false; serverProbeOk = false; }
+  function handleRetry() { failed = false; notConfigured = false; serverProbeOk = false; }
 </script>
 
 {#if devSplash}
   <SplashScreen mode="idle" showFps showCards={store.settings.splashCards ?? true}
     onDismiss={() => setTimeout(() => devSplash = false, 340)} />
 {:else if !appReady}
-  <SplashScreen mode="loading" ringFull={serverProbeOk} {failed}
+  <SplashScreen mode="loading" ringFull={serverProbeOk} {failed} {notConfigured}
     showCards={store.settings.splashCards ?? true}
     onReady={() => appReady = true}
     onRetry={handleRetry} />

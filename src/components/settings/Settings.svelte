@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { getVersion } from "@tauri-apps/api/app";
   import { gql } from "../../lib/client";
   import { GET_DOWNLOADS_PATH } from "../../lib/queries";
   import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen } from "../../store/state.svelte";
@@ -195,6 +196,33 @@
 
   
   let splashTriggered = $state(false);
+
+  let appVersion     = $state("…");
+  let latestVersion  = $state<string | null>(null);
+  let checkingUpdate = $state(false);
+  let updateError    = $state<string | null>(null);
+
+  $effect(() => {
+    if (tab === "about") {
+      getVersion().then(v => appVersion = v).catch(() => appVersion = "unknown");
+    }
+  });
+
+  async function checkForUpdate() {
+    checkingUpdate = true; updateError = null; latestVersion = null;
+    try {
+      const res = await fetch("https://api.github.com/repos/Youwes09/Moku/releases/latest", {
+        method: "GET",
+        headers: { "User-Agent": "Moku" },
+      });
+      const data = await res.json() as { tag_name: string };
+      latestVersion = data.tag_name.replace(/^v/, "");
+    } catch (e) {
+      updateError = "Could not reach GitHub";
+    } finally {
+      checkingUpdate = false;
+    }
+  }
   function triggerSplash() {
     splashTriggered = true;
     setTimeout(() => splashTriggered = false, 200);
@@ -695,7 +723,41 @@
               <p class="section-title">Moku</p>
               <div class="about-block">
                 <p class="about-line">A manga reader frontend for Suwayomi / Tachidesk.</p>
-                <p class="about-line" style="color:var(--text-faint);margin-top:var(--sp-2)">Built with Tauri + Svelte. Connects to tachidesk-server.</p>
+                <p class="about-line" style="color:var(--text-faint);margin-top:var(--sp-2)">Built with Tauri + Svelte.</p>
+              </div>
+            </div>
+            <div class="section">
+              <p class="section-title">Version</p>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Current version</span>
+                  <span class="toggle-desc">v{appVersion}</span>
+                </div>
+                <button class="step-btn" style="width:auto;padding:0 var(--sp-3);font-size:var(--text-xs);letter-spacing:var(--tracking-wide)"
+                  onclick={checkForUpdate} disabled={checkingUpdate}>
+                  {checkingUpdate ? "Checking…" : "Check for updates"}
+                </button>
+              </div>
+              {#if updateError}
+                <p style="font-family:var(--font-ui);font-size:var(--text-xs);color:var(--color-error);padding:0 var(--sp-3) var(--sp-2)">{updateError}</p>
+              {:else if latestVersion !== null}
+                {#if latestVersion === appVersion}
+                  <p style="font-family:var(--font-ui);font-size:var(--text-xs);color:#22c55e;padding:0 var(--sp-3) var(--sp-2);letter-spacing:var(--tracking-wide)">✓ You are on the latest version</p>
+                {:else}
+                  <div style="padding:0 var(--sp-3) var(--sp-2);display:flex;flex-direction:column;gap:var(--sp-1)">
+                    <p style="font-family:var(--font-ui);font-size:var(--text-xs);color:#fb923c;letter-spacing:var(--tracking-wide)">Update available — v{latestVersion}</p>
+                    <a href="https://github.com/Youwes09/Moku/releases/latest" target="_blank"
+                      style="font-family:var(--font-ui);font-size:var(--text-xs);color:var(--accent-fg);letter-spacing:var(--tracking-wide);text-decoration:none">
+                      Download on GitHub →
+                    </a>
+                  </div>
+                {/if}
+              {/if}
+            </div>
+            <div class="section">
+              <p class="section-title">Links</p>
+              <div class="about-block">
+                <a href="https://github.com/Youwes09/Moku" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
               </div>
             </div>
           </div>

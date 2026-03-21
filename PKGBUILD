@@ -1,5 +1,5 @@
 pkgname=moku
-pkgver=0.3.0
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="Native Linux manga reader frontend for Suwayomi-Server"
 arch=('x86_64')
@@ -33,14 +33,8 @@ prepare() {
 
 build() {
     cd "Moku-$pkgver"
-
-    # Build frontend
     pnpm build
-
-    # Repack dist for Tauri
     tar -czf packaging/frontend-dist.tar.gz -C dist .
-
-    # Build Tauri binary
     TAURI_SKIP_DEVSERVER_CHECK=true cargo build \
         --release \
         --manifest-path src-tauri/Cargo.toml
@@ -49,19 +43,15 @@ build() {
 package() {
     cd "Moku-$pkgver"
 
-    # Moku binary
     install -Dm755 src-tauri/target/release/moku \
         "$pkgdir/usr/bin/moku"
 
-    # Bundled JRE
     install -dm755 "$pkgdir/usr/lib/moku/jre"
     tar -xf "$srcdir/jdk.tar.gz" -C "$pkgdir/usr/lib/moku/jre" --strip-components=1
 
-    # Suwayomi server jar
     install -Dm644 "$srcdir/suwayomi-server.jar" \
         "$pkgdir/usr/lib/moku/tachidesk/Suwayomi-Server.jar"
 
-    # tachidesk-server wrapper script
     install -dm755 "$pkgdir/usr/lib/moku/tachidesk/default-conf"
     cat > "$pkgdir/usr/lib/moku/tachidesk/default-conf/server.conf" << 'EOF'
 server.ip = "127.0.0.1"
@@ -109,7 +99,6 @@ exec /usr/lib/moku/jre/bin/java \
   -jar /usr/lib/moku/tachidesk/Suwayomi-Server.jar
 EOF
 
-    # Desktop entry and icons
     install -Dm644 packaging/dev.moku.app.desktop \
         "$pkgdir/usr/share/applications/dev.moku.app.desktop"
     install -Dm644 src-tauri/icons/32x32.png \
