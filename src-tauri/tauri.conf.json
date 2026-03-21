@@ -44,10 +44,7 @@
         "installerIcon": "icons/icon.ico",
         "installMode": "currentUser"
       }
-    },
-    "resources": [
-      "binaries/suwayomi-bundle/**"
-    ]
+    }
   },
   "plugins": {
     "shell": {
