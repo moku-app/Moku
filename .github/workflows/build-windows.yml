@@ -117,16 +117,8 @@ jobs:
         shell: bash
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
-          # Inject the suwayomi-bundle resource so Tauri bundles it with the app.
-          # Done here (after staging) so the path exists when Tauri validates it.
-          python3 - << 'PYEOF'
-import json
-with open("src-tauri/tauri.conf.json") as f:
-    conf = json.load(f)
-conf["bundle"]["resources"] = ["binaries/suwayomi-bundle/**"]
-with open("src-tauri/tauri.conf.json", "w") as f:
-    json.dump(conf, f, indent=2)
-PYEOF
+          jq '.bundle.resources = ["binaries/suwayomi-bundle/**"]' src-tauri/tauri.conf.json > tmp.json
+          mv tmp.json src-tauri/tauri.conf.json
 
       - name: Build Tauri app (Windows x64)
         uses: tauri-apps/tauri-action@v0
