@@ -85,44 +85,61 @@
     return () => clearInterval(pollInterval);
   });
 
+  // Probe the server in a loop until it responds or we hit MAX_ATTEMPTS.
+  // Returns a cleanup function that cancels any pending probe.
+  function startProbe(): () => void {
+    let cancelled = false, tries = 0;
+
+    async function probe() {
+      if (cancelled) return;
+      tries++;
+      try {
+        const res = await fetch(`${store.settings.serverUrl}/api/graphql`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: "{ __typename }" }),
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok && !cancelled) { serverProbeOk = true; return; }
+      } catch {}
+      if (tries >= MAX_ATTEMPTS && !cancelled) { failed = true; return; }
+      if (!cancelled) setTimeout(probe, 800);
+    }
+
+    // Give the server a moment to start binding its port before the first probe.
+    setTimeout(probe, 1200);
+    return () => { cancelled = true; };
+  }
+
   onMount(async () => {
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => devSplash = true;
 
+    let cancelProbe = () => {};
+
     if (store.settings.autoStartServer) {
-      invoke<void>("spawn_server", { binary: store.settings.serverBinary }).catch((err: any) => {
+      try {
+        await invoke<void>("spawn_server", { binary: store.settings.serverBinary ?? "" });
+        // spawn_server succeeded — JRE found and process started. Begin probing.
+        cancelProbe = startProbe();
+      } catch (err: any) {
         if (err?.kind === "NotConfigured") {
           notConfigured = true;
         } else {
-          console.warn("Could not start server:", err);
+          // SpawnFailed — process couldn't be launched (permissions, bad path, etc.)
+          console.error("spawn_server failed:", err);
+          failed = true;
         }
-      });
-    }
-
-    if (!serverProbeOk) {
-      let cancelled = false, tries = 0;
-      async function probe() {
-        if (cancelled) return;
-        tries++;
-        try {
-          const res = await fetch(`${store.settings.serverUrl}/api/graphql`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: "{ __typename }" }),
-            signal: AbortSignal.timeout(2000),
-          });
-          if (res.ok && !cancelled) { serverProbeOk = true; return; }
-        } catch {}
-        if (tries >= MAX_ATTEMPTS && !cancelled) { failed = true; return; }
-        if (!cancelled) setTimeout(probe, 800);
       }
-      setTimeout(probe, 800);
+    } else {
+      // autoStartServer is off — user manages the server themselves, just probe.
+      cancelProbe = startProbe();
     }
 
     type P = { chapterId: number; mangaId: number; progress: number }[];
     unlistenDownload = await listen<P>("download-progress", e => { setActiveDownloads(e.payload); });
 
     return () => {
-      cancelled = true;
+      cancelProbe();
       if (store.settings.autoStartServer) invoke("kill_server").catch(() => {});
       if (idleTimer) clearTimeout(idleTimer);
       if (pollInterval) clearInterval(pollInterval);
@@ -131,7 +148,13 @@
     };
   });
 
-  function handleRetry() { failed = false; notConfigured = false; serverProbeOk = false; }
+  function handleRetry() {
+    failed = false;
+    notConfigured = false;
+    serverProbeOk = false;
+    // Re-run the full startup flow by reloading — simplest way to reset all state cleanly.
+    window.location.reload();
+  }
 </script>
 
 {#if devSplash}

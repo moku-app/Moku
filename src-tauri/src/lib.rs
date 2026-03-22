@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::io::Write;
 use sysinfo::Disks;
 use serde::Serialize;
 use tauri::{Manager, WindowEvent};
@@ -16,11 +17,22 @@ pub struct StorageInfo {
     path:        String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "kind", content = "message")]
 pub enum SpawnError {
     NotConfigured(String),
     SpawnFailed(String),
+}
+
+/// Strip the \\?\ extended-length path prefix that Windows adds to long paths.
+/// Java and many other tools do not accept this prefix and will fail silently.
+fn strip_unc(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path
+    }
 }
 
 fn resolve_downloads_path(downloads_path: &str) -> PathBuf {
@@ -181,34 +193,40 @@ fn suwayomi_data_dir() -> PathBuf {
 }
 
 struct ServerInvocation {
-    // Absolute path to java/javaw (bundled JRE) or a PATH-resident binary name.
-    // All platforms use app.shell().command() — no externalBin/sidecar needed.
     bin:         String,
-    // Ordered args. rootdir_flag is inserted at position 0 by spawn_server
-    // so -D flags always precede -jar for the JVM.
     args:        Vec<String>,
-    // Set to the bundle dir so the jar can resolve its relative lib paths.
     working_dir: Option<PathBuf>,
 }
 
-// Returns the platform-appropriate java binary inside a bundled JRE tree,
-// or None if the expected path doesn't exist.
-fn find_java_in_bundle(bundle_dir: &PathBuf) -> Option<PathBuf> {
+fn find_java_in_bundle(bundle_dir: &PathBuf, log: &mut Option<std::fs::File>) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
-    let java = bundle_dir.join("jre").join("bin").join("javaw.exe");
+    let java = bundle_dir.join("jre").join("bin").join("java.exe");
 
     #[cfg(not(target_os = "windows"))]
     let java = bundle_dir.join("jre").join("bin").join("java");
 
+    do_log(log, &format!("[find_java] checking path: {:?}", java));
+    do_log(log, &format!("[find_java] exists: {}", java.exists()));
+
     if java.exists() { Some(java) } else { None }
+}
+
+fn do_log(log: &mut Option<std::fs::File>, msg: &str) {
+    eprintln!("{}", msg);
+    if let Some(f) = log {
+        let _ = writeln!(f, "{}", msg);
+    }
 }
 
 fn resolve_server_binary(
     binary: &str,
     app: &tauri::AppHandle,
+    log: &mut Option<std::fs::File>,
 ) -> Result<ServerInvocation, SpawnError> {
-    // User-supplied explicit path — pass straight through.
+    do_log(log, &format!("[resolve] binary arg = {:?}", binary));
+
     if !binary.trim().is_empty() {
+        do_log(log, "[resolve] using user-supplied binary path");
         return Ok(ServerInvocation {
             bin:         binary.to_string(),
             args:        vec![],
@@ -216,43 +234,69 @@ fn resolve_server_binary(
         });
     }
 
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| SpawnError::SpawnFailed(format!("resource_dir error: {e}")))?;
+    let resource_dir = match app.path().resource_dir() {
+        Ok(p) => {
+            let stripped = strip_unc(p);
+            do_log(log, &format!("[resolve] resource_dir (stripped) = {:?}", stripped));
+            stripped
+        }
+        Err(e) => {
+            let msg = format!("resource_dir error: {e}");
+            do_log(log, &format!("[resolve] ERROR: {}", msg));
+            return Err(SpawnError::SpawnFailed(msg));
+        }
+    };
 
-    // ── Windows & Linux: bundled JRE ─────────────────────────────────────────
-    // CI stages the Suwayomi linux-x64 / windows-x64 bundle as a resource at
-    // resource_dir/suwayomi-bundle/ (jar + JRE tree). We invoke the bundled
-    // java binary directly with -jar.
-    //
-    // Final arg order (rootdir_flag prepended by spawn_server):
-    //   java  -Dsuwayomi...rootDir=<path>  -jar  Suwayomi-Launcher.jar
-    //
-    // -D flags MUST precede -jar or the JVM silently ignores them.
     #[cfg(not(target_os = "macos"))]
     {
-        let bundle_dir = resource_dir.join("suwayomi-bundle");
-        let jar        = bundle_dir.join("Suwayomi-Launcher.jar");
+        // Tauri 2 resource bundling behaviour depends on the config:
+        // - Structured layout:  resource_dir/binaries/suwayomi-bundle/{bin,jre}/...
+        // - Flat layout:        resource_dir/{java.exe,Suwayomi-Server.jar,...}
+        // We try both so the binary works regardless of which layout the installer produced.
+        let search_candidates: &[(&str, &str)] = &[
+            // Structured — what the config intends
+            ("binaries/suwayomi-bundle", "binaries/suwayomi-bundle/bin/Suwayomi-Server.jar"),
+            // Flat — what Tauri 2 actually produces with glob resources
+            ("", "Suwayomi-Server.jar"),
+        ];
 
-        if let Some(java) = find_java_in_bundle(&bundle_dir) {
-            if jar.exists() {
-                return Ok(ServerInvocation {
-                    bin: java.to_string_lossy().into_owned(),
-                    args: vec![
-                        "-jar".to_string(),
-                        jar.to_string_lossy().into_owned(),
-                    ],
-                    working_dir: Some(bundle_dir),
-                });
+        for (bundle_rel, jar_rel) in search_candidates {
+            let bundle_dir = if bundle_rel.is_empty() {
+                resource_dir.clone()
+            } else {
+                resource_dir.join(bundle_rel)
+            };
+            let jar = resource_dir.join(jar_rel);
+
+            do_log(log, &format!("[resolve] trying bundle_dir = {:?}", bundle_dir));
+            do_log(log, &format!("[resolve] bundle_dir exists: {}", bundle_dir.exists()));
+            do_log(log, &format!("[resolve] jar = {:?}", jar));
+            do_log(log, &format!("[resolve] jar exists: {}", jar.exists()));
+
+            match find_java_in_bundle(&bundle_dir, log) {
+                Some(java) => {
+                    do_log(log, &format!("[resolve] java found: {:?}", java));
+                    if jar.exists() {
+                        do_log(log, "[resolve] both java and jar found — using bundled JRE");
+                        return Ok(ServerInvocation {
+                            bin: java.to_string_lossy().into_owned(),
+                            args: vec![
+                                "-jar".to_string(),
+                                jar.to_string_lossy().into_owned(),
+                            ],
+                            working_dir: Some(bundle_dir),
+                        });
+                    } else {
+                        do_log(log, "[resolve] java found but jar MISSING — trying next candidate");
+                    }
+                }
+                None => {
+                    do_log(log, "[resolve] java NOT found — trying next candidate");
+                }
             }
         }
     }
 
-    // ── macOS: bundled launcher script ───────────────────────────────────────
-    // The macOS workflow stages arch-specific .command launcher scripts as
-    // externalBin sidecars. They are self-contained (handle JVM invocation
-    // internally) so we exec the script directly with no extra args.
     #[cfg(target_os = "macos")]
     {
         let candidates = [
@@ -262,7 +306,9 @@ fn resolve_server_binary(
         ];
         for name in &candidates {
             let p = resource_dir.join(name);
+            do_log(log, &format!("[resolve] macOS candidate: {:?} exists={}", p, p.exists()));
             if p.exists() {
+                do_log(log, &format!("[resolve] using macOS candidate: {:?}", p));
                 return Ok(ServerInvocation {
                     bin:         p.to_string_lossy().into_owned(),
                     args:        vec![],
@@ -272,15 +318,7 @@ fn resolve_server_binary(
         }
     }
 
-    // ── PATH fallback (all platforms) ────────────────────────────────────────
-    // Covers:
-    //   - nix develop  (tachidesk-server in devShell.nativeBuildInputs)
-    //   - nix run .#moku  (wrapProgram --prefix PATH injects tachidesk-server)
-    //   - Distro package installs
-    //   - Manual system installs
-    //
-    // The Nix wrapper script accepts "$@" passthrough so the rootdir -D flag
-    // forwarded by spawn_server reaches the underlying JVM correctly.
+    do_log(log, "[resolve] trying PATH fallback");
     for name in &["suwayomi-server", "tachidesk-server"] {
         let found = std::process::Command::new("which")
             .arg(name)
@@ -288,7 +326,10 @@ fn resolve_server_binary(
             .map(|o| o.status.success())
             .unwrap_or(false);
 
+        do_log(log, &format!("[resolve] PATH check {:?}: found={}", name, found));
+
         if found {
+            do_log(log, &format!("[resolve] using PATH binary: {}", name));
             return Ok(ServerInvocation {
                 bin:         name.to_string(),
                 args:        vec![],
@@ -297,6 +338,7 @@ fn resolve_server_binary(
         }
     }
 
+    do_log(log, "[resolve] FAILED — no binary found anywhere");
     Err(SpawnError::NotConfigured(
         "Server binary not found. Install Suwayomi-Server or set the path in Settings.".to_string(),
     ))
@@ -312,22 +354,50 @@ fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnError>
     }
 
     let data_dir = suwayomi_data_dir();
+
+    let log_path = data_dir.join("moku-spawn.log");
+    let _ = std::fs::create_dir_all(&data_dir);
+    let mut log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok();
+
+    do_log(&mut log, "");
+    do_log(&mut log, "========================================");
+    do_log(&mut log, &format!("[spawn_server] called at {:?}", std::time::SystemTime::now()));
+    do_log(&mut log, &format!("[spawn_server] binary arg = {:?}", binary));
+    do_log(&mut log, &format!("[spawn_server] data_dir = {:?}", data_dir));
+    do_log(&mut log, &format!("[spawn_server] log file = {:?}", log_path));
+    do_log(&mut log, &format!("[spawn_server] APPDATA = {:?}", std::env::var("APPDATA")));
+    do_log(&mut log, &format!("[spawn_server] LOCALAPPDATA = {:?}", std::env::var("LOCALAPPDATA")));
+    do_log(&mut log, &format!("[spawn_server] current_dir = {:?}", std::env::current_dir()));
+
     seed_server_conf(&data_dir);
+    do_log(&mut log, "[spawn_server] server.conf seeded");
 
-    let mut invocation = resolve_server_binary(&binary, &app)?;
-    let bin_display    = invocation.bin.clone();
+    let mut invocation = match resolve_server_binary(&binary, &app, &mut log) {
+        Ok(i) => i,
+        Err(e) => {
+            do_log(&mut log, &format!("[spawn_server] resolve FAILED: {:?}", e));
+            return Err(e);
+        }
+    };
 
+    let bin_display = invocation.bin.clone();
     let rootdir_flag = format!(
         "-Dsuwayomi.tachidesk.config.server.rootDir={}",
         data_dir.to_string_lossy()
     );
 
-    // Insert rootdir at position 0 so it always precedes -jar for the JVM.
-    // For PATH-resident Nix wrapper scripts the flag is forwarded via "$@".
     invocation.args.insert(0, rootdir_flag);
 
     let working_dir = invocation.working_dir
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+    do_log(&mut log, &format!("[spawn_server] bin = {:?}", bin_display));
+    do_log(&mut log, &format!("[spawn_server] args = {:?}", invocation.args));
+    do_log(&mut log, &format!("[spawn_server] working_dir = {:?}", working_dir));
 
     let cmd = app.shell()
         .command(&invocation.bin)
@@ -335,14 +405,17 @@ fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnError>
         .args(&invocation.args)
         .current_dir(&working_dir);
 
+    do_log(&mut log, "[spawn_server] calling cmd.spawn()...");
+
     match cmd.spawn() {
         Ok((_rx, child)) => {
-            println!("Spawned server: {}", bin_display);
+            do_log(&mut log, &format!("[spawn_server] SUCCESS — spawned: {}", bin_display));
             *app.state::<ServerState>().0.lock().unwrap() = Some(child);
             Ok(())
         }
         Err(e) => {
-            eprintln!("Failed to spawn {}: {}", bin_display, e);
+            do_log(&mut log, &format!("[spawn_server] SPAWN FAILED: {}", e));
+            do_log(&mut log, &format!("[spawn_server] error kind: {:?}", e));
             Err(SpawnError::SpawnFailed(e.to_string()))
         }
     }

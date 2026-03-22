@@ -100,36 +100,36 @@ jobs:
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
-          JAVAW=$(find suwayomi-extracted -path "*/jre/bin/javaw.exe" | head -1)
-          JAR=$(find suwayomi-extracted -name "Suwayomi-Launcher.jar" | head -1)
-          if [ -z "$JAVAW" ]; then
-            echo "ERROR: jre/bin/javaw.exe not found. Bundle contents:"
+          JAVA=$(find suwayomi-extracted -path "*/jre/bin/java.exe" | head -1)
+          JAR=$(find suwayomi-extracted -name "Suwayomi-Server.jar" | head -1)
+          if [ -z "$JAVA" ]; then
+            echo "ERROR: jre/bin/java.exe not found. Bundle contents:"
             find suwayomi-extracted -type f | head -50
             exit 1
           fi
           if [ -z "$JAR" ]; then
-            echo "ERROR: Suwayomi-Launcher.jar not found. Bundle contents:"
+            echo "ERROR: Suwayomi-Server.jar not found. Bundle contents:"
             find suwayomi-extracted -type f | head -50
             exit 1
           fi
-          echo "Found javaw: $JAVAW"
-          echo "Found jar:   $JAR"
+          echo "Found java: $JAVA"
+          echo "Found jar:  $JAR"
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
 
       - name: Validate staging
         shell: bash
         run: |
-          find src-tauri/binaries/suwayomi-bundle -path "*/jre/bin/javaw.exe" \
-            | grep -q . || (echo "ERROR: jre/bin/javaw.exe missing" && exit 1)
-          find src-tauri/binaries/suwayomi-bundle -name "Suwayomi-Launcher.jar" \
-            | grep -q . || (echo "ERROR: Suwayomi-Launcher.jar missing" && exit 1)
+          find src-tauri/binaries/suwayomi-bundle -path "*/jre/bin/java.exe" \
+            | grep -q . || (echo "ERROR: jre/bin/java.exe missing" && exit 1)
+          find src-tauri/binaries/suwayomi-bundle -name "Suwayomi-Server.jar" \
+            | grep -q . || (echo "ERROR: Suwayomi-Server.jar missing" && exit 1)
           echo "Staging OK"
 
       - name: Patch tauri.conf.json for CI
         shell: bash
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
-          jq '.bundle.resources = ["binaries/suwayomi-bundle/**"] | .bundle.externalBin = []' \
+          jq '.bundle.resources = ["binaries/suwayomi-bundle/bin/Suwayomi-Server.jar", "binaries/suwayomi-bundle/jre/**/*"] | .bundle.externalBin = []' \
             src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
           echo "tauri.conf.json patched:"
           cat src-tauri/tauri.conf.json
