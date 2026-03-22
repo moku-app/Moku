@@ -93,8 +93,6 @@ jobs:
           else
             cp -r suwayomi-raw/. suwayomi-extracted/
           fi
-          echo "Extracted bundle contents (top-level):"
-          ls -la suwayomi-extracted/
 
       - name: Stage Suwayomi bundle
         shell: bash
@@ -103,17 +101,15 @@ jobs:
           JAVA=$(find suwayomi-extracted -path "*/jre/bin/java.exe" | head -1)
           JAR=$(find suwayomi-extracted -name "Suwayomi-Server.jar" | head -1)
           if [ -z "$JAVA" ]; then
-            echo "ERROR: jre/bin/java.exe not found. Bundle contents:"
+            echo "ERROR: jre/bin/java.exe not found"
             find suwayomi-extracted -type f | head -50
             exit 1
           fi
           if [ -z "$JAR" ]; then
-            echo "ERROR: Suwayomi-Server.jar not found. Bundle contents:"
+            echo "ERROR: Suwayomi-Server.jar not found"
             find suwayomi-extracted -type f | head -50
             exit 1
           fi
-          echo "Found java: $JAVA"
-          echo "Found jar:  $JAR"
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
 
       - name: Validate staging
@@ -129,28 +125,19 @@ jobs:
         shell: bash
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
-          echo "tauri.conf.json patched:"
-          cat src-tauri/tauri.conf.json
 
-      - name: Build Tauri app (Windows x64)
+      - name: Build Tauri app + create GitHub release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          tagName: v${{ github.event.inputs.version }}
+          releaseName: Moku v${{ github.event.inputs.version }}
+          releaseBody: |
+            Windows installer for Moku v${{ github.event.inputs.version }}.
+            Download the `.exe` file below to install or update.
+          releaseDraft: true
+          prerelease: false
           args: --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.conf.json
-
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-windows-x64
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-          retention-days: 7
-
-      - name: Upload latest.json (updater endpoint)
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-windows-latest-json
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/latest.json
-          retention-days: 7
