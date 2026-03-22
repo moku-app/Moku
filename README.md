@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/assets/moku-icon-rounded.svg" width="96" />
+  <img src="src/assets/moku-icon.svg" width="96" />
   <h1>Moku</h1>
   <p>A fast, minimal manga reader for <a href="https://github.com/Suwayomi/Suwayomi-Server">Suwayomi-Server</a>.<br/>Built with Tauri v2 and Svelte.</p>
 </div>
