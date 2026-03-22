@@ -7,6 +7,9 @@ on:
         description: "Version to build (e.g. 0.4.0)"
         required: true
 
+permissions:
+  contents: write
+
 jobs:
   frontend:
     name: Build frontend
@@ -126,7 +129,23 @@ jobs:
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
-      - name: Build Tauri app + create GitHub release
+      - name: Delete existing draft release if present
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN"             "https://api.github.com/repos/Youwes09/Moku/releases"             | jq -r '.[] | select(.tag_name == "v${{ github.event.inputs.version }}" and .draft == true) | .id')
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Deleting existing draft release $RELEASE_ID"
+            curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN"               "https://api.github.com/repos/Youwes09/Moku/releases/$RELEASE_ID"
+            # Also delete the tag so tauri-action can recreate it
+            curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN"               "https://api.github.com/repos/Youwes09/Moku/git/refs/tags/v${{ github.event.inputs.version }}"
+            echo "Deleted draft release and tag"
+          else
+            echo "No existing draft release found"
+          fi
+
+      - name: Build Tauri app + create draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
