@@ -153,7 +153,7 @@
         <input class="ext-input" class:error={installError} placeholder="https://example.com/extension.apk"
           bind:value={externalUrl} disabled={installing}
           oninput={() => installError = null}
-          onkeydown={(e) => e.key === "Enter" && !installing && installExternal()} autofocus />
+          onkeydown={(e) => e.key === "Enter" && !installing && installExternal()} use:focusOnMount />
         <button class="install-btn" class:success={installSuccess} onclick={installExternal} disabled={installing || !externalUrl.trim()}>
           {#if installing}<CircleNotch size={13} weight="light" class="anim-spin" />
           {:else if installSuccess}<Check size={13} weight="bold" /> Done
@@ -328,7 +328,6 @@
   .name { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; align-items: center; gap: var(--sp-2); font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .lang-tag { background: var(--bg-overlay); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 1px 5px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-muted); letter-spacing: var(--tracking-wider); }
-  .update-badge { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 2px 6px; flex-shrink: 0; }
   .update-badge-small { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--accent-fg); flex-shrink: 0; }
   .row-actions { display: flex; gap: var(--sp-1); flex-shrink: 0; }
   .action-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-md); background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); cursor: pointer; flex-shrink: 0; transition: filter var(--t-base); }
@@ -346,3 +345,7 @@
   .variant-actions { flex-shrink: 0; }
   .empty { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); }
 </style>
+
+<script module>
+  function focusOnMount(node: HTMLElement) { node.focus(); }
+</script>

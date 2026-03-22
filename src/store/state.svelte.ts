@@ -247,6 +247,13 @@ class Store {
   activeChapter:     Chapter | null   = $state(null);
   activeChapterList: Chapter[]        = $state([]);
 
+  // ── Discover session cache ────────────────────────────────────────────────
+  // Survives navigation within a session but is never persisted to localStorage.
+  // Key format: "<sourceId>|<type>|<genre>" or "local|<genre>"
+  discoverCache:      Map<string, Manga[]> = $state(new Map());
+  discoverLibraryIds: Set<number>          = $state(new Set());
+  discoverSrcOffset:  number               = $state(0);
+
   constructor() {
     $effect.root(() => {
       $effect(() => { persist({ storeVersion:  STORE_VERSION            }); });
@@ -431,6 +438,12 @@ class Store {
   getMangaFolders(mangaId: number): Folder[] {
     return this.settings.folders.filter(f => f.mangaIds.includes(mangaId));
   }
+
+  clearDiscoverCache() {
+    this.discoverCache      = new Map();
+    this.discoverLibraryIds = new Set();
+    this.discoverSrcOffset++;
+  }
 }
 
 export const store = new Store();
@@ -474,3 +487,4 @@ export function toggleFolderTab(id: string)                              { store
 export function assignMangaToFolder(folderId: string, mangaId: number)   { store.assignMangaToFolder(folderId, mangaId); }
 export function removeMangaFromFolder(folderId: string, mangaId: number) { store.removeMangaFromFolder(folderId, mangaId); }
 export function getMangaFolders(mangaId: number)                         { return store.getMangaFolders(mangaId); }
+export function clearDiscoverCache()                                       { store.clearDiscoverCache(); }

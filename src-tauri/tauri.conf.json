@@ -49,6 +49,12 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "updater": {
+      "pubkey": "RWR87cX5fjRNNiuoLs057dMl5bKeHjP3yrbTvGixYDTchASwR8Bsp1Wt",
+      "endpoints": [
+        "https://github.com/Youwes09/Moku/releases/download/v__VERSION__/latest.json"
+      ]
     }
   }
 }

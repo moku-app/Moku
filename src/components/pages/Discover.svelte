@@ -5,18 +5,18 @@
   import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
   import { dedupeSources, dedupeMangaByTitle, dedupeMangaById } from "../../lib/util";
-  import { store, addFolder, assignMangaToFolder, setPreviewManga } from "../../store/state.svelte";
+  import { store, addFolder, assignMangaToFolder, setPreviewManga, clearDiscoverCache } from "../../store/state.svelte";
   import type { Manga, Source } from "../../lib/types";
   import ContextMenu from "../shared/ContextMenu.svelte";
   import type { MenuEntry } from "../shared/ContextMenu.svelte";
   import SourceBrowse from "../shared/SourceBrowse.svelte";
 
   // ── Constants ─────────────────────────────────────────────────────────────
-  const GENRE_TABS = ["All", "Action", "Romance", "Fantasy", "Comedy", "Drama", "Horror", "Sci-Fi", "Adventure", "Thriller"];
-  const GRID_LIMIT = 100;
-  const LOCAL_THRESHOLD = 20;
-  const CONCURRENCY = 4;
-  const BATCH_MS = 400;
+  const GENRE_TABS  = ["All", "Action", "Romance", "Fantasy", "Comedy", "Drama", "Horror", "Sci-Fi", "Adventure", "Thriller"];
+  const GRID_LIMIT  = 200;
+  const CONCURRENCY = 6;
+  const PAGES_INIT  = 3;  // pages per source on All tab
+  const PAGES_GENRE = 2;  // pages per source on genre tabs
 
   const EXPLORE_ALL_MANGA = `
     query ExploreAllManga {
@@ -33,28 +33,20 @@
     }
   `;
 
-  // ── Dedicated discover cache ───────────────────────────────────────────────
-  // Completely isolated from main app cache — refresh only wipes this,
-  // leaving library/chapter/source caches untouched.
-  const discoverStore = new Map<string, Manga[]>();
-  function dKey(srcId: string, type: string, tag: string) { return `${srcId}|${type}|${tag}`; }
-  function clearDiscover() { discoverStore.clear(); }
+  function dKey(srcId: string, type: string, genre: string, page: number) {
+    return `${srcId}|${type}|${genre}:p${page}`;
+  }
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  let allManga:    Manga[]      = $state([]);
-  let allSources:  Source[]     = $state([]);
-  let libraryIds:  Set<number>  = $state(new Set());
-  let loadingLib                = $state(true);
-  let loadError                 = $state(false);
-  let currentGenre              = $state("All");
-  let genreResults              = $state(new Map<string, Manga[]>());
-  let genreLoading              = $state(false);
-  let srcOffset                 = $state(0);
+  // ── Local component state ─────────────────────────────────────────────────
+  let allSources:  Source[]  = $state([]);
+  let loadingLib             = $state(true);
+  let loadError              = $state(false);
+  let currentGenre           = $state("All");
+  let genreResults           = $state(new Map<string, Manga[]>());
+  let genreLoading           = $state(false);
+  let refreshing             = $state(false);
 
   let activeCtrl: AbortController | null = null;
-  let batchTimer:  ReturnType<typeof setInterval> | null = null;
-  let batchAccum   = new Map<string, Manga[]>();
-
   let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
 
   const isLoading   = $derived(genreLoading || refreshing || (currentGenre === "All" && loadingLib));
@@ -65,15 +57,15 @@
     return dedupeMangaByTitle(dedupeMangaById(items), store.settings.mangaLinks);
   }
 
-  function filterSource(mangas: Manga[]): Manga[] {
-    return dedup(mangas.filter(m => !m.inLibrary && !libraryIds.has(m.id)));
+  function filterOut(mangas: Manga[]): Manga[] {
+    return dedup(mangas.filter(m => !m.inLibrary && !store.discoverLibraryIds.has(m.id)));
   }
 
   function rotatedSources(): Source[] {
     const lang = store.settings.preferredExtensionLang || "en";
     const srcs = dedupeSources(allSources.filter(s => s.id !== "0"), lang);
     if (!srcs.length) return [];
-    const off = srcOffset % srcs.length;
+    const off = store.discoverSrcOffset % srcs.length;
     return [...srcs.slice(off), ...srcs.slice(0, off)];
   }
 
@@ -88,80 +80,64 @@
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
   }
 
-  // ── Batch flush ───────────────────────────────────────────────────────────
-  function startBatch() {
-    if (batchTimer) return;
-    batchTimer = setInterval(() => {
-      if (!batchAccum.size) return;
-      for (const [genre, incoming] of batchAccum) {
-        const cur = genreResults.get(genre) ?? [];
-        genreResults.set(genre, dedup([...cur, ...incoming]).slice(0, GRID_LIMIT));
-      }
-      batchAccum.clear();
-      genreResults = new Map(genreResults);
-    }, BATCH_MS);
-  }
-
-  function flushBatch() {
-    if (batchTimer) { clearInterval(batchTimer); batchTimer = null; }
-    if (!batchAccum.size) return;
-    for (const [genre, incoming] of batchAccum) {
-      const cur = genreResults.get(genre) ?? [];
-      genreResults.set(genre, dedup([...cur, ...incoming]).slice(0, GRID_LIMIT));
-    }
-    batchAccum.clear();
-    genreResults = new Map(genreResults);
-  }
-
-  function accumulate(genre: string, mangas: Manga[]) {
-    const filtered = filterSource(mangas);
+  // Push results into the reactive grid immediately — no batch delay.
+  function pushToGrid(genre: string, incoming: Manga[]) {
+    const filtered = filterOut(incoming);
     if (!filtered.length) return;
-    const existing = batchAccum.get(genre) ?? [];
-    batchAccum.set(genre, [...existing, ...filtered]);
+    const cur = genreResults.get(genre) ?? [];
+    genreResults.set(genre, dedup([...cur, ...filtered]).slice(0, GRID_LIMIT));
+    genreResults = new Map(genreResults);
   }
 
   // ── Source fan-out ────────────────────────────────────────────────────────
   async function fanOut(genre: string, ctrl: AbortController) {
-    const srcs  = rotatedSources();
+    const srcs     = rotatedSources();
     if (!srcs.length) return;
 
-    const isAll = genre === "All";
-    const type  = isAll ? "POPULAR" : "SEARCH";
-    const query = isAll ? null : genre;
-
-    startBatch();
+    const isAll    = genre === "All";
+    const type     = isAll ? "POPULAR" : "SEARCH";
+    const query    = isAll ? null : genre;
+    const maxPages = isAll ? PAGES_INIT : PAGES_GENRE;
 
     await runConcurrent(srcs, async src => {
-      if (ctrl.signal.aborted) return;
-      const key = dKey(src.id, type, genre);
+      for (let page = 1; page <= maxPages; page++) {
+        if (ctrl.signal.aborted) return;
 
-      let mangas: Manga[];
-      if (discoverStore.has(key)) {
-        mangas = discoverStore.get(key)!;
-      } else {
-        const result = await gql<{ fetchSourceManga: { mangas: Manga[] } }>(
-          FETCH_SOURCE_MANGA,
-          { source: src.id, type, page: 1, query },
-          ctrl.signal
-        ).then(d => d.fetchSourceManga).catch(() => null);
-        if (!result || ctrl.signal.aborted) return;
-        mangas = result.mangas;
-        discoverStore.set(key, mangas);
-      }
+        const key = dKey(src.id, type, genre, page);
+        let mangas: Manga[];
+        let hasNextPage = false;
 
-      if (ctrl.signal.aborted) return;
+        if (store.discoverCache.has(key)) {
+          // Cache hit — no network call needed
+          mangas = store.discoverCache.get(key)!;
+        } else {
+          const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+            FETCH_SOURCE_MANGA,
+            { source: src.id, type, page, query },
+            ctrl.signal
+          ).then(d => d.fetchSourceManga).catch(() => null);
 
-      if (isAll) {
-        accumulate("All", mangas);
-      } else {
-        const matching = mangas.filter(m =>
-          (m.genre ?? []).some(g => g.toLowerCase() === genre.toLowerCase())
-        );
-        accumulate(genre, matching.length ? matching : mangas);
+          if (!result || ctrl.signal.aborted) return;
+          mangas      = result.mangas;
+          hasNextPage = result.hasNextPage;
+          store.discoverCache.set(key, mangas);
+        }
+
+        if (ctrl.signal.aborted) return;
+
+        if (isAll) {
+          pushToGrid("All", mangas);
+        } else {
+          const matching = mangas.filter(m =>
+            (m.genre ?? []).some(g => g.toLowerCase() === genre.toLowerCase())
+          );
+          pushToGrid(genre, matching.length ? matching : mangas);
+        }
+
+        // Stop paging early if source is exhausted
+        if (!hasNextPage) return;
       }
     }, ctrl.signal);
-
-    if (!ctrl.signal.aborted) flushBatch();
   }
 
   // ── Tab switch ────────────────────────────────────────────────────────────
@@ -169,13 +145,18 @@
     if (currentGenre === genre) return;
 
     activeCtrl?.abort();
-    flushBatch();
     currentGenre = genre;
 
     const ctrl = new AbortController();
     activeCtrl  = ctrl;
 
     if (genre === "All") {
+      // Already have results from this session — show instantly, re-fan in background
+      if ((genreResults.get("All") ?? []).length > 0) {
+        genreLoading = false;
+        fanOut("All", ctrl).catch(() => {});
+        return;
+      }
       genreResults.set("All", []);
       genreResults = new Map(genreResults);
       genreLoading = true;
@@ -184,18 +165,15 @@
       return;
     }
 
-    // Genre tab: check local cache first, always fan out to sources too
+    // Genre tab: serve cached local results instantly, always fan out too
     const localKey = `local|${genre}`;
-    if (discoverStore.has(localKey)) {
-      // Serve cached local results immediately
-      genreResults.set(genre, discoverStore.get(localKey)!);
+    if (store.discoverCache.has(localKey)) {
+      genreResults.set(genre, store.discoverCache.get(localKey)!);
       genreResults = new Map(genreResults);
-      // Always fan out in background to get source results too
       fanOut(genre, ctrl).catch(() => {});
       return;
     }
 
-    // Fetch local library results then fan out
     genreLoading = true;
     try {
       const d = await gql<{ mangas: { nodes: Manga[] } }>(
@@ -204,12 +182,11 @@
       if (ctrl.signal.aborted) return;
 
       const local = dedup(d.mangas.nodes);
-      discoverStore.set(localKey, local);
+      store.discoverCache.set(localKey, local);
       genreResults.set(genre, local.slice(0, GRID_LIMIT));
       genreResults = new Map(genreResults);
       genreLoading = false;
 
-      // Always fan out — show source results alongside library results
       fanOut(genre, ctrl).catch(() => {});
     } catch (e: any) {
       if (e?.name !== "AbortError") console.error(e);
@@ -218,13 +195,9 @@
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
-  let refreshing = $state(false);
-
   async function refresh() {
     activeCtrl?.abort();
-    flushBatch();
-    clearDiscover();
-    srcOffset++;
+    clearDiscoverCache();   // wipes store.discoverCache + bumps discoverSrcOffset
     genreResults  = new Map();
     refreshing    = true;
     genreLoading  = true;
@@ -240,23 +213,29 @@
     loadingLib = true;
     loadError  = false;
 
-    // Load library for filtering — don't show stuff already in library
+    // Already have a session grid — show it immediately
+    if ((genreResults.get("All") ?? []).length > 0) {
+      loadingLib = false;
+    }
+
+    // Refresh library ID set so newly-added manga get filtered out
     cache.get(CACHE_KEYS.DISCOVER, () =>
       gql<{ mangas: { nodes: Manga[] } }>(EXPLORE_ALL_MANGA).then(d => d.mangas.nodes)
     ).then(m => {
-      allManga   = dedupeMangaById(m);
-      libraryIds = new Set(allManga.filter(x => x.inLibrary).map(x => x.id));
+      store.discoverLibraryIds = new Set(
+        dedupeMangaById(m).filter(x => x.inLibrary).map(x => x.id)
+      );
     }).catch(e => { console.error(e); loadError = true; })
       .finally(() => { loadingLib = false; });
 
-    // Load sources then kick off initial All tab fan-out
+    // Load sources then kick off All tab fan-out (only if grid is empty)
     gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
       .then(d => {
         allSources = d.sources.nodes;
-        // Only trigger if still on All tab
-        if (currentGenre === "All" || currentGenre === "") {
-          const ctrl = new AbortController();
-          activeCtrl  = ctrl;
+        if ((currentGenre === "All" || currentGenre === "") &&
+            (genreResults.get("All") ?? []).length === 0) {
+          const ctrl   = new AbortController();
+          activeCtrl   = ctrl;
           genreLoading = true;
           fanOut("All", ctrl).then(() => {
             if (!ctrl.signal.aborted) genreLoading = false;
@@ -266,7 +245,7 @@
       .catch(console.error);
   }
 
-  onDestroy(() => { activeCtrl?.abort(); flushBatch(); });
+  onDestroy(() => { activeCtrl?.abort(); });
 
   loadAll();
 
@@ -284,7 +263,7 @@
         onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
           .then(() => {
             cache.clear(CACHE_KEYS.LIBRARY);
-            libraryIds = new Set([...libraryIds, m.id]);
+            store.discoverLibraryIds = new Set([...store.discoverLibraryIds, m.id]);
           }).catch(console.error),
       },
       ...(store.settings.folders.length > 0 ? [
@@ -332,7 +311,7 @@
     </div>
 
     <div class="body">
-      {#if isLoading}
+      {#if isLoading && visibleGrid.length === 0}
         <div class="manga-grid">
           {#each Array(24) as _, i (i)}
             <div class="card-skeleton"><div class="skeleton cover-area"></div></div>

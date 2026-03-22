@@ -1,5 +1,6 @@
 <script lang="ts">
   import { X, MagnifyingGlass, CircleNotch, ArrowRight, Check, Warning, Sparkle } from "phosphor-svelte";
+  import { untrack } from "svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, UPDATE_CHAPTERS_PROGRESS } from "../../lib/queries";
   import type { Manga, Source, Chapter } from "../../lib/types";
@@ -36,8 +37,7 @@
   let sources: Source[]     = $state([]);
   let loadingSources        = $state(true);
   let selectedSource: Source | null = $state(null);
-  const _initialTitle               = manga.title;
-  let query                         = $state(_initialTitle);
+  let query                         = $state(untrack(() => manga.title));
   let results: { manga: Manga; similarity: number }[] = $state([]);
   let searching             = $state(false);
   let selectedMatch: Match | null = $state(null);
@@ -220,9 +220,9 @@
           <div class="search-row">
             <div class="search-bar">
               <MagnifyingGlass size={13} weight="light" class="search-icon" />
-              <input class="search-input" bind:value={query}
+                <input class="search-input" bind:value={query}
                 onkeydown={(e) => e.key === "Enter" && selectedSource && searchSource(selectedSource, query)}
-                placeholder="Search title…" autofocus />
+                placeholder="Search title…" use:focusOnMount />
             </div>
             <button class="search-btn"
               onclick={() => selectedSource && searchSource(selectedSource, query)}
@@ -471,3 +471,7 @@
 
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 </style>
+
+<script module>
+  function focusOnMount(node: HTMLElement) { node.focus(); }
+</script>

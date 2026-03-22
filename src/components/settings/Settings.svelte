@@ -2,7 +2,9 @@
   import { tick } from "svelte";
   import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
+  import { open as openUrl } from "@tauri-apps/plugin-shell";
   import { gql } from "../../lib/client";
   import { GET_DOWNLOADS_PATH } from "../../lib/queries";
   import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen } from "../../store/state.svelte";
@@ -102,7 +104,6 @@
   }
 
   // ── Performance metrics ───────────────────────────────────────────────────────
-  // Pulled from the session cache on demand — lightweight, no extra fetches.
   interface PerfSnapshot {
     cacheEntries: number;
     cacheKeys:    string[];
@@ -113,16 +114,12 @@
   let perfSnapshot: PerfSnapshot | null = $state(null);
 
   function refreshPerfMetrics() {
-    // cache.list() isn't exported, but we can probe known keys to build a snapshot
     const knownPrefixes = ["library", "sources", "popular", "genre:", "manga:", "chapters:", "page:", "pages:"];
     let entries = 0;
     let oldest: number | null = null;
     let newest: number | null = null;
     const foundKeys: string[] = [];
 
-    // We walk the cache via ageOf — non-zero means the key exists
-    // For a real count we introspect via a set of likely keys
-    // (The cache module doesn't expose an iterator, so we sample)
     const checkKey = (k: string) => {
       const age = cache.ageOf(k);
       if (age !== undefined) {
@@ -197,32 +194,123 @@
   
   let splashTriggered = $state(false);
 
-  let appVersion     = $state("…");
-  let latestVersion  = $state<string | null>(null);
-  let checkingUpdate = $state(false);
-  let updateError    = $state<string | null>(null);
+  // ── About / Updater state ─────────────────────────────────────────────────────
+
+  interface ReleaseInfo {
+    tag_name:     string;
+    name:         string;
+    body:         string;
+    published_at: string;
+    html_url:     string;
+  }
+
+  type UpdatePhase =
+    | "idle"
+    | "downloading"
+    | "ready"      // downloaded, awaiting restart
+    | "error";
+
+  const IS_WINDOWS = navigator.userAgent.includes("Windows");
+
+  let appVersion      = $state("…");
+  let releases        = $state<ReleaseInfo[]>([]);
+  let releasesLoading = $state(false);
+  let releasesError   = $state<string | null>(null);
+  let expandedTag     = $state<string | null>(null);
+
+  // update install state
+  let updatePhase     = $state<UpdatePhase>("idle");
+  let updateError     = $state<string | null>(null);
+  let dlBytes         = $state(0);
+  let dlTotal         = $state<number | null>(null);
+  let targetTag       = $state<string | null>(null); // tag being installed
 
   $effect(() => {
-    if (tab === "about") {
-      getVersion().then(v => appVersion = v).catch(() => appVersion = "unknown");
-    }
+    if (tab !== "about") return;
+    getVersion().then(v => appVersion = v).catch(() => appVersion = "unknown");
+    if (releases.length === 0 && !releasesLoading) loadReleases();
   });
 
-  async function checkForUpdate() {
-    checkingUpdate = true; updateError = null; latestVersion = null;
+  async function loadReleases() {
+    releasesLoading = true; releasesError = null;
     try {
-      const res = await fetch("https://api.github.com/repos/Youwes09/Moku/releases/latest", {
-        method: "GET",
-        headers: { "User-Agent": "Moku" },
-      });
-      const data = await res.json() as { tag_name: string };
-      latestVersion = data.tag_name.replace(/^v/, "");
-    } catch (e) {
-      updateError = "Could not reach GitHub";
+      releases = await invoke<ReleaseInfo[]>("list_releases");
+    } catch (e: any) {
+      releasesError = e instanceof Error ? e.message : String(e);
     } finally {
-      checkingUpdate = false;
+      releasesLoading = false;
     }
   }
+
+  // Normalise "v0.4.0" → "0.4.0" for comparison
+  function stripV(v: string) { return v.replace(/^v/, ""); }
+
+  function isCurrentVersion(tag: string) { return stripV(tag) === appVersion; }
+
+  function fmtDate(iso: string): string {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  // ── Download & install ────────────────────────────────────────────────────────
+
+  // Listen to progress events from Rust while this component is alive.
+  let unlistenProgress: (() => void) | undefined;
+
+  $effect(() => {
+    listen<{ downloaded: number; total: number | null }>("update-progress", (e) => {
+      dlBytes = e.payload.downloaded;
+      dlTotal = e.payload.total ?? null;
+    }).then(fn => { unlistenProgress = fn; });
+    return () => unlistenProgress?.();
+  });
+
+  async function installUpdate(release: ReleaseInfo) {
+    if (updatePhase === "downloading") return;
+
+    targetTag   = release.tag_name;
+    updatePhase = "downloading";
+    updateError = null;
+    dlBytes     = 0;
+    dlTotal     = null;
+
+    try {
+      if (IS_WINDOWS) {
+        // Windows: Tauri updater downloads + runs passive NSIS installer
+        await invoke("download_and_install_update");
+        updatePhase = "ready";
+      } else {
+        // Linux / macOS: open GitHub release page
+        await openUrl(release.html_url);
+        updatePhase = "idle";
+        targetTag   = null;
+      }
+    } catch (e: any) {
+      updateError = e instanceof Error ? e.message : String(e);
+      updatePhase = "error";
+    }
+  }
+
+  async function restartNow() {
+    await invoke("restart_app");
+  }
+
+  function cancelUpdate() {
+    updatePhase = "idle";
+    updateError = null;
+    targetTag   = null;
+    dlBytes     = 0;
+    dlTotal     = null;
+  }
+
+  function fmtProgress(): string {
+    if (dlTotal) {
+      return `${fmtBytes(dlBytes)} / ${fmtBytes(dlTotal)} (${Math.round((dlBytes / dlTotal) * 100)}%)`;
+    }
+    return fmtBytes(dlBytes);
+  }
+
   function triggerSplash() {
     splashTriggered = true;
     setTimeout(() => splashTriggered = false, 200);
@@ -716,6 +804,8 @@
         
         {:else if tab === "about"}
           <div class="panel">
+
+            <!-- ── App identity ──────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Moku</p>
               <div class="about-block">
@@ -723,40 +813,132 @@
                 <p class="about-line" style="color:var(--text-faint);margin-top:var(--sp-2)">Built with Tauri + Svelte.</p>
               </div>
             </div>
+
+            <!-- ── Current version + in-progress update bar ──────────── -->
             <div class="section">
               <p class="section-title">Version</p>
               <div class="step-row">
                 <div class="toggle-info">
-                  <span class="toggle-label">Current version</span>
+                  <span class="toggle-label">Installed</span>
                   <span class="toggle-desc">v{appVersion}</span>
                 </div>
                 <button class="step-btn" style="width:auto;padding:0 var(--sp-3);font-size:var(--text-xs);letter-spacing:var(--tracking-wide)"
-                  onclick={checkForUpdate} disabled={checkingUpdate}>
-                  {checkingUpdate ? "Checking…" : "Check for updates"}
+                  onclick={loadReleases} disabled={releasesLoading}>
+                  {releasesLoading ? "Loading…" : "Refresh"}
                 </button>
               </div>
-              {#if updateError}
-                <p style="font-family:var(--font-ui);font-size:var(--text-xs);color:var(--color-error);padding:0 var(--sp-3) var(--sp-2)">{updateError}</p>
-              {:else if latestVersion !== null}
-                {#if latestVersion === appVersion}
-                  <p style="font-family:var(--font-ui);font-size:var(--text-xs);color:#22c55e;padding:0 var(--sp-3) var(--sp-2);letter-spacing:var(--tracking-wide)">✓ You are on the latest version</p>
-                {:else}
-                  <div style="padding:0 var(--sp-3) var(--sp-2);display:flex;flex-direction:column;gap:var(--sp-1)">
-                    <p style="font-family:var(--font-ui);font-size:var(--text-xs);color:#fb923c;letter-spacing:var(--tracking-wide)">Update available — v{latestVersion}</p>
-                    <a href="https://github.com/Youwes09/Moku/releases/latest" target="_blank"
-                      style="font-family:var(--font-ui);font-size:var(--text-xs);color:var(--accent-fg);letter-spacing:var(--tracking-wide);text-decoration:none">
-                      Download on GitHub →
-                    </a>
+
+              <!-- active download progress -->
+              {#if updatePhase === "downloading" && IS_WINDOWS}
+                <div class="update-progress-wrap">
+                  <div class="update-progress-bar">
+                    <div class="update-progress-fill"
+                      style="width:{dlTotal ? Math.round((dlBytes / dlTotal) * 100) : 0}%"></div>
                   </div>
-                {/if}
+                  <div class="update-progress-row">
+                    <span class="update-progress-label">Downloading {targetTag ?? "update"}…</span>
+                    <span class="update-progress-val">{fmtProgress()}</span>
+                  </div>
+                </div>
+              {/if}
+
+              <!-- ready to restart -->
+              {#if updatePhase === "ready"}
+                <div class="update-ready-row">
+                  <span class="update-ready-label">
+                    {targetTag} downloaded — restart to finish installing.
+                  </span>
+                  <button class="update-action-btn primary" onclick={restartNow}>Restart now</button>
+                  <button class="kb-reset" onclick={cancelUpdate} title="Dismiss">✕</button>
+                </div>
+              {/if}
+
+              <!-- error -->
+              {#if updatePhase === "error"}
+                <div class="update-error-row">
+                  <span style="color:var(--color-error);font-family:var(--font-ui);font-size:var(--text-xs)">{updateError}</span>
+                  <button class="kb-reset" onclick={cancelUpdate}>Dismiss</button>
+                </div>
               {/if}
             </div>
+
+            <!-- ── Release list ───────────────────────────────────────── -->
+            <div class="section">
+              <p class="section-title">Releases</p>
+
+              {#if releasesError}
+                <p class="storage-loading" style="color:var(--color-error)">{releasesError}</p>
+              {:else if releasesLoading}
+                <p class="storage-loading">Fetching releases…</p>
+              {:else if releases.length === 0}
+                <p class="storage-loading">No releases found.</p>
+              {:else}
+                <div class="release-list">
+                  {#each releases as release}
+                    {@const isCurrent   = isCurrentVersion(release.tag_name)}
+                    {@const isExpanded  = expandedTag === release.tag_name}
+                    {@const isTarget    = targetTag === release.tag_name}
+                    {@const isInstalling = isTarget && updatePhase === "downloading"}
+
+                    <div class="release-row" class:current={isCurrent}>
+                      <!-- header: tag + date + action -->
+                      <div class="release-header">
+                        <div class="release-meta">
+                          <span class="release-tag">{release.tag_name}</span>
+                          {#if isCurrent}
+                            <span class="release-badge current-badge">installed</span>
+                          {/if}
+                          {#if release.published_at}
+                            <span class="release-date">{fmtDate(release.published_at)}</span>
+                          {/if}
+                        </div>
+                        <div class="release-actions">
+                          <!-- changelog toggle -->
+                          {#if release.body.trim()}
+                            <button class="release-changelog-btn"
+                              onclick={() => expandedTag = isExpanded ? null : release.tag_name}>
+                              {isExpanded ? "Hide" : "Changelog"}
+                            </button>
+                          {/if}
+                          <!-- install / open -->
+                          {#if !isCurrent}
+                            {#if IS_WINDOWS}
+                              <button class="update-action-btn"
+                                class:primary={!isInstalling}
+                                disabled={updatePhase === "downloading"}
+                                onclick={() => installUpdate(release)}>
+                                {isInstalling ? "Downloading…" : "Install"}
+                              </button>
+                            {:else}
+                              <button class="update-action-btn"
+                                onclick={() => installUpdate(release)}>
+                                Open on GitHub
+                              </button>
+                            {/if}
+                          {/if}
+                        </div>
+                      </div>
+
+                      <!-- expandable changelog -->
+                      {#if isExpanded && release.body.trim()}
+                        <div class="release-body">
+                          <pre class="release-body-pre">{release.body.trim()}</pre>
+                        </div>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <!-- ── Links ─────────────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Links</p>
               <div class="about-block">
                 <a href="https://github.com/Youwes09/Moku" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
               </div>
             </div>
+
           </div>
 
         
@@ -943,4 +1125,80 @@
   .storage-limit-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .storage-limit-input:focus { border-color: var(--border-strong); }
   .storage-limit-unit { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+
+  /* ── Release list ─────────────────────────────────────────────── */
+  .release-list { display: flex; flex-direction: column; gap: 1px; padding: 0 var(--sp-1); }
+
+  .release-row {
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    transition: background var(--t-fast), border-color var(--t-fast);
+    overflow: hidden;
+  }
+  .release-row:hover { background: var(--bg-raised); }
+  .release-row.current {
+    border-color: var(--accent-dim);
+    background: var(--accent-muted);
+  }
+
+  .release-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-2) var(--sp-3); gap: var(--sp-3);
+  }
+  .release-meta { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; flex-wrap: wrap; }
+  .release-tag { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--text-secondary); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+  .release-badge { font-family: var(--font-ui); font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+  .current-badge { background: var(--accent-muted); border: 1px solid var(--accent-dim); color: var(--accent-fg); }
+  .release-date { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+
+  .release-actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+
+  .release-changelog-btn {
+    font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide);
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-dim); background: none; color: var(--text-faint);
+    cursor: pointer; transition: color var(--t-base), border-color var(--t-base);
+  }
+  .release-changelog-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
+
+  .update-action-btn {
+    font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide);
+    padding: 3px 10px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-dim); background: none; color: var(--text-muted);
+    cursor: pointer; flex-shrink: 0;
+    transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+  }
+  .update-action-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
+  .update-action-btn.primary { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
+  .update-action-btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+  .update-action-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .release-body { padding: 0 var(--sp-3) var(--sp-3); }
+  .release-body-pre {
+    font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted);
+    letter-spacing: var(--tracking-wide); line-height: var(--leading-snug);
+    white-space: pre-wrap; word-break: break-word; margin: 0;
+    max-height: 220px; overflow-y: auto;
+  }
+
+  /* ── Download progress bar ────────────────────────────────────── */
+  .update-progress-wrap { padding: var(--sp-1) var(--sp-3) var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1); }
+  .update-progress-bar { height: 4px; background: var(--bg-overlay); border-radius: var(--radius-full); overflow: hidden; }
+  .update-progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
+  .update-progress-row { display: flex; justify-content: space-between; align-items: center; }
+  .update-progress-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .update-progress-val   { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); }
+
+  /* ── Ready-to-restart bar ─────────────────────────────────────── */
+  .update-ready-row {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--accent-muted); border-radius: var(--radius-md);
+    margin: 0 var(--sp-3) var(--sp-2);
+  }
+  .update-ready-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); flex: 1; }
+  .update-error-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); }
+
+  @keyframes fadeIn  { from { opacity: 0 }           to { opacity: 1 } }
+  @keyframes scaleIn { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }
 </style>

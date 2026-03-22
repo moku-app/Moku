@@ -25,6 +25,13 @@
     "core:window:allow-outer-size",
     "core:window:allow-inner-position",
     "core:window:allow-outer-position",
-    "core:window:allow-scale-factor"
+    "core:window:allow-scale-factor",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:default",
+    "process:allow-restart",
+    "http:default",
+    "http:allow-fetch"
   ]
 }

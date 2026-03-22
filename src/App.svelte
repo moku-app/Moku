@@ -2,9 +2,10 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getVersion } from "@tauri-apps/api/app";
   import { gql } from "./lib/client";
   import { GET_DOWNLOAD_STATUS } from "./lib/queries";
-  import { store, addToast, setActiveDownloads } from "./store/state.svelte";
+  import { store, addToast, setActiveDownloads, setSettingsOpen } from "./store/state.svelte";
   import type { DownloadStatus, DownloadQueueItem } from "./lib/types";
   import Layout       from "./components/layout/Layout.svelte";
   import Reader       from "./components/reader/Reader.svelte";
@@ -92,6 +93,33 @@
     return () => clearInterval(pollInterval);
   });
 
+  // ── Auto-update check (runs once after app is ready) ─────────────────────────
+  //
+  // Fetches the GitHub releases list via the Rust command and compares the latest
+  // tag against the installed version. On mismatch, shows a single non-blocking
+  // info toast. No modal, no blocking UI.
+  async function checkForUpdateSilently() {
+    try {
+      const [currentVersion, releases] = await Promise.all([
+        getVersion(),
+        invoke<Array<{ tag_name: string; html_url: string }>>("list_releases"),
+      ]);
+      if (!releases.length) return;
+
+      const latestTag = releases[0].tag_name.replace(/^v/, "");
+      if (latestTag !== currentVersion) {
+        addToast({
+          kind: "info",
+          title: `Update available — v${latestTag}`,
+          body: "Open Settings → About to install.",
+          duration: 8000,
+        });
+      }
+    } catch {
+      // Silently ignore — no network, private repo rate-limit, etc.
+    }
+  }
+
   onMount(async () => {
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => devSplash = true;
@@ -140,6 +168,15 @@
       unlistenDownload?.();
       delete (window as any).__mokuShowSplash;
     };
+  });
+
+  // Run the update check once, 5 seconds after the app finishes loading.
+  // The delay avoids adding to startup latency and ensures list_releases
+  // doesn't compete with the server probe.
+  $effect(() => {
+    if (!appReady) return;
+    const timer = setTimeout(checkForUpdateSilently, 5_000);
+    return () => clearTimeout(timer);
   });
 
   function handleRetry() { failed = false; notConfigured = false; serverProbeOk = false; }

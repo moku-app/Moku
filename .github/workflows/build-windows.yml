@@ -136,6 +136,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.conf.json
 
@@ -144,4 +146,11 @@ jobs:
         with:
           name: moku-windows-x64
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          retention-days: 7
+
+      - name: Upload latest.json (updater endpoint)
+        uses: actions/upload-artifact@v4
+        with:
+          name: moku-windows-latest-json
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/latest.json
           retention-days: 7

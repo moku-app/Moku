@@ -24,6 +24,26 @@ pub enum SpawnError {
     SpawnFailed(String),
 }
 
+// ── Update types ──────────────────────────────────────────────────────────────
+
+/// A single GitHub release returned to the frontend.
+#[derive(Serialize, Clone)]
+pub struct ReleaseInfo {
+    pub tag_name:     String,
+    pub name:         String,
+    pub body:         String,
+    pub published_at: String,
+    pub html_url:     String,
+}
+
+/// Progress event emitted during download — matches what the frontend listens for.
+#[derive(Clone, serde::Serialize)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+struct UpdateProgress {
+    downloaded: u64,
+    total:      Option<u64>,
+}
+
 /// Strip the \\?\ extended-length path prefix that Windows adds to long paths.
 /// Java and many other tools do not accept this prefix and will fail silently.
 fn strip_unc(path: PathBuf) -> PathBuf {
@@ -415,16 +435,113 @@ fn kill_server(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ── Update commands ───────────────────────────────────────────────────────────
+
+/// Fetch the list of all GitHub releases so the frontend can show a version picker.
+/// Uses tauri-plugin-http so it goes through Tauri's permission system.
+#[tauri::command]
+async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
+    use tauri_plugin_http::reqwest;
+
+    let client = reqwest::Client::builder()
+        .user_agent("Moku")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get("https://api.github.com/repos/Youwes09/Moku/releases?per_page=30")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        return Err(format!("GitHub API returned {}", resp.status()));
+    }
+
+    #[derive(serde::Deserialize)]
+    struct GhRelease {
+        tag_name:     String,
+        name:         Option<String>,
+        body:         Option<String>,
+        published_at: Option<String>,
+        html_url:     String,
+    }
+
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    let releases: Vec<GhRelease> = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+
+    Ok(releases
+        .into_iter()
+        .map(|r| ReleaseInfo {
+            tag_name:     r.tag_name.clone(),
+            name:         r.name.unwrap_or_else(|| r.tag_name.clone()),
+            body:         r.body.unwrap_or_default(),
+            published_at: r.published_at.unwrap_or_default(),
+            html_url:     r.html_url,
+        })
+        .collect())
+}
+
+/// Download and install the latest update using tauri-plugin-updater.
+/// Emits `update-progress` events with `{ downloaded, total }` while downloading.
+/// On Windows the installer runs in passive (silent) mode; the frontend prompts restart.
+/// On other platforms this command is a no-op — the frontend opens the GitHub page instead.
+#[tauri::command]
+#[allow(unused_variables)]
+async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    return Err("Native install is Windows-only; open the GitHub release page instead.".into());
+
+    #[cfg(target_os = "windows")]
+    {
+        use tauri_plugin_updater::UpdaterExt;
+
+        let updater = app.updater().map_err(|e| e.to_string())?;
+        let update  = updater.check().await.map_err(|e| e.to_string())?;
+
+        let Some(update) = update else {
+            return Err("No update available from the updater endpoint.".into());
+        };
+
+        let app_clone = app.clone();
+        update
+            .download_and_install(
+                move |downloaded, total| {
+                    let _ = app_clone.emit("update-progress", UpdateProgress { downloaded, total });
+                },
+                || {},
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+}
+
+/// Restart the app after a successful update install.
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    tauri::process::restart(&app.env());
+}
+
+// ── App entry point ───────────────────────────────────────────────────────────
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ServerState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_storage_info,
             spawn_server,
             kill_server,
             get_platform_ui_scale,
+            list_releases,
+            download_and_install_update,
+            restart_app,
         ])
         .setup(|_app| Ok(()))
         .on_window_event(|window, event| {

@@ -70,7 +70,7 @@
   interface StripChapter { chapterId: number; chapterName: string; urls: string[]; startGlobalIdx: number; }
 
   let containerEl: HTMLDivElement;
-  let sentinelEl:  HTMLDivElement;
+  let sentinelEl:  HTMLDivElement = $state() as HTMLDivElement;
   let hideTimer:   ReturnType<typeof setTimeout> | null = null;
 
   let loading          = $state(true);

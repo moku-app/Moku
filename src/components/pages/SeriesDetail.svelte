@@ -433,7 +433,7 @@
               {#if folderCreating}
                 <div class="fp-create">
                   <input class="fp-input" placeholder="Folder name…" bind:value={folderNewName}
-                    onkeydown={(e) => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }} autofocus />
+                    onkeydown={(e) => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }} use:focusOnMount />
                   <button class="fp-confirm" onclick={createFolder} disabled={!folderNewName.trim()}>Add</button>
                   <button class="fp-cancel" onclick={() => { folderCreating = false; folderNewName = ""; }}>
                     <X size={12} weight="light" />
@@ -452,7 +452,7 @@
               <button class="jump-toggle" onclick={() => { jumpOpen = true; jumpInput = ""; }}>Go to…</button>
             {:else}
               <div class="jump-row">
-                <input class="jump-input" type="text" placeholder="Ch. #" bind:value={jumpInput} autofocus
+                <input class="jump-input" type="text" placeholder="Ch. #" bind:value={jumpInput} use:focusOnMount
                   onkeydown={(e) => {
                     if (e.key === "Escape") { jumpOpen = false; return; }
                     if (e.key === "Enter") {
@@ -501,7 +501,7 @@
                 {:else}
                   <div class="dl-range-row">
                     <button class="dl-range-back" onclick={() => showRange = false}>‹</button>
-                    <input class="dl-range-input" placeholder="From" bind:value={rangeFrom} onkeydown={(e) => e.key === "Enter" && enqueueRange()} autofocus />
+                    <input class="dl-range-input" placeholder="From" bind:value={rangeFrom} onkeydown={(e) => e.key === "Enter" && enqueueRange()} use:focusOnMount />
                     <span class="dl-range-sep">–</span>
                     <input class="dl-range-input" placeholder="To" bind:value={rangeTo} onkeydown={(e) => e.key === "Enter" && enqueueRange()} />
                     <button class="dl-range-go" disabled={!rangeFrom.trim() || !rangeTo.trim()} onclick={enqueueRange}>Go</button>
@@ -752,3 +752,7 @@
   @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>
+
+<script module>
+  function focusOnMount(node: HTMLElement) { node.focus(); }
+</script>

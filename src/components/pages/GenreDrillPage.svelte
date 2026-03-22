@@ -35,9 +35,9 @@
 
   let libraryManga: Manga[]  = $state([]);
   let sourceManga: Manga[]   = $state([]);
-  let loadingInitial         = true;
-  let loadingMore            = false;
-  let visibleCount           = PAGE_SIZE;
+  let loadingInitial         = $state(true);
+  let loadingMore            = $state(false);
+  let visibleCount           = $state(PAGE_SIZE);
   let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
 
   const nextPageMap = new Map<string, number>();

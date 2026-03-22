@@ -509,7 +509,7 @@
         <input
           bind:this={kw_inputEl}
           bind:value={kw_query}
-          autofocus
+          use:focusOnMount
           class="searchInput"
           placeholder="Search across sources…"
           onkeydown={(e) => e.key === "Enter" && kwDoSearch(kw_query)}
@@ -1822,15 +1822,6 @@
 
   /* ── Source tab: lang filter + browse bar ──────────────────────────────── */
 
-  .langFilterRow {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-1);
-    padding: var(--sp-2) var(--sp-3);
-    border-bottom: 1px solid var(--border-dim);
-    flex-shrink: 0;
-  }
-
   .sourceBrowseBar {
     display: flex;
     align-items: center;
@@ -1930,3 +1921,7 @@
   }
   .splitItemActive .langOptionDot { background: var(--accent-fg); }
 </style>
+
+<script module>
+  function focusOnMount(node: HTMLElement) { node.focus(); }
+</script>

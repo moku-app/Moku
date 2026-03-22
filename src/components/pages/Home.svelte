@@ -428,7 +428,9 @@
 </div>
 
 {#if pickerOpen}
-  <div class="picker-backdrop" onclick={(e) => { if (e.target === e.currentTarget) closePicker(); }}>
+  <div class="picker-backdrop" role="presentation"
+    onclick={(e) => { if (e.target === e.currentTarget) closePicker(); }}
+    onkeydown={(e) => { if (e.key === "Escape") closePicker(); }}>
     <div class="picker-modal">
       <div class="picker-header">
         <span class="picker-title">Pin manga — slot {(pickerSlotIndex ?? 0) + 1}</span>
