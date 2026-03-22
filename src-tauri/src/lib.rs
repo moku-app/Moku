@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::io::Write;
 use sysinfo::Disks;
 use serde::Serialize;
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, WindowEvent, Emitter};
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 use walkdir::WalkDir;
 
@@ -507,7 +507,7 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String
         update
             .download_and_install(
                 move |downloaded, total| {
-                    let _ = app_clone.emit("update-progress", UpdateProgress { downloaded, total });
+                    let _ = app_clone.emit("update-progress", UpdateProgress { downloaded: downloaded as u64, total });
                 },
                 || {},
             )
