@@ -337,13 +337,15 @@
       </div>
     </div>
 
-    {#if recentHistory.length > 0}
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title"><Clock size={10} weight="bold" /> Recent Activity</span>
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title"><Clock size={10} weight="bold" /> Recent Activity</span>
+        {#if recentHistory.length > 0}
           <button class="see-all" onclick={() => setNavPage("history")}>Full History <ArrowRight size={9} weight="bold" /></button>
-        </div>
-        <div class="activity-list">
+        {/if}
+      </div>
+      <div class="activity-list">
+        {#if recentHistory.length > 0}
           {#each recentHistory as entry (entry.chapterId)}
             <button class="activity-row" onclick={() => resumeEntry(entry)}>
               <img src={thumbUrl(entry.thumbnailUrl)} alt={entry.mangaTitle} class="activity-thumb" loading="lazy" decoding="async" />
@@ -355,14 +357,27 @@
               <span class="activity-play"><Play size={10} weight="fill" /></span>
             </button>
           {/each}
-        </div>
+        {:else}
+          <div class="activity-placeholder">
+            {#each Array(5) as _, i}
+              <div class="activity-row activity-row-sk">
+                <div class="sk-thumb"></div>
+                <div class="activity-info">
+                  <div class="sk sk-title" style="width: {55 + (i * 7) % 30}%"></div>
+                  <div class="sk sk-sub" style="width: {30 + (i * 11) % 25}%"></div>
+                </div>
+                <div class="sk sk-time"></div>
+              </div>
+            {/each}
+            <div class="activity-placeholder-overlay">
+              <button class="activity-placeholder-cta" onclick={() => setNavPage("library")}>
+                <BookOpen size={12} weight="light" /> Start reading
+              </button>
+            </div>
+          </div>
+        {/if}
       </div>
-    {:else}
-      <div class="empty-state">
-        <p class="empty-text">Start reading to build your activity feed</p>
-        <button class="empty-cta" onclick={() => store.navPage = "library"}>Open Library <ArrowRight size={11} weight="bold" /></button>
-      </div>
-    {/if}
+    </div>
 
     <div class="bottom-row">
       <div class="bottom-col">
@@ -506,7 +521,7 @@
   :global(.ch-play-icon) { color: var(--accent-fg); flex-shrink: 0; }
   .chapter-row-sk { display: flex; gap: var(--sp-2); padding: 7px var(--sp-2); align-items: center; }
   .sk-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-  .sk { background: rgba(255,255,255,0.08); border-radius: var(--radius-sm); animation: pulse 1.4s ease infinite; }
+  .sk { background: rgba(255,255,255,0.06); border-radius: var(--radius-sm); }
   .sk-num { width: 32px; height: 10px; flex-shrink: 0; }
   .sk-name { height: 11px; width: 85%; }
   .sk-meta { height: 9px; width: 50%; }
@@ -529,12 +544,12 @@
   .activity-play { color: var(--accent-fg); flex-shrink: 0; opacity: 0; transition: opacity var(--t-base); }
   .bottom-row { display: grid; grid-template-columns: 1fr 1px 1fr; padding: 0 var(--sp-4); border-top: 1px solid var(--border-dim); flex-shrink: 0; }
   .bottom-divider { background: var(--border-dim); align-self: stretch; }
-  .bottom-col { display: flex; flex-direction: column; min-width: 0; padding-top: var(--sp-3); padding-bottom: var(--sp-4); }
+  .bottom-col { display: flex; flex-direction: column; min-width: 0; padding-top: var(--sp-4); padding-bottom: var(--sp-5); }
   .bottom-col:first-child { padding-right: var(--sp-4); }
   .bottom-col:last-child  { padding-left:  var(--sp-4); }
   .bottom-section-hd { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--sp-2); }
   .bottom-empty { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-1) 0; }
-  .mini-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: var(--sp-3); }
+  .mini-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--sp-3); }
   
   .mini-card { width: 100%; background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
   .mini-card:hover .mini-cover { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
@@ -546,19 +561,25 @@
   .mini-card-title { font-size: var(--text-xs); font-weight: var(--weight-medium); color: rgba(255,255,255,0.92); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
   .mini-card-source { font-family: var(--font-ui); font-size: 9px; color: rgba(255,255,255,0.45); letter-spacing: var(--tracking-wide); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
-  .stat-card { display: flex; align-items: center; gap: var(--sp-3); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3); }
-  .stat-icon-wrap { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0; }
+  .stat-card { display: flex; align-items: center; gap: var(--sp-3); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: var(--sp-3) var(--sp-3); }
+  .stat-icon-wrap { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: var(--radius-sm); flex-shrink: 0; }
   .stat-fire    { background: rgba(251,146,60,0.15); color: #fb923c; }
   .stat-accent  { background: var(--accent-muted); color: var(--accent-fg); }
   .stat-neutral { background: var(--bg-overlay); color: var(--text-faint); }
   .stat-green   { background: rgba(34,197,94,0.12); color: #22c55e; }
   .stat-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .stat-val { font-family: var(--font-ui); font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); line-height: 1; }
+  .stat-val { font-family: var(--font-ui); font-size: var(--text-lg, 1.05rem); font-weight: var(--weight-medium); color: var(--text-secondary); line-height: 1; }
   .stat-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); white-space: nowrap; }
-  .empty-state { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-6); flex-shrink: 0; }
-  .empty-text { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .empty-cta { display: flex; align-items: center; gap: var(--sp-2); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 7px 16px; border-radius: var(--radius-full); background: var(--accent-muted); border: 1px solid var(--accent-dim); color: var(--accent-fg); cursor: pointer; transition: filter var(--t-base); }
-  .empty-cta:hover { filter: brightness(1.1); }
+  .activity-row-sk { cursor: default; pointer-events: none; }
+  .sk-thumb { width: 33px; height: 48px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.06); flex-shrink: 0; }
+  .sk { background: var(--bg-raised); border-radius: var(--radius-sm); }
+  .sk-title { height: 11px; margin-bottom: 5px; }
+  .sk-sub { height: 9px; }
+  .sk-time { width: 32px; height: 9px; flex-shrink: 0; background: rgba(255,255,255,0.06); border-radius: var(--radius-sm); }
+  .activity-placeholder { position: relative; }
+  .activity-placeholder-overlay { position: absolute; left: 0; right: 0; top: 0; bottom: -1px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: var(--sp-4); pointer-events: none; background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.6) 100%); }
+  .activity-placeholder-cta { pointer-events: all; display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 7px 16px; border-radius: var(--radius-full); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: rgba(255,255,255,0.65); cursor: pointer; transition: background var(--t-base), color var(--t-base); }
+  .activity-placeholder-cta:hover { background: rgba(255,255,255,0.13); color: rgba(255,255,255,0.9); }
   .picker-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.1s ease both; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
   .picker-modal { width: min(460px, calc(100vw - 48px)); max-height: 68vh; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); animation: scaleIn 0.14s ease both; }
   .picker-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }

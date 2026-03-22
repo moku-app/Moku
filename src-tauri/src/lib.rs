@@ -83,8 +83,13 @@ fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
 }
 
 #[tauri::command]
-fn get_scale_factor(window: tauri::Window) -> f64 {
-    window.scale_factor().unwrap_or(1.0)
+fn get_platform_ui_scale() -> f64 {
+    #[cfg(target_os = "windows")]
+    return 1.0;
+    #[cfg(target_os = "macos")]
+    return 1.0;
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    return 1.5;
 }
 
 fn kill_tachidesk(app: &tauri::AppHandle) {
@@ -249,50 +254,33 @@ fn resolve_server_binary(
 
     #[cfg(not(target_os = "macos"))]
     {
-        // Tauri 2 resource bundling behaviour depends on the config:
-        // - Structured layout:  resource_dir/binaries/suwayomi-bundle/{bin,jre}/...
-        // - Flat layout:        resource_dir/{java.exe,Suwayomi-Server.jar,...}
-        // We try both so the binary works regardless of which layout the installer produced.
-        let search_candidates: &[(&str, &str)] = &[
-            // Structured — what the config intends
-            ("binaries/suwayomi-bundle", "binaries/suwayomi-bundle/bin/Suwayomi-Server.jar"),
-            // Flat — what Tauri 2 actually produces with glob resources
-            ("", "Suwayomi-Server.jar"),
-        ];
+        let bundle_dir = resource_dir.join("binaries").join("suwayomi-bundle");
+        let jar        = bundle_dir.join("bin").join("Suwayomi-Server.jar");
 
-        for (bundle_rel, jar_rel) in search_candidates {
-            let bundle_dir = if bundle_rel.is_empty() {
-                resource_dir.clone()
-            } else {
-                resource_dir.join(bundle_rel)
-            };
-            let jar = resource_dir.join(jar_rel);
+        do_log(log, &format!("[resolve] bundle_dir = {:?}", bundle_dir));
+        do_log(log, &format!("[resolve] bundle_dir exists: {}", bundle_dir.exists()));
+        do_log(log, &format!("[resolve] jar = {:?}", jar));
+        do_log(log, &format!("[resolve] jar exists: {}", jar.exists()));
 
-            do_log(log, &format!("[resolve] trying bundle_dir = {:?}", bundle_dir));
-            do_log(log, &format!("[resolve] bundle_dir exists: {}", bundle_dir.exists()));
-            do_log(log, &format!("[resolve] jar = {:?}", jar));
-            do_log(log, &format!("[resolve] jar exists: {}", jar.exists()));
-
-            match find_java_in_bundle(&bundle_dir, log) {
-                Some(java) => {
-                    do_log(log, &format!("[resolve] java found: {:?}", java));
-                    if jar.exists() {
-                        do_log(log, "[resolve] both java and jar found — using bundled JRE");
-                        return Ok(ServerInvocation {
-                            bin: java.to_string_lossy().into_owned(),
-                            args: vec![
-                                "-jar".to_string(),
-                                jar.to_string_lossy().into_owned(),
-                            ],
-                            working_dir: Some(bundle_dir),
-                        });
-                    } else {
-                        do_log(log, "[resolve] java found but jar MISSING — trying next candidate");
-                    }
+        match find_java_in_bundle(&bundle_dir, log) {
+            Some(java) => {
+                do_log(log, &format!("[resolve] java found: {:?}", java));
+                if jar.exists() {
+                    do_log(log, "[resolve] both java and jar found — using bundled JRE");
+                    return Ok(ServerInvocation {
+                        bin: java.to_string_lossy().into_owned(),
+                        args: vec![
+                            "-jar".to_string(),
+                            jar.to_string_lossy().into_owned(),
+                        ],
+                        working_dir: Some(bundle_dir),
+                    });
+                } else {
+                    do_log(log, "[resolve] java found but jar MISSING — skipping bundled path");
                 }
-                None => {
-                    do_log(log, "[resolve] java NOT found — trying next candidate");
-                }
+            }
+            None => {
+                do_log(log, "[resolve] java NOT found in bundle — skipping bundled path");
             }
         }
     }
@@ -436,7 +424,7 @@ pub fn run() {
             get_storage_info,
             spawn_server,
             kill_server,
-            get_scale_factor,
+            get_platform_ui_scale,
         ])
         .setup(|_app| Ok(()))
         .on_window_event(|window, event| {

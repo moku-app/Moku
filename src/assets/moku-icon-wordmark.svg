@@ -1,13 +1,5 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg version="1.0" xmlns="http://www.w3.org/2000/svg"
- width="512" height="512" viewBox="0 0 512 512">
-
-  <!-- Background -->
-  <rect width="512" height="512" rx="112" ry="112" fill="#0e1a14"/>
-
-  <!-- Leaf scaled up and centered: original paths scaled ~2.2x and centered -->
-  <g transform="translate(256,256) scale(0.072,-0.072) translate(-5000,-4800)"
-     fill="#2d7a5f" stroke="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <g transform="translate(256,265) scale(0.098,-0.098) translate(-5000,-4800)" fill="#2d7a5f" stroke="none">
     <path d="M4908 6615 c-597 -629 -935 -1264 -934 -1755 0 -508 195 -778 790
     -1098 l194 -104 22 -114 c33 -164 76 -271 140 -347 80 -94 106 -62 77 94 -47
     255 43 443 294 613 797 539 714 1392 -250 2551 -230 278 -224 275 -333 160z

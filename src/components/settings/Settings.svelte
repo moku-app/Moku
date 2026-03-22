@@ -258,13 +258,13 @@
             <div class="section">
               <p class="section-title">Interface Scale</p>
               <div class="scale-row">
-                <input type="range" min={70} max={150} step={5} value={store.settings.uiScale}
+                <input type="range" min={70} max={200} step={5} value={store.settings.uiScale}
                   oninput={(e) => updateSettings({ uiScale: Number(e.currentTarget.value) })} class="scale-slider" />
                 <span class="scale-val">{store.settings.uiScale}%</span>
                 <button class="step-btn" onclick={() => updateSettings({ uiScale: 100 })} disabled={store.settings.uiScale === 100} title="Reset">↺</button>
               </div>
               <p class="scale-hint">
-                {#each [70,80,90,100,110,125,150] as v}
+                {#each [70,80,90,100,110,125,150,175,200] as v}
                   <button class="scale-preset" class:active={store.settings.uiScale === v} onclick={() => updateSettings({ uiScale: v })}>{v}%</button>
                 {/each}
               </p>
@@ -275,10 +275,7 @@
                 <div class="toggle-info"><span class="toggle-label">Server URL</span><span class="toggle-desc">Base URL of your Suwayomi instance</span></div>
                 <input class="text-input" value={store.settings.serverUrl ?? "http://localhost:4567"} oninput={(e) => updateSettings({ serverUrl: e.currentTarget.value })} placeholder="http://localhost:4567" spellcheck="false" />
               </div>
-              <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Server binary</span><span class="toggle-desc">Path or command to launch tachidesk-server</span></div>
-                <input class="text-input" value={store.settings.serverBinary} oninput={(e) => updateSettings({ serverBinary: e.currentTarget.value })} placeholder="tachidesk-server" spellcheck="false" />
-              </div>
+
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-start server</span><span class="toggle-desc">Launch tachidesk-server when Moku opens</span></div>
                 <button role="switch" aria-checked={store.settings.autoStartServer} aria-label="Auto-start server" class="toggle" class:on={store.settings.autoStartServer} onclick={() => updateSettings({ autoStartServer: !store.settings.autoStartServer })}><span class="toggle-thumb"></span></button>

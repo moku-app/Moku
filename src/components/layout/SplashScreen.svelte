@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { store } from "../../store/state.svelte";
-  import logoUrl from "../../assets/moku-icon.svg";
+  import logoUrl from "../../assets/moku-icon-splash.svg";
 
   interface Props {
     mode?:          "loading" | "idle";
@@ -20,6 +20,15 @@
         showCards = true, showFps = false, onReady, onRetry, onDismiss }: Props = $props();
 
   const EXIT_MS = 320;
+  // Server typically takes 8-20s to boot. We animate the ring through three
+  // phases so it always feels like something is happening:
+  //   0 → 0.75  over ~12s  (eased crawl while server starts)
+  //   0.75 → 0.92 over ~8s  (slow down near the end, implying "almost there")
+  //   jumps to 1.0 the moment the probe succeeds
+  const PHASE1_TARGET = 0.85;
+  const PHASE1_MS     = 3000;
+  const PHASE2_TARGET = 0.95;
+  const PHASE2_MS     = 10000;
 
   let dots     = $state("");
   let ringProg = $state(0.025);
@@ -35,8 +44,42 @@
     setTimeout(() => cb?.(), EXIT_MS);
   }
 
+  // Animate ring progress with easing so it never stalls visually
+  let animFrame: number;
+  let animStart: number | null = null;
+  let animPhase = 1;
+
+  function animateRing(ts: number) {
+    if (exitLock) return;
+    if (animStart === null) animStart = ts;
+    const elapsed = ts - animStart;
+
+    if (animPhase === 1) {
+      const t = Math.min(elapsed / PHASE1_MS, 1);
+      // ease-out cubic so it starts fast and slows down
+      const eased = 1 - Math.pow(1 - t, 3);
+      ringProg = 0.025 + eased * (PHASE1_TARGET - 0.025);
+      if (t >= 1) { animPhase = 2; animStart = ts; }
+    } else if (animPhase === 2) {
+      const t = Math.min(elapsed / PHASE2_MS, 1);
+      const eased = 1 - Math.pow(1 - t, 4);
+      ringProg = PHASE1_TARGET + eased * (PHASE2_TARGET - PHASE1_TARGET);
+      // Phase 2 never completes on its own — only ringFull triggers completion
+    }
+
+    animFrame = requestAnimationFrame(animateRing);
+  }
+
+  $effect(() => {
+    if (mode === "loading" && !failed && !notConfigured) {
+      animFrame = requestAnimationFrame(animateRing);
+      return () => cancelAnimationFrame(animFrame);
+    }
+  });
+
   $effect(() => {
     if (ringFull) {
+      cancelAnimationFrame(animFrame);
       ringProg = 1;
       setTimeout(() => triggerExit(onReady), 650);
     }
@@ -149,7 +192,7 @@
     const ctx = oc.getContext("2d")!;
     ctx.scale(dpr, dpr);
     const g = ctx.createRadialGradient(vw / 2, vh / 2, 0, vw / 2, vh / 2, Math.max(vw, vh) * 0.65);
-    g.addColorStop(0.15, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,0.82)");
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(0.4, "rgba(0,0,0,0)"); g.addColorStop(0.7, "rgba(0,0,0,0.25)"); g.addColorStop(1, "rgba(0,0,0,0.65)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, vw, vh);
     return oc;
   }

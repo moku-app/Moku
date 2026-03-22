@@ -14,7 +14,7 @@
   import SplashScreen from "./components/layout/SplashScreen.svelte";
   import MangaPreview from "./components/shared/MangaPreview.svelte";
 
-  const MAX_ATTEMPTS = 30;
+  const MAX_ATTEMPTS = 60;
 
   let serverProbeOk   = $state(!store.settings.autoStartServer);
   let appReady        = $state(!store.settings.autoStartServer);
@@ -22,6 +22,14 @@
   let notConfigured   = $state(false);
   let idle            = $state(false);
   let devSplash       = $state(false);
+  let platformScale   = $state(1);
+
+  function applyZoom() {
+    const normalized = store.settings.uiScale * platformScale;
+    document.documentElement.style.zoom = `${normalized}%`;
+    document.documentElement.style.setProperty("--ui-scale", String(normalized));
+    document.documentElement.style.setProperty("--visual-vh", `${window.innerHeight / (normalized / 100)}px`);
+  }
 
   let prevQueue: DownloadQueueItem[] = [];
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -66,10 +74,9 @@
   });
 
   $effect(() => {
-    const scale = store.settings.uiScale * 1.5;
-    document.documentElement.style.zoom = `${scale}%`;
-    document.documentElement.style.setProperty("--ui-scale", String(scale));
-    document.documentElement.style.setProperty("--visual-vh", `${window.innerHeight / (scale / 100)}px`);
+    // Re-runs whenever uiScale or platformScale changes.
+    store.settings.uiScale; platformScale;
+    applyZoom();
   });
 
   $effect(() => {
@@ -85,61 +92,48 @@
     return () => clearInterval(pollInterval);
   });
 
-  // Probe the server in a loop until it responds or we hit MAX_ATTEMPTS.
-  // Returns a cleanup function that cancels any pending probe.
-  function startProbe(): () => void {
-    let cancelled = false, tries = 0;
-
-    async function probe() {
-      if (cancelled) return;
-      tries++;
-      try {
-        const res = await fetch(`${store.settings.serverUrl}/api/graphql`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: "{ __typename }" }),
-          signal: AbortSignal.timeout(2000),
-        });
-        if (res.ok && !cancelled) { serverProbeOk = true; return; }
-      } catch {}
-      if (tries >= MAX_ATTEMPTS && !cancelled) { failed = true; return; }
-      if (!cancelled) setTimeout(probe, 800);
-    }
-
-    // Give the server a moment to start binding its port before the first probe.
-    setTimeout(probe, 1200);
-    return () => { cancelled = true; };
-  }
-
   onMount(async () => {
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => devSplash = true;
 
-    let cancelProbe = () => {};
+    // Fetch the platform scale factor then immediately re-apply zoom.
+    platformScale = await invoke<number>("get_platform_ui_scale").catch(() => 1);
+    applyZoom();
 
     if (store.settings.autoStartServer) {
-      try {
-        await invoke<void>("spawn_server", { binary: store.settings.serverBinary ?? "" });
-        // spawn_server succeeded — JRE found and process started. Begin probing.
-        cancelProbe = startProbe();
-      } catch (err: any) {
+      invoke<void>("spawn_server", { binary: store.settings.serverBinary }).catch((err: any) => {
         if (err?.kind === "NotConfigured") {
           notConfigured = true;
         } else {
-          // SpawnFailed — process couldn't be launched (permissions, bad path, etc.)
-          console.error("spawn_server failed:", err);
-          failed = true;
+          console.warn("Could not start server:", err);
         }
+      });
+    }
+
+    if (!serverProbeOk) {
+      let cancelled = false, tries = 0;
+      async function probe() {
+        if (cancelled) return;
+        tries++;
+        try {
+          const res = await fetch(`${store.settings.serverUrl}/api/graphql`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: "{ __typename }" }),
+            signal: AbortSignal.timeout(2000),
+          });
+          if (res.ok && !cancelled) { serverProbeOk = true; return; }
+        } catch {}
+        if (tries >= MAX_ATTEMPTS && !cancelled) { failed = true; return; }
+        if (!cancelled) setTimeout(probe, 500);
       }
-    } else {
-      // autoStartServer is off — user manages the server themselves, just probe.
-      cancelProbe = startProbe();
+      setTimeout(probe, 800);
     }
 
     type P = { chapterId: number; mangaId: number; progress: number }[];
     unlistenDownload = await listen<P>("download-progress", e => { setActiveDownloads(e.payload); });
 
     return () => {
-      cancelProbe();
+      cancelled = true;
       if (store.settings.autoStartServer) invoke("kill_server").catch(() => {});
       if (idleTimer) clearTimeout(idleTimer);
       if (pollInterval) clearInterval(pollInterval);
@@ -148,13 +142,7 @@
     };
   });
 
-  function handleRetry() {
-    failed = false;
-    notConfigured = false;
-    serverProbeOk = false;
-    // Re-run the full startup flow by reloading — simplest way to reset all state cleanly.
-    window.location.reload();
-  }
+  function handleRetry() { failed = false; notConfigured = false; serverProbeOk = false; }
 </script>
 
 {#if devSplash}
