@@ -144,7 +144,7 @@
   {#if store.history.length === 0}
     <div class="empty">
       <ClockCounterClockwise size={32} weight="light" class="empty-icon" />
-      <p class="empty-text">No reading store.history yet</p>
+      <p class="empty-text">No reading history yet</p>
       <p class="empty-hint">Chapters you read will appear here</p>
     </div>
   {:else if sessions.length === 0}
