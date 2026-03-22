@@ -3,7 +3,9 @@ use std::sync::Mutex;
 use std::io::Write;
 use sysinfo::Disks;
 use serde::Serialize;
-use tauri::{Manager, WindowEvent, Emitter};
+use tauri::{Manager, WindowEvent};
+#[cfg(target_os = "windows")]
+use tauri::Emitter;
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 use walkdir::WalkDir;
 

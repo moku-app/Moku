@@ -51,10 +51,8 @@
       "open": true
     },
     "updater": {
-      "pubkey": "RWR87cX5fjRNNiuoLs057dMl5bKeHjP3yrbTvGixYDTchASwR8Bsp1Wt",
-      "endpoints": [
-        "https://github.com/Youwes09/Moku/releases/download/v__VERSION__/latest.json"
-      ]
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM2NEQzNDdFRjlDNUVEN0MKUldSODdjWDVmalJOTml1b0xzMDU3ZE1sNWJLZUhqUDN5cmJUdkdpeFlEVGNoQVN3UjhCc3AxV3QK",
+      "endpoints": []
     }
   }
 }
