@@ -83,13 +83,8 @@
   });
 
   loadingSources = true;
-  cache.get(
-    CACHE_KEYS.SOURCES,
-    () => gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-             .then((d) => d.sources.nodes.filter((src: Source) => src.id !== "0")),
-    Infinity,
-  )
-    .then((srcs: Source[]) => { allSources = srcs; })
+  gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
+    .then((d) => { allSources = d.sources.nodes.filter((src: Source) => src.id !== "0"); })
     .catch(console.error)
     .finally(() => { loadingSources = false; });
 
@@ -383,10 +378,39 @@
   let src_hasNextPage                  = $state(false);
   let src_currentPage                  = $state(1);
   let src_abortCtrl: AbortController | null = null;
+  let src_langPocketOpen = $state(true);
+  let src_expandedGroups: Set<string> = $state(new Set());
+
+  // Group sources by displayName — sources with same name but different langs get grouped
+  interface SourceGroup {
+    name:     string;
+    iconUrl:  string;
+    sources:  Source[];
+    isNsfw:   boolean;
+  }
 
   const src_visibleSources = $derived(src_selectedLang === "all"
     ? allSources
     : allSources.filter((s) => s.lang === src_selectedLang));
+
+  const src_groupedSources = $derived.by(() => {
+    const filtered = src_visibleSources;
+    const map = new Map<string, SourceGroup>();
+    for (const src of filtered) {
+      const key = src.displayName;
+      if (!map.has(key)) {
+        map.set(key, { name: src.displayName, iconUrl: src.iconUrl, sources: [], isNsfw: src.isNsfw });
+      }
+      map.get(key)!.sources.push(src);
+    }
+    return Array.from(map.values());
+  });
+
+  function srcToggleGroup(name: string) {
+    const next = new Set(src_expandedGroups);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    src_expandedGroups = next;
+  }
 
   async function srcFetchBrowse(src: Source, type: "POPULAR" | "SEARCH", q?: string, page = 1) {
     src_abortCtrl?.abort();
@@ -843,19 +867,27 @@
     <div class="splitRoot">
       
       <div class="splitSidebar">
-        {#if hasMultipleLangs}
-          <div class="langFilterRow">
-            {#each ["all", ...availableLangs] as lang (lang)}
-              <button
-                class="langChip"
-                class:langChipActive={src_selectedLang === lang}
-                onclick={() => (src_selectedLang = lang)}
-              >
-                {lang === "all" ? "All" : lang.toUpperCase()}
-              </button>
-            {/each}
-          </div>
-        {/if}
+        <button class="langPocketToggle" onclick={() => (src_langPocketOpen = !src_langPocketOpen)}>
+            <span class="langPocketLabel">Languages</span>
+            <svg width="9" height="9" viewBox="0 0 256 256" fill="currentColor"
+              style="transition: transform 0.2s ease; transform: rotate({src_langPocketOpen ? 180 : 0}deg)"
+              aria-hidden="true">
+              <path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/>
+            </svg>
+          </button>
+          {#if src_langPocketOpen}
+            <div class="langPocket">
+              {#each ["all", ...availableLangs] as lang (lang)}
+                <button
+                  class="langChip"
+                  class:langChipActive={src_selectedLang === lang}
+                  onclick={() => (src_selectedLang = lang)}
+                >
+                  {lang === "all" ? "All" : lang.toUpperCase()}
+                </button>
+              {/each}
+            </div>
+          {/if}
 
         {#if loadingSources}
           <div class="splitLoading">
@@ -865,23 +897,52 @@
           </div>
         {:else}
           <div class="splitList">
-            {#each src_visibleSources as src (src.id)}
-              <button
-                class="splitItem splitItemSource"
-                class:splitItemActive={src_activeSource?.id === src.id}
-                onclick={() => srcSelectSource(src)}
-              >
-                <img
-                  src={thumbUrl(src.iconUrl)}
-                  alt=""
-                  class="splitSourceIcon"
-                  onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                />
-                <span class="splitItemLabel">{src.displayName}</span>
-                {#if src.isNsfw}<span class="nsfwBadge">18+</span>{/if}
-              </button>
+            {#each src_groupedSources as group (group.name)}
+              {#if group.sources.length === 1}
+                <button
+                  class="splitItem splitItemSource"
+                  class:splitItemActive={src_activeSource?.id === group.sources[0].id}
+                  onclick={() => srcSelectSource(group.sources[0])}
+                >
+                  <img src={thumbUrl(group.iconUrl)} alt="" class="splitSourceIcon"
+                    onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  <span class="splitItemLabel">{group.name}</span>
+                  <span class="sourceLang" style="margin-left:auto;margin-right:4px">{group.sources[0].lang.toUpperCase()}</span>
+                  {#if group.isNsfw}<span class="nsfwBadge">18+</span>{/if}
+                </button>
+              {:else}
+                <button
+                  class="splitItem splitItemSource splitItemGroup"
+                  class:splitItemGroupOpen={src_expandedGroups.has(group.name)}
+                  onclick={() => srcToggleGroup(group.name)}
+                >
+                  <img src={thumbUrl(group.iconUrl)} alt="" class="splitSourceIcon"
+                    onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  <span class="splitItemLabel">{group.name}</span>
+                  <span class="groupLangCount">{group.sources.length}</span>
+                  <svg width="8" height="8" viewBox="0 0 256 256" fill="currentColor"
+                    class="groupChevron"
+                    style="transform: rotate({src_expandedGroups.has(group.name) ? 180 : 0}deg)"
+                    aria-hidden="true">
+                    <path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/>
+                  </svg>
+                </button>
+                {#if src_expandedGroups.has(group.name)}
+                  {#each group.sources as src (src.id)}
+                    <button
+                      class="splitItem splitItemSource splitItemLangOption"
+                      class:splitItemActive={src_activeSource?.id === src.id}
+                      onclick={() => srcSelectSource(src)}
+                    >
+                      <span class="langOptionDot"></span>
+                      <span class="splitItemLabel">{src.lang.toUpperCase()}</span>
+                      {#if src.isNsfw}<span class="nsfwBadge">18+</span>{/if}
+                    </button>
+                  {/each}
+                {/if}
+              {/if}
             {/each}
-            {#if src_visibleSources.length === 0}
+            {#if src_groupedSources.length === 0}
               <p class="splitEmpty">No sources for this language</p>
             {/if}
           </div>
@@ -1793,4 +1854,79 @@
     margin-left: auto;
     flex-shrink: 0;
   }
+
+  /* ── Language pocket ───────────────────────────────────────────────────── */
+
+  .langPocketToggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border-dim);
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    background: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--t-fast);
+  }
+  .langPocketToggle:hover { background: var(--bg-raised); }
+
+  .langPocketLabel {
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+  }
+
+  .langPocket {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border-dim);
+    flex-shrink: 0;
+    animation: fadeIn 0.1s ease both;
+  }
+
+  /* ── Source group (multi-lang) ─────────────────────────────────────────── */
+
+  .splitItemGroup { }
+  .splitItemGroupOpen { background: var(--bg-raised); }
+
+  .groupLangCount {
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-dim);
+    border-radius: var(--radius-sm);
+    padding: 0px 5px;
+    flex-shrink: 0;
+    letter-spacing: var(--tracking-wide);
+  }
+
+  .groupChevron {
+    color: var(--text-faint);
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+  }
+
+  .splitItemLangOption {
+    padding-left: var(--sp-5);
+    background: var(--bg-overlay);
+  }
+  .splitItemLangOption:hover { background: var(--bg-raised); }
+
+  .langOptionDot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--border-strong);
+    flex-shrink: 0;
+  }
+  .splitItemActive .langOptionDot { background: var(--accent-fg); }
 </style>
