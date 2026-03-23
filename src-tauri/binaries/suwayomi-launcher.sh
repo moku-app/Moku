@@ -14,7 +14,8 @@ find_bundle() {
   for candidate in \
     "${base}/suwayomi-bundle" \
     "${base}/../Resources/suwayomi-bundle" \
-    "${base}/../Resources/binaries/suwayomi-bundle"
+    "${base}/../Resources/binaries/suwayomi-bundle" \
+    "${base}/../Resources"
   do
     if [ -f "${candidate}/Suwayomi-Server.jar" ]; then
       echo "$candidate"

@@ -4,9 +4,9 @@
     "externalBin": [
       "binaries/suwayomi-server"
     ],
-    "resources": [
-      "binaries/suwayomi-bundle/**/*"
-    ],
+    "resources": {
+      "binaries/suwayomi-bundle": "suwayomi-bundle"
+    },
     "macOS": {
       "minimumSystemVersion": "11.0",
       "exceptionDomain": "localhost",

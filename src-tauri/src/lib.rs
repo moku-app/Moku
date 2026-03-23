@@ -274,7 +274,8 @@ fn resolve_server_binary(
         }
     };
 
-    #[cfg(not(target_os = "macos"))]
+    // Windows: use bundled JRE + JAR
+    #[cfg(target_os = "windows")]
     {
         let bundle_dir = resource_dir.join("binaries").join("suwayomi-bundle");
         let jar        = bundle_dir.join("bin").join("Suwayomi-Server.jar");
@@ -307,27 +308,46 @@ fn resolve_server_binary(
         }
     }
 
+    // macOS: use the arch-specific sidecar shell script registered via externalBin.
+    // Tauri's shell plugin resolves externalBin names relative to Contents/MacOS/,
+    // so we look there directly rather than in resource_dir.
     #[cfg(target_os = "macos")]
     {
+        // Contents/MacOS/ is the parent of resource_dir's parent on macOS:
+        // resource_dir = Moku.app/Contents/Resources
+        // macos_dir    = Moku.app/Contents/MacOS
+        let macos_dir = resource_dir
+            .parent()                      // Contents/
+            .map(|p| p.join("MacOS"))
+            .unwrap_or_else(|| resource_dir.clone());
+
         let candidates = [
             "suwayomi-server-aarch64-apple-darwin",
             "suwayomi-server-x86_64-apple-darwin",
             "suwayomi-server",
         ];
+
         for name in &candidates {
-            let p = resource_dir.join(name);
-            do_log(log, &format!("[resolve] macOS candidate: {:?} exists={}", p, p.exists()));
-            if p.exists() {
-                do_log(log, &format!("[resolve] using macOS candidate: {:?}", p));
-                return Ok(ServerInvocation {
-                    bin:         p.to_string_lossy().into_owned(),
-                    args:        vec![],
-                    working_dir: None,
-                });
+            // Check Contents/MacOS/ first (where externalBin sidecars live)
+            let in_macos = macos_dir.join(name);
+            // Also check resource_dir root as a fallback
+            let in_resources = resource_dir.join(name);
+
+            for p in &[in_macos, in_resources] {
+                do_log(log, &format!("[resolve] macOS candidate: {:?} exists={}", p, p.exists()));
+                if p.exists() {
+                    do_log(log, &format!("[resolve] using macOS candidate: {:?}", p));
+                    return Ok(ServerInvocation {
+                        bin:         p.to_string_lossy().into_owned(),
+                        args:        vec![],
+                        working_dir: None,
+                    });
+                }
             }
         }
     }
 
+    // Linux / PATH fallback for all platforms
     do_log(log, "[resolve] trying PATH fallback");
     for name in &["suwayomi-server", "tachidesk-server"] {
         let found = std::process::Command::new("which")
