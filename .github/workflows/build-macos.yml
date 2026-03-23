@@ -96,23 +96,13 @@ jobs:
             "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174" \
             "suwayomi-x64"
 
-      # Stage the suwayomi-bundle directory for each arch.
-      # The Rust code on macOS looks for a sidecar named
-      # suwayomi-server-{arch}-apple-darwin in resource_dir, and calls it
-      # with no args — so the sidecar must be a self-contained executable,
-      # not a shell .command script.
-      #
-      # We use jre/bin/java as the sidecar and patch lib.rs behaviour via a
-      # wrapper script that sets the correct relative paths and passes -jar.
-      # See: the sidecar IS the wrapper script below, which is fully self-
-      # contained and uses $0 to find its own location.
       - name: Stage Suwayomi sidecars
         run: |
           mkdir -p src-tauri/binaries
 
           stage_arch() {
-            local srcdir="$1"   # e.g. suwayomi-arm64
-            local arch="$2"     # e.g. aarch64-apple-darwin
+            local srcdir="$1"
+            local arch="$2"
             local sidecar="src-tauri/binaries/suwayomi-server-${arch}"
             local bundle_dest="src-tauri/binaries/suwayomi-bundle-${arch}"
 
@@ -132,63 +122,11 @@ jobs:
 
             echo "${arch}: jar=${JAR}  java=${JAVA}"
 
-            # Copy the full bundle so Resources/binaries/suwayomi-bundle-{arch}
-            # is available at runtime via resource_dir.
             cp -r "$srcdir" "$bundle_dest"
 
-            # Write a self-contained launcher script as the Tauri sidecar.
-            # At runtime Tauri places it in Moku.app/Contents/MacOS/ (for
-            # externalBin) or Contents/Resources/ (for resources). We resolve
-            # the bundle relative to the script's own location.
-            cat > "$sidecar" << 'SCRIPT'
-#!/bin/sh
-# Moku — Suwayomi launcher sidecar for macOS
-# Tauri calls this script directly (no args from Rust side).
-# The rootDir JVM flag is prepended by spawn_server in lib.rs.
-set -e
-DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# When running from inside the .app bundle the sidecar lives in
-# Contents/MacOS/; the bundle is in Contents/Resources/.
-# Walk up to find the bundle directory.
-find_bundle() {
-  local base="$1"
-  for candidate in \
-    "${base}/suwayomi-bundle" \
-    "${base}/../Resources/suwayomi-bundle" \
-    "${base}/../Resources/binaries/suwayomi-bundle"
-  do
-    if [ -f "${candidate}/Suwayomi-Server.jar" ]; then
-      echo "$candidate"
-      return 0
-    fi
-  done
-  return 1
-}
-
-BUNDLE=$(find_bundle "$DIR") || {
-  echo "[sidecar] ERROR: cannot locate suwayomi-bundle relative to $DIR" >&2
-  exit 1
-}
-
-JAVA="${BUNDLE}/jre/bin/java"
-JAR="${BUNDLE}/Suwayomi-Server.jar"
-
-if [ ! -x "$JAVA" ]; then
-  echo "[sidecar] ERROR: java not found at $JAVA" >&2
-  exit 1
-fi
-if [ ! -f "$JAR" ]; then
-  echo "[sidecar] ERROR: jar not found at $JAR" >&2
-  exit 1
-fi
-
-exec "$JAVA" \
-  -Djava.awt.headless=true \
-  "$@" \
-  -jar "$JAR"
-SCRIPT
-
+            # The launcher script is committed at src-tauri/binaries/suwayomi-launcher.sh
+            # to avoid embedding a heredoc in YAML (which breaks GitHub Actions parsing).
+            cp src-tauri/binaries/suwayomi-launcher.sh "$sidecar"
             chmod +x "$sidecar"
             echo "Staged sidecar: $sidecar"
           }
@@ -245,5 +183,3 @@ SCRIPT
           name: moku-macos-x64-${{ github.event.inputs.version }}
           path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
-
-
