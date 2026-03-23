@@ -4,7 +4,7 @@ import { DEFAULT_KEYBINDS, type Keybinds } from "../lib/keybinds";
 export type PageStyle        = "single" | "double" | "longstrip";
 export type FitMode          = "width" | "height" | "screen" | "original";
 export type LibraryFilter    = "all" | "library" | "downloaded" | string;
-export type NavPage          = "home" | "library" | "sources" | "explore" | "downloads" | "extensions" | "history" | "search";
+export type NavPage          = "home" | "library" | "sources" | "explore" | "downloads" | "extensions" | "history" | "search" | "tracking";
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
 export type Theme            = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";

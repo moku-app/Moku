@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X } from "phosphor-svelte";
+  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
+  import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
-  import { store, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader, checkAndMarkCompleted, setActiveManga, setGenreFilter, setNavPage} from "../../store/state.svelte";
+  import { store, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader, checkAndMarkCompleted, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga } from "../../store/state.svelte";
   import type { Manga, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
   import MigrateModal from "./MigrateModal.svelte";
+  import TrackingPanel from "../shared/TrackingPanel.svelte";
 
   const CHAPTERS_PER_PAGE = 25;
   const MANGA_TTL_MS      = 5 * 60 * 1000;
@@ -42,6 +43,15 @@
   let migrateOpen:    boolean          = $state(false);
   let dlDropRef:       HTMLDivElement | undefined = $state();
   let folderPickerRef: HTMLDivElement | undefined = $state();
+
+  // Series link state
+  let linkPickerOpen:   boolean   = $state(false);
+  let linkSearch:       string    = $state("");
+  let allMangaForLink:  Manga[]   = $state([]);
+  let loadingLinkList:  boolean   = $state(false);
+
+  // Tracking modal
+  let trackingOpen: boolean = $state(false);
 
   let mangaAbort:  AbortController | null = null;
   let chapterAbort: AbortController | null = null;
@@ -287,6 +297,40 @@
   }
 
   onMount(() => () => { mangaAbort?.abort(); chapterAbort?.abort(); });
+
+  // ── Series link ───────────────────────────────────────────────────────────
+
+  const linkedIds = $derived(
+    store.activeManga ? (store.settings.mangaLinks?.[store.activeManga.id] ?? []) : []
+  );
+
+  const linkPickerResults = $derived.by(() => {
+    const id     = store.activeManga?.id;
+    const others = allMangaForLink.filter(m => m.id !== id);
+    const q      = linkSearch.trim().toLowerCase();
+    const filtered = q ? others.filter(m => m.title.toLowerCase().includes(q)) : others;
+    const linked = filtered.filter(m => linkedIds.includes(m.id));
+    const rest   = filtered.filter(m => !linkedIds.includes(m.id)).slice(0, 30);
+    return [...linked, ...rest];
+  });
+
+  async function openLinkPicker() {
+    linkPickerOpen = true; linkSearch = "";
+    if (allMangaForLink.length) return;
+    loadingLinkList = true;
+    gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA)
+      .then(d => { allMangaForLink = d.mangas.nodes; })
+      .catch(console.error)
+      .finally(() => { loadingLinkList = false; });
+  }
+
+  function closeLinkPicker() { linkPickerOpen = false; linkSearch = ""; }
+
+  function handleLink(other: Manga) {
+    if (!store.activeManga) return;
+    if (linkedIds.includes(other.id)) unlinkManga(store.activeManga.id, other.id);
+    else linkManga(store.activeManga.id, other.id);
+  }
 </script>
 
 {#if store.activeManga}
@@ -368,6 +412,26 @@
           : continueChapter.type === "reread" ? "Read again" : "Start reading"}
       </button>
     {/if}
+
+    <div class="tools-row">
+      <button
+        class="tool-btn"
+        class:tool-btn-active={linkedIds.length > 0}
+        onclick={openLinkPicker}
+        title="Series Link"
+      >
+        <LinkSimpleHorizontalBreak size={12} weight={linkedIds.length > 0 ? "fill" : "light"} />
+        <span>Series Link</span>
+      </button>
+      <button
+        class="tool-btn"
+        onclick={() => trackingOpen = true}
+        title="Tracking"
+      >
+        <ChartLineUp size={12} weight="light" />
+        <span>Tracking</span>
+      </button>
+    </div>
 
     <p class="chapter-count">{totalCount} {totalCount === 1 ? "chapter" : "chapters"}{readCount > 0 ? ` · ${readCount} read` : ""}</p>
 
@@ -607,12 +671,59 @@
     onMigrated={(newManga) => { setActiveManga(newManga); migrateOpen = false; cache.clear(CACHE_KEYS.LIBRARY); }}
   />
 {/if}
+
+{#if trackingOpen && store.activeManga}
+  <TrackingPanel
+    mangaId={store.activeManga.id}
+    mangaTitle={store.activeManga.title}
+    onClose={() => trackingOpen = false}
+  />
+{/if}
+
+{#if linkPickerOpen}
+  <div
+    class="link-backdrop"
+    role="presentation"
+    onclick={(e) => { if (e.target === e.currentTarget) closeLinkPicker(); }}
+    onkeydown={(e) => e.key === "Escape" && closeLinkPicker()}
+  >
+    <div class="link-modal">
+      <div class="link-header">
+        <span class="link-title">Link as same series</span>
+        <button class="link-close" onclick={closeLinkPicker}><X size={14} weight="light" /></button>
+      </div>
+      <p class="link-hint">Mark two manga as the same series so duplicates are merged in search and discover. Click a linked entry again to unlink.</p>
+      <div class="link-search-wrap">
+        <input class="link-search" placeholder="Search your library…" bind:value={linkSearch} use:focusOnMount />
+      </div>
+      <div class="link-list">
+        {#if loadingLinkList}
+          <p class="link-empty">Loading…</p>
+        {:else if linkPickerResults.length === 0}
+          <p class="link-empty">No results</p>
+        {:else}
+          {#each linkPickerResults as m (m.id)}
+            {@const isLinked = linkedIds.includes(m.id)}
+            <button class="link-row" class:link-row-linked={isLinked} onclick={() => handleLink(m)}>
+              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="link-thumb" loading="lazy" decoding="async" />
+              <div class="link-info">
+                <span class="link-manga-title">{m.title}</span>
+                {#if m.source?.displayName}<span class="link-source">{m.source.displayName}</span>{/if}
+              </div>
+              <span class="link-status">{isLinked ? "✓ Linked" : "Link"}</span>
+            </button>
+          {/each}
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 {/if}
 
 
 <style>
   .root { display: flex; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
-  .sidebar { width: 200px; flex-shrink: 0; padding: var(--sp-5); border-right: 1px solid var(--border-dim); overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-4); background: var(--bg-base); }
+  .sidebar { width: 240px; flex-shrink: 0; padding: var(--sp-5); border-right: 1px solid var(--border-dim); overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-4); background: var(--bg-base); }
   .back { display: flex; align-items: center; gap: var(--sp-2); color: var(--text-muted); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); text-transform: uppercase; transition: color var(--t-base); }
   .back:hover { color: var(--text-secondary); }
   .cover-wrap { width: 100%; aspect-ratio: 2/3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); flex-shrink: 0; }
@@ -646,8 +757,37 @@
   .library-btn:hover { border-color: var(--accent); color: var(--accent-fg); }
   .library-btn.active { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
   .library-btn:disabled { opacity: 0.4; cursor: default; }
-  .external-link { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base); }
+  .external-link { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .external-link:hover { color: var(--text-muted); border-color: var(--border-strong); }
+  .external-link.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  /* ── Series link modal ───────────────────────────────────────────────────── */
+  .link-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.72); z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); animation: fadeIn 0.12s ease both; }
+  .link-modal { width: min(460px, calc(100vw - 48px)); max-height: 70vh; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); animation: scaleIn 0.14s ease both; }
+  .link-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
+  .link-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); }
+  .link-close { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; transition: color var(--t-base), background var(--t-base); }
+  .link-close:hover { color: var(--text-muted); background: var(--bg-raised); }
+  .link-hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); line-height: var(--leading-snug); padding: var(--sp-3) var(--sp-5) 0; flex-shrink: 0; }
+  .link-search-wrap { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
+  .link-search { width: 100%; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 6px 10px; color: var(--text-primary); font-size: var(--text-sm); outline: none; transition: border-color var(--t-base); }
+  .link-search:focus { border-color: var(--border-strong); }
+  .link-list { flex: 1; overflow-y: auto; padding: var(--sp-2); scrollbar-width: none; }
+  .link-list::-webkit-scrollbar { display: none; }
+  .link-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); padding: var(--sp-4) var(--sp-3); text-align: center; letter-spacing: var(--tracking-wide); }
+  .link-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 8px var(--sp-3); border-radius: var(--radius-md); border: none; background: none; text-align: left; cursor: pointer; transition: background var(--t-fast); }
+  .link-row:hover { background: var(--bg-raised); }
+  .link-row-linked { background: var(--accent-muted) !important; }
+  .link-thumb { width: 34px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
+  .link-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0; }
+  .link-manga-title { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .link-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .link-status { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); flex-shrink: 0; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); }
+  .link-row-linked .link-status { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .tools-row { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .tool-btn { display: flex; align-items: center; gap: var(--sp-2); width: 100%; justify-content: center; padding: 6px var(--sp-2); border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .tool-btn:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
+  .tool-btn-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .tool-btn-active:hover { color: var(--accent-fg); border-color: var(--accent); }
   .read-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; padding: 8px var(--sp-3); border-radius: var(--radius-md); background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent-fg); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); cursor: pointer; transition: background var(--t-base), border-color var(--t-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .read-btn:hover { background: var(--accent-muted); border-color: var(--accent-bright); }
   .chapter-count { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); text-transform: uppercase; }

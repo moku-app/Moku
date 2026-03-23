@@ -10,6 +10,7 @@
   import GenreDrillPage from "../pages/GenreDrillPage.svelte";
   import Downloads      from "../pages/Downloads.svelte";
   import Extensions     from "../pages/Extensions.svelte";
+  import Tracking       from "../pages/Tracking.svelte";
 </script>
 
 <div class="root">
@@ -33,6 +34,8 @@
       <Downloads />
     {:else if store.navPage === "extensions"}
       <Extensions />
+    {:else if store.navPage === "tracking"}
+      <Tracking />
     {:else}
       <Home />
     {/if}

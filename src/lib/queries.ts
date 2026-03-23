@@ -436,6 +436,7 @@ export const INSTALL_EXTERNAL_EXTENSION = `
     }
   }
 `;
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 export const GET_SETTINGS = `
@@ -451,6 +452,244 @@ export const SET_EXTENSION_REPOS = `
     setSettings(input: { settings: { extensionRepos: $repos } }) {
       settings {
         extensionRepos
+      }
+    }
+  }
+`;
+
+// ── Trackers ──────────────────────────────────────────────────────────────────
+
+export const GET_TRACKERS = `
+  query GetTrackers {
+    trackers {
+      nodes {
+        id
+        name
+        icon
+        isLoggedIn
+        authUrl
+        supportsPrivateTracking
+        scores
+        statuses {
+          value
+          name
+        }
+      }
+    }
+  }
+`;
+
+export const GET_MANGA_TRACK_RECORDS = `
+  query GetMangaTrackRecords($mangaId: Int!) {
+    manga(id: $mangaId) {
+      trackRecords {
+        nodes {
+          id
+          trackerId
+          remoteId
+          title
+          status
+          score
+          displayScore
+          lastChapterRead
+          totalChapters
+          remoteUrl
+          startDate
+          finishDate
+          private
+        }
+      }
+    }
+  }
+`;
+
+export const SEARCH_TRACKER = `
+  query SearchTracker($trackerId: Int!, $query: String!) {
+    searchTracker(input: { trackerId: $trackerId, query: $query }) {
+      trackSearches {
+        id
+        trackerId
+        remoteId
+        title
+        coverUrl
+        summary
+        publishingStatus
+        publishingType
+        startDate
+        totalChapters
+        trackingUrl
+      }
+    }
+  }
+`;
+
+export const BIND_TRACK = `
+  mutation BindTrack($mangaId: Int!, $trackerId: Int!, $remoteId: LongString!) {
+    bindTrack(input: { mangaId: $mangaId, trackerId: $trackerId, remoteId: $remoteId }) {
+      trackRecord {
+        id
+        trackerId
+        remoteId
+        title
+        status
+        score
+        displayScore
+        lastChapterRead
+        totalChapters
+        remoteUrl
+        startDate
+        finishDate
+        private
+      }
+    }
+  }
+`;
+
+export const UPDATE_TRACK = `
+  mutation UpdateTrack($recordId: Int!, $status: Int, $lastChapterRead: Float, $scoreString: String, $startDate: LongString, $finishDate: LongString, $private: Boolean) {
+    updateTrack(input: { recordId: $recordId, status: $status, lastChapterRead: $lastChapterRead, scoreString: $scoreString, startDate: $startDate, finishDate: $finishDate, private: $private }) {
+      trackRecord {
+        id
+        trackerId
+        status
+        score
+        displayScore
+        lastChapterRead
+        totalChapters
+        startDate
+        finishDate
+        private
+      }
+    }
+  }
+`;
+
+export const UNBIND_TRACK = `
+  mutation UnbindTrack($recordId: Int!) {
+    unbindTrack(input: { recordId: $recordId }) {
+      trackRecord {
+        id
+      }
+    }
+  }
+`;
+
+export const FETCH_TRACK = `
+  mutation FetchTrack($recordId: Int!) {
+    fetchTrack(input: { recordId: $recordId }) {
+      trackRecord {
+        id
+        trackerId
+        status
+        score
+        displayScore
+        lastChapterRead
+        totalChapters
+        startDate
+        finishDate
+      }
+    }
+  }
+`;
+
+export const GET_ALL_TRACKER_RECORDS = `
+  query GetAllTrackerRecords {
+    trackers {
+      nodes {
+        id
+        name
+        icon
+        isLoggedIn
+        scores
+        statuses { value name }
+        trackRecords {
+          nodes {
+            id
+            trackerId
+            title
+            status
+            displayScore
+            lastChapterRead
+            totalChapters
+            remoteUrl
+            private
+            manga {
+              id
+              title
+              thumbnailUrl
+              inLibrary
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const GET_TRACKER_RECORDS = `
+  query GetTrackerRecords($trackerId: Int!) {
+    trackers(condition: { id: $trackerId }) {
+      nodes {
+        id
+        name
+        statuses { value name }
+        trackRecords {
+          nodes {
+            id
+            title
+            status
+            displayScore
+            lastChapterRead
+            totalChapters
+            remoteUrl
+            manga {
+              id
+              title
+              thumbnailUrl
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const LOGIN_TRACKER_OAUTH = `
+  mutation LoginTrackerOAuth($trackerId: Int!, $callbackUrl: String!) {
+    loginTrackerOAuth(input: { trackerId: $trackerId, callbackUrl: $callbackUrl }) {
+      isLoggedIn
+      tracker {
+        id
+        name
+        isLoggedIn
+        authUrl
+      }
+    }
+  }
+`;
+
+export const LOGIN_TRACKER_CREDENTIALS = `
+  mutation LoginTrackerCredentials($trackerId: Int!, $username: String!, $password: String!) {
+    loginTrackerCredentials(input: { trackerId: $trackerId, username: $username, password: $password }) {
+      isLoggedIn
+      tracker {
+        id
+        name
+        isLoggedIn
+        authUrl
+      }
+    }
+  }
+`;
+
+export const LOGOUT_TRACKER = `
+  mutation LogoutTracker($trackerId: Int!) {
+    logoutTracker(input: { trackerId: $trackerId }) {
+      tracker {
+        id
+        name
+        isLoggedIn
+        authUrl
       }
     }
   }

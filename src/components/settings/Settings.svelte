@@ -1,19 +1,20 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush } from "phosphor-svelte";
+  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { open as openUrl } from "@tauri-apps/plugin-shell";
-  import { gql } from "../../lib/client";
-  import { GET_DOWNLOADS_PATH } from "../../lib/queries";
+  import { gql, thumbUrl } from "../../lib/client";
+  import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS } from "../../lib/queries";
   import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen } from "../../store/state.svelte";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
   import type { Keybinds } from "../../lib/keybinds";
+  import type { Tracker } from "../../lib/types";
 
-  type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "about" | "devtools";
+  type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "tracking" | "about" | "devtools";
 
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: "general",    label: "General",     icon: Gear       },
@@ -24,6 +25,7 @@
     { id: "keybinds",   label: "Keybinds",    icon: Keyboard   },
     { id: "storage",    label: "Storage",     icon: HardDrives },
     { id: "folders",    label: "Folders",     icon: FolderSimple },
+    { id: "tracking",   label: "Tracking",    icon: ListChecks },
     { id: "about",      label: "About",       icon: Info       },
     { id: "devtools",   label: "Dev Tools",   icon: Wrench     },
   ];
@@ -193,6 +195,115 @@
 
   
   let splashTriggered = $state(false);
+
+  // ── Tracker state ─────────────────────────────────────────────────────────────
+
+  let trackers:        Tracker[]    = $state([]);
+  let trackersLoading: boolean      = $state(false);
+  let trackersError:   string|null  = $state(null);
+
+  // OAuth flow state
+  let oauthTrackerId:  number|null  = $state(null);
+  let oauthCallbackInput: string    = $state("");
+  let oauthSubmitting: boolean      = $state(false);
+
+  // Credentials flow state
+  let credsTrackerId:  number|null  = $state(null);
+  let credsUsername:   string       = $state("");
+  let credsPassword:   string       = $state("");
+  let credsSubmitting: boolean      = $state(false);
+
+  // Logout state
+  let loggingOut:      number|null  = $state(null); // trackerId being logged out
+
+  async function loadTrackers() {
+    trackersLoading = true; trackersError = null;
+    try {
+      const res = await gql<{ trackers: { nodes: Tracker[] } }>(GET_TRACKERS);
+      trackers = res.trackers.nodes;
+    } catch (e: any) {
+      trackersError = e?.message ?? "Failed to load trackers";
+    } finally {
+      trackersLoading = false;
+    }
+  }
+
+  $effect(() => { if (tab === "tracking" && trackers.length === 0 && !trackersLoading) loadTrackers(); });
+
+  // OAuth: trackers with an authUrl use a browser redirect flow.
+  // User clicks "Connect", we open the auth URL in their browser.
+  // Suwayomi's redirect lands at suwayomi.org/tracker-oauth which shows
+  // the full callback URL. User pastes it back here.
+  async function startOAuth(tracker: Tracker) {
+    if (!tracker.authUrl) return;
+    oauthTrackerId     = tracker.id;
+    oauthCallbackInput = "";
+    await openUrl(tracker.authUrl);
+  }
+
+  async function submitOAuth() {
+    if (!oauthTrackerId || !oauthCallbackInput.trim()) return;
+    oauthSubmitting = true;
+    try {
+      await gql(LOGIN_TRACKER_OAUTH, {
+        trackerId:   oauthTrackerId,
+        callbackUrl: oauthCallbackInput.trim(),
+      });
+      await loadTrackers();
+      oauthTrackerId     = null;
+      oauthCallbackInput = "";
+    } catch (e: any) {
+      trackersError = e?.message ?? "Login failed";
+    } finally {
+      oauthSubmitting = false;
+    }
+  }
+
+  function cancelOAuth() { oauthTrackerId = null; oauthCallbackInput = ""; }
+
+  // Credentials flow (Kitsu, MangaUpdates)
+  function startCredentials(tracker: Tracker) {
+    credsTrackerId = tracker.id;
+    credsUsername  = "";
+    credsPassword  = "";
+  }
+
+  async function submitCredentials() {
+    if (!credsTrackerId || !credsUsername.trim() || !credsPassword.trim()) return;
+    credsSubmitting = true;
+    try {
+      await gql(LOGIN_TRACKER_CREDENTIALS, {
+        trackerId: credsTrackerId,
+        username:  credsUsername.trim(),
+        password:  credsPassword.trim(),
+      });
+      await loadTrackers();
+      credsTrackerId = null;
+      credsUsername  = "";
+      credsPassword  = "";
+    } catch (e: any) {
+      trackersError = e?.message ?? "Login failed";
+    } finally {
+      credsSubmitting = false;
+    }
+  }
+
+  function cancelCredentials() { credsTrackerId = null; credsUsername = ""; credsPassword = ""; }
+
+  async function logoutTracker(trackerId: number) {
+    loggingOut = trackerId;
+    try {
+      await gql(LOGOUT_TRACKER, { trackerId });
+      await loadTrackers();
+    } catch (e: any) {
+      trackersError = e?.message ?? "Logout failed";
+    } finally {
+      loggingOut = null;
+    }
+  }
+
+  // A tracker uses OAuth if it has an authUrl; otherwise credentials.
+  function usesOAuth(t: Tracker): boolean { return !!t.authUrl; }
 
   // ── About / Updater state ─────────────────────────────────────────────────────
 
@@ -802,6 +913,116 @@
           </div>
 
         
+        {:else if tab === "tracking"}
+          <div class="panel">
+
+            <div class="section">
+              <p class="section-title">Connected Trackers</p>
+              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-2)">
+                Log in to sync your reading progress with external tracking services.
+                After connecting, use the Tracking panel inside any manga's detail page.
+              </p>
+
+              {#if trackersError}
+                <div class="tracker-error">{trackersError}</div>
+              {/if}
+
+              {#if trackersLoading}
+                <p class="storage-loading">Loading trackers…</p>
+              {:else}
+                <div class="tracker-list">
+                  {#each trackers as tracker}
+                    <div class="tracker-row" class:tracker-row-active={tracker.isLoggedIn}>
+
+                      <!-- Icon + name -->
+                      <div class="tracker-identity">
+                        <img src={thumbUrl(tracker.icon)} alt={tracker.name} class="tracker-logo" />
+                        <div class="tracker-name-block">
+                          <span class="tracker-label">{tracker.name}</span>
+                          <span class="tracker-status-pill" class:pill-on={tracker.isLoggedIn}>
+                            {tracker.isLoggedIn ? "Connected" : "Not connected"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <!-- Action area -->
+                      <div class="tracker-action">
+                        {#if tracker.isLoggedIn}
+                          <div class="tracker-connected-btns">
+                            <button
+                              class="danger-btn"
+                              onclick={() => logoutTracker(tracker.id)}
+                              disabled={loggingOut === tracker.id}
+                            >
+                              {loggingOut === tracker.id ? "Disconnecting…" : "Disconnect"}
+                            </button>
+                          </div>
+
+                        {:else if oauthTrackerId === tracker.id}
+                          <div class="oauth-flow">
+                            <p class="oauth-hint">
+                              Your browser opened the {tracker.name} login page. After authorising,
+                              you'll land on a Suwayomi page — <strong>copy the full URL from your browser's address bar</strong>
+                              (it starts with <code>https://suwayomi.org/...</code> and contains your token) and paste it below.
+                            </p>
+                            <input
+                              class="oauth-input"
+                              placeholder="https://suwayomi.org/tracker-oauth#access_token=…"
+                              bind:value={oauthCallbackInput}
+                              onkeydown={(e) => { if (e.key === "Enter") submitOAuth(); if (e.key === "Escape") cancelOAuth(); }}
+                              use:focusEl
+                            />
+                            <div class="oauth-btns">
+                              <button class="step-btn" onclick={submitOAuth} disabled={oauthSubmitting || !oauthCallbackInput.trim()}>
+                                {oauthSubmitting ? "Connecting…" : "Connect"}
+                              </button>
+                              <button class="kb-reset" onclick={cancelOAuth}>Cancel</button>
+                            </div>
+                          </div>
+
+                        {:else if credsTrackerId === tracker.id}
+                          <div class="oauth-flow">
+                            <input
+                              class="oauth-input"
+                              placeholder="Username / Email"
+                              bind:value={credsUsername}
+                              onkeydown={(e) => e.key === "Escape" && cancelCredentials()}
+                              use:focusEl
+                            />
+                            <input
+                              class="oauth-input"
+                              type="password"
+                              placeholder="Password"
+                              bind:value={credsPassword}
+                              onkeydown={(e) => { if (e.key === "Enter") submitCredentials(); if (e.key === "Escape") cancelCredentials(); }}
+                            />
+                            <div class="oauth-btns">
+                              <button class="step-btn" onclick={submitCredentials} disabled={credsSubmitting || !credsUsername.trim() || !credsPassword.trim()}>
+                                {credsSubmitting ? "Connecting…" : "Connect"}
+                              </button>
+                              <button class="kb-reset" onclick={cancelCredentials}>Cancel</button>
+                            </div>
+                          </div>
+
+                        {:else}
+                          <button
+                            class="step-btn"
+                            style="width:auto;padding:0 var(--sp-4)"
+                            onclick={() => usesOAuth(tracker) ? startOAuth(tracker) : startCredentials(tracker)}
+                          >
+                            {usesOAuth(tracker) ? "Connect via browser →" : "Connect"}
+                          </button>
+                        {/if}
+                      </div>
+
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+          </div>
+
         {:else if tab === "about"}
           <div class="panel">
 
@@ -970,6 +1191,7 @@
 
 <script module>
   function focusInput(node: HTMLElement) { node.focus(); }
+  function focusEl(node: HTMLElement) { setTimeout(() => node.focus(), 0); }
 </script>
 
 <style>
@@ -1198,6 +1420,27 @@
   }
   .update-ready-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); flex: 1; }
   .update-error-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); }
+
+  /* ── Tracker styles ──────────────────────────────────────────────────────── */
+  .tracker-list { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-3); }
+  .tracker-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-4); border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); transition: border-color var(--t-base); }
+  .tracker-row-active { border-color: var(--accent-dim); background: var(--accent-muted); }
+  .tracker-identity { display: flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
+  .tracker-logo { width: 28px; height: 28px; border-radius: var(--radius-sm); object-fit: contain; flex-shrink: 0; }
+  .tracker-name-block { display: flex; flex-direction: column; gap: 3px; }
+  .tracker-label { font-size: var(--text-sm); color: var(--text-secondary); font-weight: var(--weight-medium); }
+  .tracker-status-pill { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: 2px 7px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: var(--bg-overlay); width: fit-content; }
+  .tracker-status-pill.pill-on { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
+  .tracker-action { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2); flex: 1; min-width: 0; }
+  .tracker-error { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); border-radius: var(--radius-sm); padding: 6px var(--sp-3); margin: 0 var(--sp-3) var(--sp-2); letter-spacing: var(--tracking-wide); }
+  .tracker-connected-btns { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
+  .oauth-flow { display: flex; flex-direction: column; gap: var(--sp-2); width: 100%; align-items: flex-end; }
+  .oauth-hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); line-height: var(--leading-snug); text-align: right; }
+  .oauth-hint strong { color: var(--text-secondary); font-weight: var(--weight-medium); }
+  .oauth-hint code { font-family: monospace; font-size: 10px; color: var(--text-muted); background: var(--bg-overlay); padding: 1px 4px; border-radius: 3px; }
+  .oauth-input { width: 100%; background: var(--bg-overlay); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); outline: none; transition: border-color var(--t-base); }
+  .oauth-input:focus { border-color: var(--border-focus); }
+  .oauth-btns { display: flex; align-items: center; gap: var(--sp-2); }
 
   @keyframes fadeIn  { from { opacity: 0 }           to { opacity: 1 } }
   @keyframes scaleIn { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }
