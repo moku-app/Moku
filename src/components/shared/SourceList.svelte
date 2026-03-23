@@ -53,6 +53,7 @@
     </div>
   </div>
 
+  <div class="content">
   <div class="lang-row">
     {#each langs as l}
       <button class="lang-btn" class:active={lang === l} onclick={() => lang = l}>
@@ -95,18 +96,20 @@
       {/each}
     </div>
   {/if}
+  </div><!-- .content -->
 </div>
 
 <style>
-  .root { padding: var(--sp-6); overflow-y: auto; height: 100%; animation: fadeIn 0.14s ease both; }
-  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-5); }
+  .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
+  .content { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-6) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); }
+  .header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .search-wrap { position: relative; display: flex; align-items: center; }
   .search-wrap :global(.search-icon) { position: absolute; left: 9px; color: var(--text-faint); pointer-events: none; }
   .search { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 10px 5px 26px; color: var(--text-primary); font-size: var(--text-sm); width: 180px; outline: none; transition: border-color var(--t-base); }
   .search::placeholder { color: var(--text-faint); }
   .search:focus { border-color: var(--border-strong); }
-  .lang-row { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-4); }
+  .lang-row { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
   .lang-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .lang-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
   .lang-btn.active { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }

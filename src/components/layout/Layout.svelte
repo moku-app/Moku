@@ -4,7 +4,7 @@
   import Home           from "../pages/Home.svelte";
   import Library        from "../pages/Library.svelte";
   import SeriesDetail   from "../pages/SeriesDetail.svelte";
-  import History        from "../pages/History.svelte";
+  import RecentActivity from "./RecentActivity.svelte";
   import Search         from "../pages/Search.svelte";
   import Discover       from "../pages/Discover.svelte";
   import GenreDrillPage from "../pages/GenreDrillPage.svelte";
@@ -25,7 +25,7 @@
     {:else if store.navPage === "search"}
       <Search />
     {:else if store.navPage === "history"}
-      <History />
+      <RecentActivity />
     {:else if (store.navPage === "explore" || store.navPage === "sources") && store.genreFilter}
       <GenreDrillPage />
     {:else if store.navPage === "explore" || store.navPage === "sources"}

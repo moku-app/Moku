@@ -238,6 +238,7 @@
       </div>
     </div>
 
+    <div class="content">
     {#if loading}
       <div class="grid">
         {#each Array(12) as _}
@@ -275,6 +276,7 @@
         </div>
       {/if}
     {/if}
+    </div><!-- .content -->
   {/if}
 </div>
 
@@ -286,11 +288,12 @@
 {/if}
 
 <style>
-  .root { position: relative; padding: var(--sp-5) var(--sp-6); overflow-y: auto; height: 100%; animation: fadeIn 0.14s ease both; will-change: scroll-position; -webkit-overflow-scrolling: touch; }
+  .root { position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
+  .content { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6) var(--sp-6); will-change: scroll-position; -webkit-overflow-scrolling: touch; }
   .branches { position: absolute; top: 0; right: 0; width: 400px; height: 600px; pointer-events: none; z-index: 0; }
   .branches :global(.anim-branch) { stroke-dasharray: 60; stroke-dashoffset: 60; animation: branchGrow 2.4s ease forwards; }
   @keyframes branchGrow { to { stroke-dashoffset: 0; } }
-  .header { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-4); gap: var(--sp-4); flex-wrap: wrap; }
+  .header { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); gap: var(--sp-4); flex-wrap: wrap; flex-shrink: 0; }
   .header-left { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
   .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; }

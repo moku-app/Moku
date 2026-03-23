@@ -74,6 +74,7 @@
 <div class="root">
   <div class="header">
     <h1 class="heading">Downloads</h1>
+
     <div class="header-actions">
       <button class="icon-btn" class:loading={togglingPlay} onclick={togglePlay}
         disabled={togglingPlay || (queue.length === 0 && !isRunning)} title={isRunning ? "Pause" : "Resume"}>
@@ -89,6 +90,7 @@
     </div>
   </div>
 
+  <div class="content">
   <div class="status-bar">
     <div class="status-dot" class:active={isRunning}></div>
     <span class="status-text">
@@ -139,18 +141,20 @@
       {/each}
     </div>
   {/if}
+  </div><!-- .content -->
 </div>
 
 <style>
-  .root { padding: var(--sp-6); overflow-y: auto; height: 100%; animation: fadeIn 0.14s ease both; }
-  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-5); }
+  .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
+  .header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .header-actions { display: flex; gap: var(--sp-2); }
+  .content { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4); }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-muted); transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
   .icon-btn.loading { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
-  .status-bar { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); margin-bottom: var(--sp-4); }
+  .status-bar { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); }
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; transition: background var(--t-base); }
   .status-dot.active { background: var(--accent); animation: pulse 1.6s ease infinite; }
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }

@@ -130,7 +130,18 @@
 <div class="root">
   <div class="header">
     <h1 class="heading">Extensions</h1>
-    <div class="header-actions">
+    <div class="tabs">
+      {#each FILTERS as f}
+        <button class="tab" class:active={filter === f.id} onclick={() => filter = f.id}>
+          {f.id === "updates" && updateCount > 0 ? `Updates (${updateCount})` : f.label}
+        </button>
+      {/each}
+    </div>
+    <div class="header-right">
+      <div class="search-wrap">
+        <MagnifyingGlass size={12} class="search-icon" weight="light" />
+        <input class="search" placeholder="Search" bind:value={search} />
+      </div>
       <button class="icon-btn" class:active={panel === "repos"} onclick={() => openPanel("repos")} title="Manage repos">
         <GitBranch size={14} weight="light" />
       </button>
@@ -201,19 +212,7 @@
     </div>
   {/if}
 
-  <div class="controls">
-    <div class="tabs">
-      {#each FILTERS as f}
-        <button class="tab" class:active={filter === f.id} onclick={() => filter = f.id}>
-          {f.id === "updates" && updateCount > 0 ? `Updates (${updateCount})` : f.label}
-        </button>
-      {/each}
-    </div>
-    <div class="search-wrap">
-      <MagnifyingGlass size={12} class="search-icon" weight="light" />
-      <input class="search" placeholder="Search" bind:value={search} />
-    </div>
-  </div>
+
 
   {#if loading}
     <div class="empty"><CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
@@ -282,7 +281,8 @@
 
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
-  .header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-5) var(--sp-6) var(--sp-3); flex-shrink: 0; }
+  .header { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
+  .header-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .header-actions { display: flex; gap: var(--sp-1); }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
@@ -309,11 +309,11 @@
   .repo-url { flex: 1; font-size: var(--text-2xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .repo-remove { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .repo-remove:hover:not(:disabled) { color: var(--color-error); background: var(--bg-overlay); }
-  .controls { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-6) var(--sp-3); gap: var(--sp-3); flex-shrink: 0; }
-  .tabs { display: flex; gap: 2px; }
-  .tab { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-md); border: none; background: none; color: var(--text-muted); cursor: pointer; transition: background var(--t-base), color var(--t-base); }
-  .tab:hover { background: var(--bg-raised); color: var(--text-secondary); }
-  .tab.active { background: var(--accent-muted); color: var(--accent-fg); }
+
+  .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; }
+  .tab { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); }
+  .tab:hover { color: var(--text-muted); }
+  .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); }
   .search-wrap { position: relative; display: flex; align-items: center; }
   .search-wrap :global(.search-icon) { position: absolute; left: 9px; color: var(--text-faint); pointer-events: none; }
   .search { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 10px 5px 26px; color: var(--text-primary); font-size: var(--text-sm); width: 160px; outline: none; transition: border-color var(--t-base); }

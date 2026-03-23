@@ -17,30 +17,29 @@
   const mangaStore:   Map<number, { data: Manga;     fetchedAt: number }> = new Map();
   const chapterStore: Map<number, { data: Chapter[]; fetchedAt: number }> = new Map();
 
-  let manga:          Manga | null     = $state(null);
-  let chapters:       Chapter[]        = $state([]);
-  let loadingManga:   boolean          = $state(false);
-  let loadingChapters: boolean         = $state(true);
-  let enqueueing:     Set<number>      = $state(new Set());
-  let dlOpen:         boolean          = $state(false);
-  let detailsOpen:    boolean          = $state(false);
-  let togglingLibrary: boolean         = $state(false);
-  let chapterPage:    number           = $state(1);
+  let manga:           Manga | null     = $state(null);
+  let chapters:        Chapter[]        = $state([]);
+  let loadingManga:    boolean          = $state(false);
+  let loadingChapters: boolean          = $state(true);
+  let enqueueing:      Set<number>      = $state(new Set());
+  let dlOpen:          boolean          = $state(false);
+  let detailsOpen:     boolean          = $state(false);
+  let togglingLibrary: boolean          = $state(false);
+  let chapterPage:     number           = $state(1);
   let ctx: { x: number; y: number; chapter: Chapter; idx: number } | null = $state(null);
-  let jumpOpen:       boolean          = $state(false);
-  let jumpInput:      string           = $state("");
-  let viewMode: "list" | "grid"        = $state("list");
-  let deletingAll:    boolean          = $state(false);
-  let refreshing:     boolean          = $state(false);
-  let descExpanded:   boolean          = $state(false);
-  let genresExpanded: boolean          = $state(false);
-  let folderPickerOpen: boolean        = $state(false);
-  let folderCreating: boolean          = $state(false);
-  let folderNewName:  string           = $state("");
-  let rangeFrom:      string           = $state("");
-  let rangeTo:        string           = $state("");
-  let showRange:      boolean          = $state(false);
-  let migrateOpen:    boolean          = $state(false);
+  let jumpOpen:        boolean          = $state(false);
+  let jumpInput:       string           = $state("");
+  let viewMode: "list" | "grid"         = $state("list");
+  let deletingAll:     boolean          = $state(false);
+  let refreshing:      boolean          = $state(false);
+  let genresExpanded:  boolean          = $state(false);
+  let folderPickerOpen: boolean         = $state(false);
+  let folderCreating:  boolean          = $state(false);
+  let folderNewName:   string           = $state("");
+  let rangeFrom:       string           = $state("");
+  let rangeTo:         string           = $state("");
+  let showRange:       boolean          = $state(false);
+  let migrateOpen:     boolean          = $state(false);
   let dlDropRef:       HTMLDivElement | undefined = $state();
   let folderPickerRef: HTMLDivElement | undefined = $state();
 
@@ -89,9 +88,9 @@
     return { chapter: asc[0], type: "reread" as const };
   })());
 
-  const statusLabel    = $derived(manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null);
+  const statusLabel     = $derived(manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null);
   const assignedFolders = $derived(store.activeManga ? getMangaFolders(store.activeManga.id) : []);
-  const hasFolders     = $derived(assignedFolders.length > 0);
+  const hasFolders      = $derived(assignedFolders.length > 0);
 
   function loadManga(id: number) {
     mangaAbort?.abort();
@@ -298,19 +297,19 @@
 
   onMount(() => () => { mangaAbort?.abort(); chapterAbort?.abort(); });
 
-  // ── Series link ───────────────────────────────────────────────────────────
+  // ── Series link ────────────────────────────────────────────────────────────
 
   const linkedIds = $derived(
     store.activeManga ? (store.settings.mangaLinks?.[store.activeManga.id] ?? []) : []
   );
 
   const linkPickerResults = $derived.by(() => {
-    const id     = store.activeManga?.id;
-    const others = allMangaForLink.filter(m => m.id !== id);
-    const q      = linkSearch.trim().toLowerCase();
+    const id       = store.activeManga?.id;
+    const others   = allMangaForLink.filter(m => m.id !== id);
+    const q        = linkSearch.trim().toLowerCase();
     const filtered = q ? others.filter(m => m.title.toLowerCase().includes(q)) : others;
-    const linked = filtered.filter(m => linkedIds.includes(m.id));
-    const rest   = filtered.filter(m => !linkedIds.includes(m.id)).slice(0, 30);
+    const linked   = filtered.filter(m => linkedIds.includes(m.id));
+    const rest     = filtered.filter(m => !linkedIds.includes(m.id)).slice(0, 30);
     return [...linked, ...rest];
   });
 
@@ -336,15 +335,18 @@
 {#if store.activeManga}
 <div class="root" role="presentation" oncontextmenu={(e) => e.preventDefault()}>
 
+  <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
   <div class="sidebar">
     <button class="back" onclick={() => setActiveManga(null)}>
       <ArrowLeft size={13} weight="light" /> Back
     </button>
 
+    <!-- Zone 1: Cover -->
     <div class="cover-wrap">
       <img src={thumbUrl(store.activeManga.thumbnailUrl)} alt={store.activeManga.title} class="cover" />
     </div>
 
+    <!-- Zone 2: Meta -->
     {#if loadingManga}
       <div class="meta-skeleton">
         <div class="skeleton sk-line" style="width:90%;height:14px"></div>
@@ -361,27 +363,46 @@
         {/if}
         {#if manga?.genre?.length}
           <div class="genres">
-            {#each (genresExpanded ? manga.genre : manga.genre.slice(0, 5)) as g}
+            {#each (genresExpanded ? manga.genre : manga.genre.slice(0, 3)) as g}
               <button class="genre" onclick={() => { setGenreFilter(g); setNavPage("explore"); setActiveManga(null); }}>{g}</button>
             {/each}
-            {#if manga.genre.length > 5}
+            {#if manga.genre.length > 3}
               <button class="genre-toggle" onclick={() => genresExpanded = !genresExpanded}>
-                {genresExpanded ? "less" : `+${manga.genre.length - 5}`}
+                {genresExpanded ? "less" : `+${manga.genre.length - 3}`}
               </button>
             {/if}
           </div>
         {/if}
         {#if manga?.description}
-          <div class="desc-wrap">
-            <p class="desc" class:expanded={descExpanded}>{manga.description}</p>
-            {#if manga.description.length > 120}
-              <button class="desc-toggle" onclick={() => descExpanded = !descExpanded}>{descExpanded ? "Less" : "More"}</button>
-            {/if}
-          </div>
+          <p class="desc">{manga.description}</p>
         {/if}
       </div>
     {/if}
 
+    <!-- Zone 3: Primary CTA + library action -->
+    <div class="cta-section">
+      {#if continueChapter}
+        <button class="read-btn" onclick={() => openReader(continueChapter!.chapter, sortedChapters)}>
+          <Play size={12} weight="fill" />
+          {continueChapter.type === "continue"
+            ? `Continue · Ch.${continueChapter.chapter.chapterNumber}${(continueChapter.chapter.lastPageRead ?? 0) > 0 ? ` p.${continueChapter.chapter.lastPageRead}` : ""}`
+            : continueChapter.type === "reread" ? "Read again" : "Start reading"}
+        </button>
+      {/if}
+      <div class="actions">
+        <button class="library-btn" class:active={manga?.inLibrary} onclick={toggleLibrary} disabled={togglingLibrary || loadingManga}>
+          <BookmarkSimple size={13} weight={manga?.inLibrary ? "fill" : "light"} />
+          {manga?.inLibrary ? "In Library" : "Add to Library"}
+        </button>
+        {#if manga?.realUrl}
+          <a href={manga.realUrl} target="_blank" rel="noreferrer" class="external-link">
+            <ArrowSquareOut size={13} weight="light" />
+          </a>
+        {/if}
+      </div>
+    </div>
+
+    <!-- Zone 4: Progress -->
     {#if totalCount > 0}
       <div class="progress-section">
         <div class="progress-header">
@@ -392,49 +413,7 @@
       </div>
     {/if}
 
-    <div class="actions">
-      <button class="library-btn" class:active={manga?.inLibrary} onclick={toggleLibrary} disabled={togglingLibrary || loadingManga}>
-        <BookmarkSimple size={13} weight={manga?.inLibrary ? "fill" : "light"} />
-        {manga?.inLibrary ? "In Library" : "Add to Library"}
-      </button>
-      {#if manga?.realUrl}
-        <a href={manga.realUrl} target="_blank" rel="noreferrer" class="external-link">
-          <ArrowSquareOut size={13} weight="light" />
-        </a>
-      {/if}
-    </div>
-
-    {#if continueChapter}
-      <button class="read-btn" onclick={() => openReader(continueChapter!.chapter, sortedChapters)}>
-        <Play size={12} weight="fill" />
-        {continueChapter.type === "continue"
-          ? `Continue · Ch.${continueChapter.chapter.chapterNumber}${(continueChapter.chapter.lastPageRead ?? 0) > 0 ? ` p.${continueChapter.chapter.lastPageRead}` : ""}`
-          : continueChapter.type === "reread" ? "Read again" : "Start reading"}
-      </button>
-    {/if}
-
-    <div class="tools-row">
-      <button
-        class="tool-btn"
-        class:tool-btn-active={linkedIds.length > 0}
-        onclick={openLinkPicker}
-        title="Series Link"
-      >
-        <LinkSimpleHorizontalBreak size={12} weight={linkedIds.length > 0 ? "fill" : "light"} />
-        <span>Series Link</span>
-      </button>
-      <button
-        class="tool-btn"
-        onclick={() => trackingOpen = true}
-        title="Tracking"
-      >
-        <ChartLineUp size={12} weight="light" />
-        <span>Tracking</span>
-      </button>
-    </div>
-
-    <p class="chapter-count">{totalCount} {totalCount === 1 ? "chapter" : "chapters"}{readCount > 0 ? ` · ${readCount} read` : ""}</p>
-
+    <!-- Zone 5: Details accordion (source info + all secondary actions) -->
     {#if !loadingManga && manga?.source}
       <div class="details-section">
         <button class="details-toggle" onclick={() => detailsOpen = !detailsOpen}>
@@ -447,20 +426,38 @@
             {#if manga.status}<div class="detail-row"><span class="detail-key">Status</span><span class="detail-val">{statusLabel}</span></div>{/if}
             {#if manga.author}<div class="detail-row"><span class="detail-key">Author</span><span class="detail-val">{manga.author}</span></div>{/if}
             {#if manga.artist && manga.artist !== manga.author}<div class="detail-row"><span class="detail-key">Artist</span><span class="detail-val">{manga.artist}</span></div>{/if}
-            <button class="migrate-btn" onclick={() => migrateOpen = true}>
-              <ArrowsClockwise size={12} weight="light" /> Switch source
-            </button>
-            {#if downloadedCount > 0}
-              <button class="delete-all-btn" onclick={deleteAllDownloads} disabled={deletingAll}>
-                <Trash size={12} weight="light" /> {deletingAll ? "Deleting…" : `Delete downloads (${downloadedCount})`}
+
+            <div class="detail-actions">
+              <button class="detail-action-btn" onclick={() => migrateOpen = true}>
+                <ArrowsClockwise size={12} weight="light" /> Switch Source
               </button>
-            {/if}
+              <button
+                class="detail-action-btn"
+                class:detail-action-active={linkedIds.length > 0}
+                onclick={openLinkPicker}
+              >
+                <LinkSimpleHorizontalBreak size={12} weight={linkedIds.length > 0 ? "fill" : "light"} />
+                Series Link{linkedIds.length > 0 ? ` (${linkedIds.length})` : ""}
+              </button>
+              <button
+                class="detail-action-btn"
+                onclick={() => trackingOpen = true}
+              >
+                <ChartLineUp size={12} weight="light" /> Tracking
+              </button>
+              {#if downloadedCount > 0}
+                <button class="detail-action-btn detail-action-danger" onclick={deleteAllDownloads} disabled={deletingAll}>
+                  <Trash size={12} weight="light" /> {deletingAll ? "Deleting…" : `Delete Downloads (${downloadedCount})`}
+                </button>
+              {/if}
+            </div>
           </div>
         {/if}
       </div>
     {/if}
   </div>
 
+  <!-- ── Chapter list ───────────────────────────────────────────────────── -->
   <div class="list-wrap">
     <div class="list-header">
       <div class="list-header-left">
@@ -468,7 +465,8 @@
           {#if sortDir === "desc"}<SortDescending size={14} weight="light" />{:else}<SortAscending size={14} weight="light" />{/if}
           {sortDir === "desc" ? "Newest first" : "Oldest first"}
         </button>
-        <button class="icon-btn" class:active={viewMode === "grid"} onclick={() => viewMode = viewMode === "list" ? "grid" : "list"}>
+        <!-- View toggle: icon reflects current state -->
+        <button class="icon-btn" class:active={viewMode === "grid"} onclick={() => viewMode = viewMode === "list" ? "grid" : "list"} title={viewMode === "list" ? "Grid view" : "List view"}>
           {#if viewMode === "list"}<SquaresFour size={14} weight="light" />{:else}<List size={14} weight="light" />{/if}
         </button>
       </div>
@@ -477,6 +475,7 @@
           <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
         </button>
 
+        <!-- Folder picker -->
         <div class="fp-wrap" bind:this={folderPickerRef}>
           <button class="icon-btn" class:active={hasFolders} onclick={() => folderPickerOpen = !folderPickerOpen}>
             <FolderSimplePlus size={14} weight={hasFolders ? "fill" : "light"} />
@@ -510,32 +509,7 @@
           {/if}
         </div>
 
-        {#if chapters.length > 1}
-          <div class="jump-wrap">
-            {#if !jumpOpen}
-              <button class="jump-toggle" onclick={() => { jumpOpen = true; jumpInput = ""; }}>Go to…</button>
-            {:else}
-              <div class="jump-row">
-                <input class="jump-input" type="text" placeholder="Ch. #" bind:value={jumpInput} use:focusOnMount
-                  onkeydown={(e) => {
-                    if (e.key === "Escape") { jumpOpen = false; return; }
-                    if (e.key === "Enter") {
-                      const num = parseFloat(jumpInput);
-                      if (!isNaN(num)) {
-                        const target = sortedChapters.find(c => c.chapterNumber === num)
-                          ?? sortedChapters.reduce((best, c) => Math.abs(c.chapterNumber - num) < Math.abs(best.chapterNumber - num) ? c : best, sortedChapters[0]);
-                        if (target) openReader(target, sortedChapters);
-                      }
-                      jumpOpen = false;
-                    }
-                  }}
-                />
-                <button class="jump-cancel" onclick={() => jumpOpen = false}>✕</button>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
+        <!-- Download dropdown -->
         {#if chapters.length > 0}
           <div class="dl-wrap" bind:this={dlDropRef}>
             <button class="icon-btn" onclick={() => dlOpen = !dlOpen}>
@@ -610,7 +584,7 @@
       {:else if viewMode === "grid"}
         {#each sortedChapters as ch, i}
           {@const inProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
-          <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress} class:bookmarked={ch.isBookmarked}
+          <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress}
             onclick={() => openReader(ch, sortedChapters)}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: i }; }}
             title={ch.name}>
@@ -723,11 +697,17 @@
 
 <style>
   .root { display: flex; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
+
+  /* ── Sidebar ─────────────────────────────────────────────────────────────── */
   .sidebar { width: 240px; flex-shrink: 0; padding: var(--sp-5); border-right: 1px solid var(--border-dim); overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-4); background: var(--bg-base); }
   .back { display: flex; align-items: center; gap: var(--sp-2); color: var(--text-muted); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); text-transform: uppercase; transition: color var(--t-base); }
   .back:hover { color: var(--text-secondary); }
+
+  /* Zone 1: Cover */
   .cover-wrap { width: 100%; aspect-ratio: 2/3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); flex-shrink: 0; }
   .cover { width: 100%; height: 100%; object-fit: cover; }
+
+  /* Zone 2: Meta */
   .meta-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); }
   .sk-line { border-radius: var(--radius-sm); }
   .meta { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -741,17 +721,13 @@
   .genre:hover { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .genre-toggle { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 1px 6px; letter-spacing: var(--tracking-wide); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
   .genre-toggle:hover { color: var(--accent-fg); border-color: var(--accent-dim); }
-  .desc-wrap { display: flex; flex-direction: column; gap: 2px; }
-  .desc { font-size: var(--text-xs); color: var(--text-muted); line-height: var(--leading-base); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .desc.expanded { -webkit-line-clamp: unset; display: block; overflow: visible; }
-  .desc-toggle { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); background: none; border: none; padding: 0; cursor: pointer; opacity: 0.7; transition: opacity var(--t-base); }
-  .desc-toggle:hover { opacity: 1; }
-  .progress-section { display: flex; flex-direction: column; gap: var(--sp-1); }
-  .progress-header { display: flex; justify-content: space-between; align-items: center; }
-  .progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .progress-pct { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); }
-  .progress-track { height: 3px; background: var(--border-base); border-radius: var(--radius-full); overflow: hidden; }
-  .progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.4s ease; }
+  /* Description clamped — no expand in 240px sidebar */
+  .desc { font-size: var(--text-xs); color: var(--text-muted); line-height: var(--leading-base); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* Zone 3: CTA */
+  .cta-section { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .read-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; padding: 9px var(--sp-3); border-radius: var(--radius-md); background: var(--accent); border: 1px solid var(--accent); color: var(--accent-contrast, #fff); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); cursor: pointer; transition: opacity var(--t-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .read-btn:hover { opacity: 0.88; }
   .actions { display: flex; align-items: center; gap: var(--sp-2); }
   .library-btn { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); padding: 5px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-strong); color: var(--text-muted); background: var(--bg-raised); transition: border-color var(--t-base), color var(--t-base), background var(--t-base); flex: 1; }
   .library-btn:hover { border-color: var(--accent); color: var(--accent-fg); }
@@ -759,7 +735,32 @@
   .library-btn:disabled { opacity: 0.4; cursor: default; }
   .external-link { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .external-link:hover { color: var(--text-muted); border-color: var(--border-strong); }
-  .external-link.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+
+  /* Zone 4: Progress */
+  .progress-section { display: flex; flex-direction: column; gap: var(--sp-1); }
+  .progress-header { display: flex; justify-content: space-between; align-items: center; }
+  .progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .progress-pct { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); }
+  .progress-track { height: 3px; background: var(--border-base); border-radius: var(--radius-full); overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.4s ease; }
+
+  /* Zone 5: Details accordion */
+  .details-section { display: flex; flex-direction: column; gap: 2px; }
+  .details-toggle { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: 4px 0; transition: color var(--t-base); }
+  .details-toggle:hover { color: var(--text-muted); }
+  .details-body { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-2); }
+  .detail-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); }
+  .detail-key { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .detail-val { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); text-align: right; }
+  .detail-actions { display: flex; flex-direction: column; gap: var(--sp-1); padding-top: var(--sp-1); }
+  .detail-action-btn { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 6px var(--sp-2); border-radius: var(--radius-md); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: 1px solid var(--border-dim); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .detail-action-btn:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
+  .detail-action-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .detail-action-active:hover { color: var(--accent-fg); border-color: var(--accent); }
+  .detail-action-danger { color: var(--color-error); }
+  .detail-action-danger:hover:not(:disabled) { background: var(--color-error-bg); border-color: var(--color-error); color: var(--color-error); }
+  .detail-action-danger:disabled { opacity: 0.4; cursor: default; }
+
   /* ── Series link modal ───────────────────────────────────────────────────── */
   .link-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.72); z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); animation: fadeIn 0.12s ease both; }
   .link-modal { width: min(460px, calc(100vw - 48px)); max-height: 70vh; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); animation: scaleIn 0.14s ease both; }
@@ -783,25 +784,8 @@
   .link-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .link-status { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); flex-shrink: 0; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); }
   .link-row-linked .link-status { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
-  .tools-row { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .tool-btn { display: flex; align-items: center; gap: var(--sp-2); width: 100%; justify-content: center; padding: 6px var(--sp-2); border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
-  .tool-btn:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
-  .tool-btn-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
-  .tool-btn-active:hover { color: var(--accent-fg); border-color: var(--accent); }
-  .read-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; padding: 8px var(--sp-3); border-radius: var(--radius-md); background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent-fg); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); cursor: pointer; transition: background var(--t-base), border-color var(--t-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .read-btn:hover { background: var(--accent-muted); border-color: var(--accent-bright); }
-  .chapter-count { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); text-transform: uppercase; }
-  .details-section { display: flex; flex-direction: column; gap: 2px; }
-  .details-toggle { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: 4px 0; transition: color var(--t-base); }
-  .details-toggle:hover { color: var(--text-muted); }
-  .details-body { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-2); }
-  .detail-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); }
-  .detail-key { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .detail-val { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); text-align: right; }
-  .migrate-btn { display: flex; align-items: center; gap: var(--sp-2); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px var(--sp-2); border-radius: var(--radius-md); border: 1px solid var(--accent-dim); background: var(--accent-muted); color: var(--accent-fg); cursor: pointer; }
-  .delete-all-btn { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 6px var(--sp-2); border-radius: var(--radius-md); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: 1px solid var(--border-dim); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
-  .delete-all-btn:hover:not(:disabled) { color: var(--color-error); border-color: var(--color-error); background: var(--color-error-bg); }
-  .delete-all-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* ── Chapter list ────────────────────────────────────────────────────────── */
   .list-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .list-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; gap: var(--sp-2); flex-wrap: wrap; }
   .list-header-left, .list-header-right { display: flex; align-items: center; gap: var(--sp-1); }
@@ -811,6 +795,8 @@
   .icon-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
   .icon-btn.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* ── Folder picker ───────────────────────────────────────────────────────── */
   .fp-wrap { position: relative; }
   .fp-menu { position: absolute; top: calc(100% + 4px); right: 0; min-width: 180px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: var(--sp-1); z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: scaleIn 0.1s ease both; transform-origin: top right; }
   .fp-empty { padding: var(--sp-2) var(--sp-3); font-size: var(--text-xs); color: var(--text-faint); }
@@ -828,14 +814,8 @@
   .fp-cancel:hover { color: var(--text-muted); border-color: var(--border-dim); }
   .fp-new { width: 100%; padding: 6px var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--text-faint); background: none; border: none; cursor: pointer; text-align: left; transition: color var(--t-fast), background var(--t-fast); }
   .fp-new:hover { color: var(--text-secondary); background: var(--bg-overlay); }
-  .jump-wrap { position: relative; }
-  .jump-toggle { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
-  .jump-toggle:hover { color: var(--text-muted); border-color: var(--border-strong); }
-  .jump-row { display: flex; align-items: center; gap: 4px; }
-  .jump-input { width: 64px; background: var(--bg-overlay); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 4px 8px; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); outline: none; }
-  .jump-input:focus { border-color: var(--border-focus); }
-  .jump-cancel { font-size: 12px; color: var(--text-faint); padding: 2px 4px; border-radius: var(--radius-sm); transition: color var(--t-base); }
-  .jump-cancel:hover { color: var(--text-muted); }
+
+  /* ── Download dropdown ───────────────────────────────────────────────────── */
   .dl-wrap { position: relative; }
   .dl-dropdown { position: absolute; top: calc(100% + 4px); right: 0; min-width: 220px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); z-index: 200; box-shadow: 0 8px 32px rgba(0,0,0,0.5); animation: scaleIn 0.1s ease both; transform-origin: top right; }
   .dl-section-label { padding: 6px var(--sp-3) 4px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
@@ -859,12 +839,16 @@
   .dl-range-sep { color: var(--text-faint); font-size: var(--text-xs); }
   .dl-range-go { padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--accent-dim); background: var(--accent-muted); color: var(--accent-fg); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; }
   .dl-range-go:disabled { opacity: 0.3; cursor: default; }
+
+  /* ── Pagination ──────────────────────────────────────────────────────────── */
   .pagination, .pagination-bottom { display: flex; align-items: center; gap: var(--sp-2); }
   .pagination-bottom { justify-content: center; padding: var(--sp-3); border-top: 1px solid var(--border-dim); flex-shrink: 0; }
   .page-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
   .page-btn:hover:not(:disabled) { color: var(--text-muted); border-color: var(--border-strong); }
   .page-btn:disabled { opacity: 0.3; cursor: default; }
   .page-num { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+
+  /* ── Chapter rows ────────────────────────────────────────────────────────── */
   .ch-list { flex: 1; overflow-y: auto; }
   .ch-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 4px; padding: var(--sp-3); align-content: start; }
   .ch-row { display: flex; align-items: center; padding: 10px var(--sp-4); border-bottom: 1px solid var(--border-dim); cursor: pointer; transition: background var(--t-fast); gap: var(--sp-3); }
@@ -889,6 +873,7 @@
   .grid-cell-dot { position: absolute; bottom: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--text-faint); }
   .grid-cell-spinner { position: absolute; top: 2px; right: 2px; }
   .grid-cell-skeleton { aspect-ratio: 1; border-radius: var(--radius-sm); }
+
   @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

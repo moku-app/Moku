@@ -79,11 +79,11 @@
   }
 
   const filtered = $derived(search.trim()
-    ? store..filter((e) =>
+    ? store.history.filter((e) =>
         e.mangaTitle.toLowerCase().includes(search.toLowerCase()) ||
         e.chapterName.toLowerCase().includes(search.toLowerCase())
       )
-    : store.);
+    : store.history);
 
   const sessions = $derived(buildSessions(filtered));
 
@@ -97,10 +97,16 @@
     return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
   });
 
+  // Resume: navigate to the manga's SeriesDetail (which will pick up from
+  // activeChapterList once chapters load). We can't hold a stale chapter list
+  // here — SeriesDetail fetches fresh chapters itself.
   function resume(session: Session) {
-    const ch = store..find((c) => c.id === session.latestChapterId);
-    if (ch && store..length > 0) openReader(ch, );
-    else setActiveManga({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: session.thumbnailUrl } as any);
+    setActiveManga({
+      id:           session.mangaId,
+      title:        session.mangaTitle,
+      thumbnailUrl: session.thumbnailUrl,
+      inLibrary:    false,
+    } as any);
   }
 
   function handleClear() {
@@ -111,17 +117,17 @@
 
 <div class="root">
 
-  <div class="page-header">
+  <div class="header">
     <span class="heading">History</span>
     <div class="header-right">
       <div class="search-wrap">
         <MagnifyingGlass size={12} class="search-icon" weight="light" />
-        <input class="search" placeholder="Search store.…" bind:value={search} />
+        <input class="search" placeholder="Search history…" bind:value={search} />
         {#if search}<button class="search-clear" onclick={() => search = ""}>×</button>{/if}
       </div>
-      {#if store..length > 0}
+      {#if store.history.length > 0}
         <button class="clear-btn" class:confirm={confirmClear} onclick={handleClear}
-          title={confirmClear ? "Click again to confirm" : "Clear store. feed"}>
+          title={confirmClear ? "Click again to confirm" : "Clear history"}>
           <Trash size={14} weight="light" />
           {#if confirmClear}<span class="clear-label">Confirm?</span>{/if}
         </button>
@@ -129,44 +135,44 @@
     </div>
   </div>
 
-  {#if store..totalChaptersRead > 0}
+  {#if store.readingStats.totalChaptersRead > 0}
     <div class="stats-bar">
       <div class="stat-group">
         <Fire size={13} weight="fill" class="stat-fire" />
-        <span class="stat-val accent">{store..currentStreakDays}</span>
+        <span class="stat-val accent">{store.readingStats.currentStreakDays}</span>
         <span class="stat-label">day streak</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
         <BookOpen size={13} weight="light" class="stat-icon-neutral" />
-        <span class="stat-val">{store..totalChaptersRead}</span>
+        <span class="stat-val">{store.readingStats.totalChaptersRead}</span>
         <span class="stat-label">chapters</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
         <Clock size={13} weight="light" class="stat-icon-neutral" />
-        <span class="stat-val">{formatReadTime(store..totalMinutesRead)}</span>
+        <span class="stat-val">{formatReadTime(store.readingStats.totalMinutesRead)}</span>
         <span class="stat-label">read time</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
         <TrendUp size={13} weight="light" class="stat-icon-neutral" />
-        <span class="stat-val">{store..totalMangaRead}</span>
+        <span class="stat-val">{store.readingStats.totalMangaRead}</span>
         <span class="stat-label">series</span>
       </div>
       <div class="stat-sep"></div>
       <div class="stat-group">
-        <span class="stat-val muted">{store..longestStreakDays}d</span>
+        <span class="stat-val muted">{store.readingStats.longestStreakDays}d</span>
         <span class="stat-label">best streak</span>
       </div>
       <span class="stats-note">Stats are preserved when you clear the feed</span>
     </div>
   {/if}
 
-  {#if store..length === 0}
+  {#if store.history.length === 0}
     <div class="empty">
       <ClockCounterClockwise size={32} weight="light" class="empty-icon" />
-      <p class="empty-text">No reading store.</p>
+      <p class="empty-text">No reading history yet</p>
       <p class="empty-hint">Chapters you read will appear here</p>
     </div>
   {:else if sessions.length === 0}
@@ -223,16 +229,16 @@
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
 
-  .page-header {
+  .header {
     display: flex; align-items: center; justify-content: space-between;
     padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0;
   }
-  .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
+  .heading { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .header-right { display: flex; align-items: center; gap: var(--sp-2); }
 
   .search-wrap { position: relative; display: flex; align-items: center; }
   .search-wrap :global(.search-icon) { position: absolute; left: 9px; color: var(--text-faint); pointer-events: none; }
-  .search { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 26px 5px 26px; color: var(--text-primary); font-size: var(--text-sm); width: 180px; outline: none; transition: border-color var(--t-base); }
+  .search { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 26px; color: var(--text-primary); font-size: var(--text-sm); width: 180px; outline: none; transition: border-color var(--t-base); }
   .search::placeholder { color: var(--text-faint); }
   .search:focus { border-color: var(--border-strong); }
   .search-clear { position: absolute; right: 7px; color: var(--text-faint); font-size: 14px; line-height: 1; background: none; border: none; cursor: pointer; padding: 2px; transition: color var(--t-base); }

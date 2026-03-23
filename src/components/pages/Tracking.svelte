@@ -35,6 +35,9 @@
   // Mutation state
   let updatingId: number | null = $state(null);
   let syncingId:  number | null = $state(null);
+  // Chapter editing: recordId → draft value
+  let editingChapter: number | null = $state(null);
+  let chapterDraft:   number        = $state(0);
 
   // ── Load ───────────────────────────────────────────────────────────────────
 
@@ -187,14 +190,40 @@
     setActiveManga(record.manga as any);
     setNavPage("library");
   }
+
+  function openChapterEditor(record: FlatRecord) {
+    editingChapter = record.id;
+    chapterDraft   = record.lastChapterRead;
+  }
+
+  function cancelChapterEditor() {
+    editingChapter = null;
+  }
+
+  async function submitChapter(record: FlatRecord) {
+    const val = Math.max(0, chapterDraft);
+    editingChapter = null;
+    if (val === record.lastChapterRead) return;
+    updatingId = record.id;
+    try {
+      const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(
+        UPDATE_TRACK, { recordId: record.id, lastChapterRead: val }
+      );
+      patchRecord(record.trackerId, res.updateTrack.trackRecord);
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Update failed", body: e?.message });
+    } finally {
+      updatingId = null;
+    }
+  }
 </script>
 
 <div class="page">
 
   <!-- ── Header ──────────────────────────────────────────────────────────── -->
-  <div class="page-header">
+  <div class="header">
     <div class="header-top">
-      <h1 class="page-title">Tracking</h1>
+      <h1 class="heading">Tracking</h1>
       <div class="header-actions">
         <button class="icon-btn" onclick={load} disabled={loading} title="Refresh all">
           <ArrowsClockwise size={14} weight="light" class={loading ? "anim-spin" : ""} />
@@ -383,16 +412,68 @@
                 {/if}
               </div>
 
-              <!-- Progress -->
-              {#if progress !== null}
-                <div class="record-progress">
+              <!-- Progress / Chapter editor -->
+              {#if editingChapter === record.id}
+                <div class="chapter-editor">
+                  <div class="chapter-editor-top">
+                    <span class="chapter-editor-label">Chapter read</span>
+                    <div class="chapter-input-wrap">
+                      <input
+                        type="number"
+                        class="chapter-input"
+                        min="0"
+                        max={record.totalChapters > 0 ? record.totalChapters : undefined}
+                        step="0.5"
+                        bind:value={chapterDraft}
+                        onkeydown={(e) => {
+                          if (e.key === "Enter") submitChapter(record);
+                          if (e.key === "Escape") cancelChapterEditor();
+                        }}
+                        use:focusEl
+                      />
+                      {#if record.totalChapters > 0}
+                        <span class="chapter-total">/ {record.totalChapters}</span>
+                      {/if}
+                    </div>
+                  </div>
+                  {#if record.totalChapters > 0}
+                    <input
+                      type="range"
+                      class="chapter-slider"
+                      min="0"
+                      max={record.totalChapters}
+                      step="1"
+                      bind:value={chapterDraft}
+                    />
+                  {/if}
+                  <div class="chapter-editor-actions">
+                    <button class="chapter-save-btn" onclick={() => submitChapter(record)}>Save</button>
+                    <button class="chapter-cancel-btn" onclick={cancelChapterEditor}>Cancel</button>
+                  </div>
+                </div>
+              {:else if progress !== null}
+                <div class="record-progress clickable" role="button" tabindex="0"
+                  onclick={() => openChapterEditor(record)}
+                  onkeydown={(e) => e.key === "Enter" && openChapterEditor(record)}
+                  title="Click to edit"
+                >
                   <div class="progress-track">
                     <div class="progress-fill" style="width:{progress}%"></div>
                   </div>
                   <span class="progress-label">Ch. {record.lastChapterRead} / {record.totalChapters}</span>
+                  <span class="progress-edit-hint">✎</span>
                 </div>
-              {:else if record.lastChapterRead > 0}
-                <span class="progress-label">Ch. {record.lastChapterRead} read</span>
+              {:else}
+                <div class="record-progress clickable no-total" role="button" tabindex="0"
+                  onclick={() => openChapterEditor(record)}
+                  onkeydown={(e) => e.key === "Enter" && openChapterEditor(record)}
+                  title="Click to set chapter"
+                >
+                  <span class="progress-label">
+                    {record.lastChapterRead > 0 ? `Ch. ${record.lastChapterRead} read` : "Set chapter…"}
+                  </span>
+                  <span class="progress-edit-hint">✎</span>
+                </div>
               {/if}
 
             </div>
@@ -408,20 +489,20 @@
   .page { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
 
   /* ── Header ─────────────────────────────────────────────────────────────── */
-  .page-header { flex-shrink: 0; border-bottom: 1px solid var(--border-dim); background: var(--bg-base); }
-  .header-top { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5) var(--sp-3); }
-  .page-title { font-size: var(--text-lg); font-weight: var(--weight-medium); color: var(--text-primary); letter-spacing: var(--tracking-tight); }
+  .header { flex-shrink: 0; border-bottom: 1px solid var(--border-dim); background: var(--bg-base); }
+  .header-top { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6) var(--sp-3); }
+  .heading { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .header-actions { display: flex; align-items: center; gap: var(--sp-2); }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-muted); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
 
   /* ── Tracker tabs ───────────────────────────────────────────────────────── */
-  .tracker-tabs { display: flex; align-items: center; gap: 2px; padding: 0 var(--sp-4); overflow-x: auto; scrollbar-width: none; }
+  .tracker-tabs { display: flex; align-items: center; gap: 2px; padding: var(--sp-2) var(--sp-4); overflow-x: auto; scrollbar-width: none; }
   .tracker-tabs::-webkit-scrollbar { display: none; }
-  .tracker-tab { display: flex; align-items: center; gap: var(--sp-2); padding: 8px 12px; border-bottom: 2px solid transparent; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border-radius: 0; cursor: pointer; white-space: nowrap; transition: color var(--t-base), border-color var(--t-base); }
+  .tracker-tab { display: flex; align-items: center; gap: var(--sp-2); padding: 4px 10px; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: none; border-radius: var(--radius-md); cursor: pointer; white-space: nowrap; transition: color var(--t-base), background var(--t-base); }
   .tracker-tab:hover { color: var(--text-muted); }
-  .tab-active { color: var(--text-secondary) !important; border-bottom-color: var(--accent) !important; }
+  .tab-active { background: var(--accent-muted); color: var(--accent-fg) !important; border: 1px solid var(--accent-dim); }
   .tab-tracker-icon { width: 14px; height: 14px; border-radius: 2px; object-fit: contain; }
   .tab-count { font-size: 10px; padding: 1px 5px; border-radius: var(--radius-full); background: var(--bg-overlay); color: var(--text-faint); min-width: 18px; text-align: center; }
 
@@ -516,6 +597,32 @@
   .progress-track { flex: 1; height: 3px; background: var(--border-base); border-radius: var(--radius-full); overflow: hidden; max-width: 160px; }
   .progress-fill  { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
   .progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); white-space: nowrap; }
+  .record-progress.clickable { cursor: pointer; border-radius: var(--radius-sm); padding: 2px 4px; margin: -2px -4px; transition: background var(--t-fast); }
+  .record-progress.clickable:hover { background: var(--bg-overlay); }
+  .record-progress.clickable:hover .progress-label { color: var(--text-muted); }
+  .progress-edit-hint { font-size: 10px; color: var(--text-faint); opacity: 0; transition: opacity var(--t-fast); }
+  .record-progress.clickable:hover .progress-edit-hint { opacity: 1; }
+
+  /* Chapter editor */
+  .chapter-editor { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border-radius: var(--radius-md); border: 1px solid var(--accent-dim); background: var(--bg-overlay); }
+  .chapter-editor-top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+  .chapter-editor-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .chapter-input-wrap { display: flex; align-items: center; gap: var(--sp-2); }
+  .chapter-input { width: 72px; background: var(--bg-raised); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 4px 8px; font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-primary); outline: none; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: textfield; }
+  .chapter-input:focus { border-color: var(--accent); }
+  .chapter-input::-webkit-outer-spin-button,
+  .chapter-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .chapter-total { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .chapter-slider { width: 100%; accent-color: var(--accent); cursor: pointer; height: 4px; }
+  .chapter-editor-actions { display: flex; align-items: center; gap: var(--sp-2); justify-content: flex-end; }
+  .chapter-save-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 14px; border-radius: var(--radius-sm); border: 1px solid var(--accent); background: var(--accent-muted); color: var(--accent-fg); cursor: pointer; transition: filter var(--t-base); }
+  .chapter-save-btn:hover { filter: brightness(1.15); }
+  .chapter-cancel-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
+  .chapter-cancel-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
 
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 </style>
+
+<script module>
+  function focusEl(node: HTMLElement) { setTimeout(() => node.focus(), 0); }
+</script>

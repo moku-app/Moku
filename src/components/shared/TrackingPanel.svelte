@@ -36,6 +36,8 @@
   let binding:        boolean       = $state(false);
   let updatingRecord: number | null = $state(null);
   let syncing:        number | null = $state(null);
+  let editingChapter: number | null = $state(null);
+  let chapterDraft:   number        = $state(0);
 
   // ── Load ───────────────────────────────────────────────────────────────────
 
@@ -197,6 +199,30 @@
   function patchRecord(updated: Partial<TrackRecord> & { id: number }) {
     records = records.map(r => r.id === updated.id ? { ...r, ...updated } : r);
   }
+
+  function openChapterEditor(record: TrackRecord) {
+    editingChapter = record.id;
+    chapterDraft   = record.lastChapterRead;
+  }
+
+  function cancelChapterEditor() { editingChapter = null; }
+
+  async function submitChapter(record: TrackRecord) {
+    const val = Math.max(0, chapterDraft);
+    editingChapter = null;
+    if (val === record.lastChapterRead) return;
+    updatingRecord = record.id;
+    try {
+      const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(
+        UPDATE_TRACK, { recordId: record.id, lastChapterRead: val }
+      );
+      patchRecord(res.updateTrack.trackRecord);
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Update failed", body: e?.message });
+    } finally {
+      updatingRecord = null;
+    }
+  }
 </script>
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && onClose()} />
@@ -342,15 +368,65 @@
                   </button>
                 </div>
 
-                {#if record.totalChapters > 0}
-                  <div class="record-progress">
-                    <span class="record-progress-label">Ch. {record.lastChapterRead} / {record.totalChapters}</span>
+                {#if editingChapter === record.id}
+                  <div class="chapter-editor">
+                    <div class="chapter-editor-top">
+                      <span class="chapter-editor-label">Chapter read</span>
+                      <div class="chapter-input-wrap">
+                        <input
+                          type="number"
+                          class="chapter-input"
+                          min="0"
+                          max={record.totalChapters > 0 ? record.totalChapters : undefined}
+                          step="0.5"
+                          bind:value={chapterDraft}
+                          onkeydown={(e) => {
+                            if (e.key === "Enter") submitChapter(record);
+                            if (e.key === "Escape") cancelChapterEditor();
+                          }}
+                          use:autoFocus
+                        />
+                        {#if record.totalChapters > 0}
+                          <span class="chapter-total">/ {record.totalChapters}</span>
+                        {/if}
+                      </div>
+                    </div>
+                    {#if record.totalChapters > 0}
+                      <input
+                        type="range"
+                        class="chapter-slider"
+                        min="0"
+                        max={record.totalChapters}
+                        step="1"
+                        bind:value={chapterDraft}
+                      />
+                    {/if}
+                    <div class="chapter-editor-actions">
+                      <button class="chapter-save-btn" onclick={() => submitChapter(record)}>Save</button>
+                      <button class="chapter-cancel-btn" onclick={cancelChapterEditor}>Cancel</button>
+                    </div>
+                  </div>
+                {:else if record.totalChapters > 0}
+                  <div class="record-progress clickable" role="button" tabindex="0"
+                    onclick={() => openChapterEditor(record)}
+                    onkeydown={(e) => e.key === "Enter" && openChapterEditor(record)}
+                    title="Click to edit"
+                  >
+                    <span class="record-progress-label">Ch. {record.lastChapterRead} / {record.totalChapters} <span class="edit-hint">✎</span></span>
                     <div class="record-progress-track">
                       <div class="record-progress-fill" style="width:{Math.min(100,(record.lastChapterRead/record.totalChapters)*100)}%"></div>
                     </div>
                   </div>
-                {:else if record.lastChapterRead > 0}
-                  <span class="record-progress-label">Ch. {record.lastChapterRead} read</span>
+                {:else}
+                  <div class="record-progress clickable" role="button" tabindex="0"
+                    onclick={() => openChapterEditor(record)}
+                    onkeydown={(e) => e.key === "Enter" && openChapterEditor(record)}
+                    title="Click to set chapter"
+                  >
+                    <span class="record-progress-label">
+                      {record.lastChapterRead > 0 ? `Ch. ${record.lastChapterRead} read` : "Set chapter…"} <span class="edit-hint">✎</span>
+                    </span>
+                  </div>
                 {/if}
 
               </div>
@@ -509,9 +585,27 @@
   .record-icon-btn.icon-danger:hover:not(:disabled) { color: var(--color-error); border-color: var(--color-error); background: var(--color-error-bg); }
   .record-icon-btn:disabled { opacity: 0.3; cursor: default; }
   .record-progress { display: flex; flex-direction: column; gap: 4px; }
+  .record-progress.clickable { cursor: pointer; border-radius: var(--radius-sm); padding: 3px 4px; margin: -3px -4px; transition: background var(--t-fast); }
+  .record-progress.clickable:hover { background: var(--bg-overlay); }
   .record-progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .edit-hint { opacity: 0; font-size: 10px; transition: opacity var(--t-fast); }
+  .record-progress.clickable:hover .edit-hint { opacity: 1; }
   .record-progress-track { height: 2px; background: var(--border-base); border-radius: var(--radius-full); overflow: hidden; }
   .record-progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
+  /* Chapter editor */
+  .chapter-editor { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border-radius: var(--radius-md); border: 1px solid var(--accent-dim); background: var(--bg-overlay); }
+  .chapter-editor-top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+  .chapter-editor-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .chapter-input-wrap { display: flex; align-items: center; gap: var(--sp-2); }
+  .chapter-input { width: 68px; background: var(--bg-raised); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 3px 6px; font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-primary); outline: none; text-align: center; }
+  .chapter-input:focus { border-color: var(--accent); }
+  .chapter-total { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); }
+  .chapter-slider { width: 100%; accent-color: var(--accent); cursor: pointer; height: 4px; }
+  .chapter-editor-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; }
+  .chapter-save-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 3px 12px; border-radius: var(--radius-sm); border: 1px solid var(--accent); background: var(--accent-muted); color: var(--accent-fg); cursor: pointer; transition: filter var(--t-base); }
+  .chapter-save-btn:hover { filter: brightness(1.15); }
+  .chapter-cancel-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
+  .chapter-cancel-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
 
   /* Search */
   .search-bar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
