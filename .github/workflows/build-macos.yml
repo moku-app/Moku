@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 0.3.0)"
+        description: "Version to build (e.g. 0.4.0)"
         required: true
 
 jobs:
@@ -96,153 +96,154 @@ jobs:
             "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174" \
             "suwayomi-x64"
 
+      # Stage the suwayomi-bundle directory for each arch.
+      # The Rust code on macOS looks for a sidecar named
+      # suwayomi-server-{arch}-apple-darwin in resource_dir, and calls it
+      # with no args — so the sidecar must be a self-contained executable,
+      # not a shell .command script.
+      #
+      # We use jre/bin/java as the sidecar and patch lib.rs behaviour via a
+      # wrapper script that sets the correct relative paths and passes -jar.
+      # See: the sidecar IS the wrapper script below, which is fully self-
+      # contained and uses $0 to find its own location.
       - name: Stage Suwayomi sidecars
         run: |
           mkdir -p src-tauri/binaries
 
-          find_launcher() {
-            local dir="$1"
-            # v2.1.1867 macOS tarball ships "Suwayomi Launcher.command" (space, .command)
-            find "$dir" -maxdepth 1 -type f -name "*.command" | head -1
+          stage_arch() {
+            local srcdir="$1"   # e.g. suwayomi-arm64
+            local arch="$2"     # e.g. aarch64-apple-darwin
+            local sidecar="src-tauri/binaries/suwayomi-server-${arch}"
+            local bundle_dest="src-tauri/binaries/suwayomi-bundle-${arch}"
+
+            JAR=$(find "$srcdir" -name "Suwayomi-Server.jar" | head -1)
+            JAVA=$(find "$srcdir" -path "*/jre/bin/java" | head -1)
+
+            if [ -z "$JAR" ]; then
+              echo "ERROR: Suwayomi-Server.jar not found in $srcdir"
+              find "$srcdir" -type f | head -30
+              exit 1
+            fi
+            if [ -z "$JAVA" ]; then
+              echo "ERROR: jre/bin/java not found in $srcdir"
+              find "$srcdir" -type f | head -30
+              exit 1
+            fi
+
+            echo "${arch}: jar=${JAR}  java=${JAVA}"
+
+            # Copy the full bundle so Resources/binaries/suwayomi-bundle-{arch}
+            # is available at runtime via resource_dir.
+            cp -r "$srcdir" "$bundle_dest"
+
+            # Write a self-contained launcher script as the Tauri sidecar.
+            # At runtime Tauri places it in Moku.app/Contents/MacOS/ (for
+            # externalBin) or Contents/Resources/ (for resources). We resolve
+            # the bundle relative to the script's own location.
+            cat > "$sidecar" << 'SCRIPT'
+#!/bin/sh
+# Moku — Suwayomi launcher sidecar for macOS
+# Tauri calls this script directly (no args from Rust side).
+# The rootDir JVM flag is prepended by spawn_server in lib.rs.
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# When running from inside the .app bundle the sidecar lives in
+# Contents/MacOS/; the bundle is in Contents/Resources/.
+# Walk up to find the bundle directory.
+find_bundle() {
+  local base="$1"
+  for candidate in \
+    "${base}/suwayomi-bundle" \
+    "${base}/../Resources/suwayomi-bundle" \
+    "${base}/../Resources/binaries/suwayomi-bundle"
+  do
+    if [ -f "${candidate}/Suwayomi-Server.jar" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+BUNDLE=$(find_bundle "$DIR") || {
+  echo "[sidecar] ERROR: cannot locate suwayomi-bundle relative to $DIR" >&2
+  exit 1
+}
+
+JAVA="${BUNDLE}/jre/bin/java"
+JAR="${BUNDLE}/Suwayomi-Server.jar"
+
+if [ ! -x "$JAVA" ]; then
+  echo "[sidecar] ERROR: java not found at $JAVA" >&2
+  exit 1
+fi
+if [ ! -f "$JAR" ]; then
+  echo "[sidecar] ERROR: jar not found at $JAR" >&2
+  exit 1
+fi
+
+exec "$JAVA" \
+  -Djava.awt.headless=true \
+  "$@" \
+  -jar "$JAR"
+SCRIPT
+
+            chmod +x "$sidecar"
+            echo "Staged sidecar: $sidecar"
           }
 
-          ARM_LAUNCHER=$(find_launcher suwayomi-arm64)
-          X64_LAUNCHER=$(find_launcher suwayomi-x64)
-
-          if [ -z "$ARM_LAUNCHER" ] || [ -z "$X64_LAUNCHER" ]; then
-            echo "ERROR: could not find launchers — tarball contents:"
-            ls -lR suwayomi-arm64 suwayomi-x64
-            exit 1
-          fi
-
-          echo "arm64 launcher: $ARM_LAUNCHER"
-          echo "x64   launcher: $X64_LAUNCHER"
-
-          cp "$ARM_LAUNCHER" src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
-          cp "$X64_LAUNCHER" src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
-          chmod +x src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
-          chmod +x src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
-
-          # tauri.conf.json expects exactly "binaries/suwayomi-bundle".
-          # We stage both arch bundles and swap the symlink before each build.
-          cp -r suwayomi-arm64 src-tauri/binaries/suwayomi-bundle-arm64
-          cp -r suwayomi-x64   src-tauri/binaries/suwayomi-bundle-x64
+          stage_arch suwayomi-arm64 aarch64-apple-darwin
+          stage_arch suwayomi-x64   x86_64-apple-darwin
 
       - name: Patch tauri.conf.json for CI
         run: |
-          # dist/ is already built by the frontend job — suppress the rebuild.
-          # We patch in-place rather than using --config to avoid Tauri schema issues.
           sed -i '' 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
+      # ── aarch64 build ──────────────────────────────────────────────────────
       - name: Swap bundle for aarch64
         run: |
           rm -rf src-tauri/binaries/suwayomi-bundle
-          cp -r src-tauri/binaries/suwayomi-bundle-arm64 src-tauri/binaries/suwayomi-bundle
+          cp -r src-tauri/binaries/suwayomi-bundle-aarch64-apple-darwin \
+                src-tauri/binaries/suwayomi-bundle
 
       - name: Build Tauri app (aarch64)
-        uses: tauri-apps/tauri-action@v0
+        run: pnpm tauri build --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
         env:
-          GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
-          # Ad-hoc signing by default ("-"); override by setting APPLE_SIGNING_IDENTITY secret.
-          # Only set APPLE_CERTIFICATE/APPLE_ID/etc when you have a real Developer ID cert.
+          # Ad-hoc signing ("-") ships without a Developer ID.
+          # Gatekeeper will quarantine the app on other Macs — users must run:
+          #   xattr -rd com.apple.quarantine Moku.app
+          # To fix this properly, set APPLE_SIGNING_IDENTITY to your
+          # "Developer ID Application: ..." cert name and add
+          # APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_ID /
+          # APPLE_TEAM_ID / APPLE_APP_SPECIFIC_PASSWORD secrets for notarisation.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-        with:
-          args: --target aarch64-apple-darwin
 
+      # ── x86_64 build ───────────────────────────────────────────────────────
       - name: Swap bundle for x86_64
         run: |
           rm -rf src-tauri/binaries/suwayomi-bundle
-          cp -r src-tauri/binaries/suwayomi-bundle-x64 src-tauri/binaries/suwayomi-bundle
+          cp -r src-tauri/binaries/suwayomi-bundle-x86_64-apple-darwin \
+                src-tauri/binaries/suwayomi-bundle
 
       - name: Build Tauri app (x86_64)
-        uses: tauri-apps/tauri-action@v0
+        run: pnpm tauri build --target x86_64-apple-darwin --config src-tauri/tauri.macos.conf.json
         env:
-          GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
-          # Ad-hoc signing by default ("-"); override by setting APPLE_SIGNING_IDENTITY secret.
-          # Only set APPLE_CERTIFICATE/APPLE_ID/etc when you have a real Developer ID cert.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-        with:
-          args: --target x86_64-apple-darwin
 
+      # ── upload artifacts ───────────────────────────────────────────────────
       - name: Upload arm64 .dmg
         uses: actions/upload-artifact@v4
         with:
-          name: moku-aarch64
+          name: moku-macos-arm64-${{ github.event.inputs.version }}
           path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
       - name: Upload x64 .dmg
         uses: actions/upload-artifact@v4
         with:
-          name: moku-x86_64
+          name: moku-macos-x64-${{ github.event.inputs.version }}
           path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
-      - name: Upload arm64 .app (for universal job)
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-aarch64-apple-darwin
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/
-          retention-days: 1
 
-      - name: Upload x64 .app (for universal job)
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-x86_64-apple-darwin
-          path: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/
-          retention-days: 1
-
-  universal:
-    name: Universal .dmg
-    needs: tauri
-    runs-on: macos-latest
-
-    steps:
-      - name: Download arm64 .app
-        uses: actions/download-artifact@v4
-        with:
-          name: app-aarch64-apple-darwin
-          path: apps/arm64/
-
-      - name: Download x64 .app
-        uses: actions/download-artifact@v4
-        with:
-          name: app-x86_64-apple-darwin
-          path: apps/x64/
-
-      - name: lipo into universal binary
-        run: |
-          ARM_APP=$(find apps/arm64 -name "*.app" -maxdepth 1 | head -1)
-          X64_APP=$(find apps/x64  -name "*.app" -maxdepth 1 | head -1)
-          APP_NAME=$(basename "$ARM_APP")
-
-          mkdir -p universal
-          cp -r "$ARM_APP" "universal/${APP_NAME}"
-
-          find "universal/${APP_NAME}" -type f | while read -r f; do
-            if file "$f" | grep -q "Mach-O"; then
-              X64_EQUIV="${X64_APP}${f#universal/${APP_NAME}}"
-              if [ -f "$X64_EQUIV" ]; then
-                lipo -create -output "$f" "$f" "$X64_EQUIV" 2>/dev/null || true
-              fi
-            fi
-          done
-
-      - name: Package universal .dmg
-        run: |
-          APP_NAME=$(find universal -name "*.app" -maxdepth 1 | head -1 | xargs basename)
-          mkdir dmg-stage
-          cp -r "universal/${APP_NAME}" dmg-stage/
-          ln -s /Applications dmg-stage/Applications
-          hdiutil create \
-            -volname "Moku" \
-            -srcfolder dmg-stage \
-            -ov -format UDZO \
-            "moku-universal.dmg"
-
-      - name: Upload universal .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-universal
-          path: moku-universal.dmg
-          retention-days: 7

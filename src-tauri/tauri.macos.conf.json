@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "targets": ["dmg"],
+    "externalBin": [
+      "binaries/suwayomi-server"
+    ],
+    "resources": [
+      "binaries/suwayomi-bundle/**/*"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "exceptionDomain": "localhost",
+      "frameworks": []
+    }
+  }
+}
