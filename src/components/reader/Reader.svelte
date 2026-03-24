@@ -7,6 +7,9 @@
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import type { FitMode } from "../../store/state.svelte";
 
+  /** Average reading time per page in minutes — used for read-time estimates. */
+  const AVG_MIN_PER_PAGE = 0.33; // ~20 seconds/page → 5 min per 15-page chapter
+
   const pageCache  = new Map<number, string[]>();
   const inflight   = new Map<number, Promise<string[]>>();
   const cacheOrder: number[] = [];
@@ -21,7 +24,7 @@
   function cacheEvict(keep: Set<number>) {
     while (pageCache.size > MAX_CACHED) {
       const victim = cacheOrder.find(id => !keep.has(id));
-      if (!victim) break;
+      if (victim === undefined) break;
       cacheOrder.splice(cacheOrder.indexOf(victim), 1);
       pageCache.delete(victim);
     }
@@ -67,10 +70,9 @@
     });
   }
 
-  interface StripChapter { chapterId: number; chapterName: string; urls: string[]; startGlobalIdx: number; }
+  interface StripChapter { chapterId: number; chapterName: string; urls: string[]; }
 
   let containerEl: HTMLDivElement;
-  let sentinelEl:  HTMLDivElement = $state() as HTMLDivElement;
   let hideTimer:   ReturnType<typeof setTimeout> | null = null;
 
   let loading          = $state(true);
@@ -89,8 +91,6 @@
   let appending    = false;
   let abortCtrl:   AbortController | null = null;
   let loadingId:   number | null = null;
-  let scrollAnchor: { scrollTop: number; scrollHeight: number } | null = null;
-
 
   const rtl        = $derived(store.settings.readingDirection === "rtl");
   const fit        = $derived((store.settings.fitMode ?? "width") as FitMode);
@@ -100,17 +100,19 @@
   const markOnNext = $derived(store.settings.markReadOnNext ?? true);
   const lastPage   = $derived(store.pageUrls.length);
 
-  const displayChapter = $derived((style === "longstrip" && autoNext && visibleChapterId)
-    ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
-    : store.activeChapter);
+  const displayChapter = $derived(
+    style === "longstrip" && autoNext && visibleChapterId
+      ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
+      : store.activeChapter
+  );
 
   const adjacent = $derived((() => {
     const ref = displayChapter ?? store.activeChapter;
     if (!ref || !store.activeChapterList.length) return { prev: null, next: null, remaining: [] };
     const idx = store.activeChapterList.findIndex(c => c.id === ref.id);
     return {
-      prev:      idx > 0                                    ? store.activeChapterList[idx - 1] : null,
-      next:      idx < store.activeChapterList.length - 1  ? store.activeChapterList[idx + 1] : null,
+      prev:      idx > 0                                   ? store.activeChapterList[idx - 1] : null,
+      next:      idx < store.activeChapterList.length - 1 ? store.activeChapterList[idx + 1] : null,
       remaining: store.activeChapterList.slice(idx + 1),
     };
   })());
@@ -131,21 +133,47 @@
     store.settings.optimizeContrast && "optimize-contrast",
   ].filter(Boolean).join(" "));
 
-  const fitLabel   = $derived({ width: "Fit W", height: "Fit H", screen: "Fit Screen", original: "1:1" }[fit]);
-  const styleLabel = $derived(style);
+  const fitLabel = $derived({ width: "Fit W", height: "Fit H", screen: "Fit Screen", original: "1:1" }[fit]);
 
-  function maybeMarkCurrentRead() {
-    const ch = store.activeChapter;
-    if (!ch || !markOnNext || markedRead.has(ch.id)) return;
-    markedRead.add(ch.id);
-    gql(MARK_CHAPTER_READ, { id: ch.id, isRead: true })
+  function markChapterRead(id: number) {
+    if (markedRead.has(id)) return;
+    markedRead.add(id);
+
+    // Find the chapter to get its page count for a time estimate.
+    const chapter = store.activeChapterList.find(c => c.id === id) ?? store.activeChapter;
+    const pages   = chapter?.pageCount ?? store.pageUrls.length ?? 15;
+    const minutes = Math.max(1, Math.round(pages * AVG_MIN_PER_PAGE));
+
+    // Record the completion in the read log with an accurate time estimate.
+    if (store.activeManga && chapter) {
+      addHistory(
+        {
+          mangaId:      store.activeManga.id,
+          mangaTitle:   store.activeManga.title,
+          thumbnailUrl: store.activeManga.thumbnailUrl,
+          chapterId:    id,
+          chapterName:  chapter.name,
+          pageNumber:   pages,
+          readAt:       Date.now(),
+        },
+        /* completed */ true,
+        minutes,
+      );
+    }
+
+    gql(MARK_CHAPTER_READ, { id, isRead: true })
       .then(() => {
         if (store.activeManga) {
-          const updated = store.activeChapterList.map(c => c.id === ch.id ? { ...c, isRead: true } : c);
+          const updated = store.activeChapterList.map(c => c.id === id ? { ...c, isRead: true } : c);
           checkAndMarkCompleted(store.activeManga.id, updated);
         }
       })
-      .catch(e => { markedRead.delete(ch.id); console.error(e); });
+      .catch(e => { markedRead.delete(id); console.error(e); });
+  }
+
+  function maybeMarkCurrentRead() {
+    const ch = store.activeChapter;
+    if (ch && markOnNext) markChapterRead(ch.id);
   }
 
   function showUi() {
@@ -162,12 +190,11 @@
   async function loadChapter(id: number) {
     abortCtrl?.abort();
     const ctrl = new AbortController();
-    abortCtrl = ctrl;
+    abortCtrl  = ctrl;
     loadingId  = id;
     appended   = new Set([id]);
     appending  = false;
     markedRead = new Set();
-    aspectCache.clear();
     loading    = true;
     error      = null;
     pageGroups = [];
@@ -179,10 +206,10 @@
     try {
       const urls = await fetchPages(id, ctrl.signal);
       if (ctrl.signal.aborted) return;
-      store.pageUrls  = urls;
-      pageReady = true;
+      store.pageUrls = urls;
+      pageReady      = true;
       if (style === "longstrip" && autoNext) {
-        stripChapters    = [{ chapterId: id, chapterName: store.activeChapter?.name ?? "", urls, startGlobalIdx: 0 }];
+        stripChapters    = [{ chapterId: id, chapterName: store.activeChapter?.name ?? "", urls }];
         visibleChapterId = id;
       }
       loading = false;
@@ -194,34 +221,32 @@
   }
 
   function appendNextChapter() {
-    if (appending) return;
+    if (appending || !stripChapters.length) return;
     const lastChunk = stripChapters[stripChapters.length - 1];
-    if (!lastChunk) return;
-    const list    = store.activeChapterList;
-    const lastIdx = list.findIndex(c => c.id === lastChunk.chapterId);
+    const list      = store.activeChapterList;
+    const lastIdx   = list.findIndex(c => c.id === lastChunk.chapterId);
     if (lastIdx < 0 || lastIdx >= list.length - 1) return;
     const next = list[lastIdx + 1];
     if (!next || appended.has(next.id)) return;
     appended.add(next.id);
     appending = true;
     fetchPages(next.id)
-      .then(urls => { urls.forEach(url => measureAspect(url).catch(() => {})); urls.slice(0, 6).forEach(preloadImage); return urls; })
       .then(urls => {
+        urls.forEach(url => measureAspect(url).catch(() => {}));
+        urls.slice(0, 6).forEach(preloadImage);
+        return urls;
+      })
+      .then(async urls => {
         if (stripChapters.some(c => c.chapterId === next.id)) return;
-        const last  = stripChapters[stripChapters.length - 1];
-        const start = last ? last.startGlobalIdx + last.urls.length : 0;
         const MAX_STRIP = 8;
         if (stripChapters.length >= MAX_STRIP && containerEl) {
-          scrollAnchor = { scrollTop: containerEl.scrollTop, scrollHeight: containerEl.scrollHeight };
-          stripChapters = [...stripChapters.slice(1), { chapterId: next.id, chapterName: next.name, urls, startGlobalIdx: start }];
-          tick().then(() => {
-            if (!scrollAnchor || !containerEl) return;
-            const gained = containerEl.scrollHeight - scrollAnchor.scrollHeight;
-            if (gained < 0) containerEl.scrollTop = Math.max(0, scrollAnchor.scrollTop + gained);
-            scrollAnchor = null;
-          });
+          const anchorTop    = containerEl.scrollTop;
+          const anchorHeight = containerEl.scrollHeight;
+          stripChapters = [...stripChapters.slice(1), { chapterId: next.id, chapterName: next.name, urls }];
+          await tick();
+          if (containerEl) containerEl.scrollTop = Math.max(0, anchorTop + (containerEl.scrollHeight - anchorHeight));
         } else {
-          stripChapters = [...stripChapters, { chapterId: next.id, chapterName: next.name, urls, startGlobalIdx: start }];
+          stripChapters = [...stripChapters, { chapterId: next.id, chapterName: next.name, urls }];
         }
         appending = false;
       })
@@ -229,51 +254,52 @@
   }
 
   function setupScrollTracking() {
-    if (!containerEl || style !== "longstrip") return;
+    if (!containerEl || style !== "longstrip") return () => {};
     const READ_LINE_PCT = 0.20;
+
     function onScroll() {
       const containerTop = containerEl.getBoundingClientRect().top;
       const readLineY    = containerTop + containerEl.clientHeight * READ_LINE_PCT;
-      const imgs = containerEl.querySelectorAll<HTMLElement>("img[data-local-page]");
-      let activeLocalPage: number | null = null;
+      const imgs         = containerEl.querySelectorAll<HTMLElement>("img[data-local-page]");
+      let activePage: number | null = null;
       let activeChId: number | null = null;
       for (const img of imgs) {
-        const rect = img.getBoundingClientRect();
-        if (rect.top <= readLineY) { activeLocalPage = Number(img.dataset.localPage); activeChId = Number(img.dataset.chapter); }
-        else break;
+        if (img.getBoundingClientRect().top <= readLineY) {
+          activePage = Number(img.dataset.localPage);
+          activeChId = Number(img.dataset.chapter);
+        } else break;
       }
-      if (activeLocalPage === null && imgs.length > 0) { activeLocalPage = Number(imgs[0].dataset.localPage); activeChId = Number(imgs[0].dataset.chapter); }
-      if (activeLocalPage !== null) store.pageNumber = activeLocalPage;
+      if (activePage === null && imgs.length > 0) {
+        activePage = Number((imgs[0] as HTMLElement).dataset.localPage);
+        activeChId = Number((imgs[0] as HTMLElement).dataset.chapter);
+      }
+      if (activePage !== null) store.pageNumber = activePage;
       if (activeChId && activeChId !== visibleChapterId) visibleChapterId = activeChId;
-      if (store.settings.autoMarkRead && activeLocalPage !== null && activeChId) {
+
+      if (store.settings.autoMarkRead && activePage !== null && activeChId) {
         const chunk = stripChapters.find(c => c.chapterId === activeChId);
         const total = chunk ? chunk.urls.length : store.pageUrls.length;
-        if (total > 0 && activeLocalPage >= total - 1 && !markedRead.has(activeChId)) {
-          markedRead.add(activeChId);
-          const chIdSnap = activeChId;
-          gql(MARK_CHAPTER_READ, { id: chIdSnap, isRead: true })
-            .then(() => { if (store.activeManga) { const updated = store.activeChapterList.map(c => c.id === chIdSnap ? { ...c, isRead: true } : c); checkAndMarkCompleted(store.activeManga.id, updated); } })
-            .catch(e => { markedRead.delete(chIdSnap); console.error(e); });
-        }
+        if (total > 0 && activePage >= total - 1) markChapterRead(activeChId);
       }
-      if (containerEl.scrollTop + containerEl.clientHeight < containerEl.scrollHeight - 40) return;
-      const last = stripChapters[stripChapters.length - 1];
-      if (last && store.settings.autoMarkRead && !markedRead.has(last.chapterId)) {
-        markedRead.add(last.chapterId);
-        const lastIdSnap = last.chapterId;
-        gql(MARK_CHAPTER_READ, { id: lastIdSnap, isRead: true })
-          .then(() => { if (store.activeManga) { const updated = store.activeChapterList.map(c => c.id === lastIdSnap ? { ...c, isRead: true } : c); checkAndMarkCompleted(store.activeManga.id, updated); } })
-          .catch(console.error);
+
+      if (containerEl.scrollTop + containerEl.clientHeight >= containerEl.scrollHeight - 40) {
+        const last = stripChapters[stripChapters.length - 1];
+        if (last && store.settings.autoMarkRead) markChapterRead(last.chapterId);
       }
     }
+
     function onScroll80() {
       const pct = (containerEl.scrollTop + containerEl.clientHeight) / containerEl.scrollHeight;
       if (pct >= 0.8) appendNextChapter();
     }
+
     containerEl.addEventListener("scroll", onScroll, { passive: true });
     if (autoNext) containerEl.addEventListener("scroll", onScroll80, { passive: true });
     onScroll();
-    return () => { containerEl.removeEventListener("scroll", onScroll); containerEl.removeEventListener("scroll", onScroll80); };
+    return () => {
+      containerEl.removeEventListener("scroll", onScroll);
+      containerEl.removeEventListener("scroll", onScroll80);
+    };
   }
 
   function advanceGroup(forward: boolean) {
@@ -294,7 +320,7 @@
     if (style === "longstrip") { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } return; }
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
     if (!store.pageUrls.length) return;
-    if (store.pageNumber < lastPage) { decodeImage(store.pageUrls[store.pageNumber]).then(() => store.pageNumber++); }
+    if (store.pageNumber < lastPage) { const target = store.pageNumber + 1; decodeImage(store.pageUrls[target - 1]).then(() => { if (store.pageNumber === target - 1) store.pageNumber = target; }); }
     else if (adjacent.next) { maybeMarkCurrentRead(); store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
     else closeReader();
   }
@@ -304,11 +330,11 @@
     if (style === "longstrip") { if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList); return; }
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
     if (!store.pageUrls.length) return;
-    if (store.pageNumber > 1) { decodeImage(store.pageUrls[store.pageNumber - 2]).then(() => store.pageNumber--); }
+    if (store.pageNumber > 1) { const target = store.pageNumber - 1; decodeImage(store.pageUrls[target - 1]).then(() => { if (store.pageNumber === target + 1) store.pageNumber = target; }); }
     else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
   }
 
-  const goNext = $derived(rtl ? goBack  : goForward);
+  const goNext = $derived(rtl ? goBack    : goForward);
   const goPrev = $derived(rtl ? goForward : goBack);
 
   function cycleStyle() {
@@ -324,23 +350,20 @@
 
   $effect(() => {
     if (store.activeChapter && lastPage && store.activeManga) {
-      const chapterId  = store.activeChapter.id;
+      const chapterId   = store.activeChapter.id;
       const chapterName = store.activeChapter.name;
-      const mangaId    = store.activeManga.id;
-      const mangaTitle = store.activeManga.title;
-      const thumbUrl   = store.activeManga.thumbnailUrl;
-      const pageNum    = store.pageNumber;
-      const atLast     = store.pageNumber === lastPage;
+      const mangaId     = store.activeManga.id;
+      const mangaTitle  = store.activeManga.title;
+      const thumb       = store.activeManga.thumbnailUrl;
+      const pageNum     = store.pageNumber;
+      const atLast      = store.pageNumber === lastPage;
       untrack(() => {
-        addHistory({ mangaId, mangaTitle, thumbnailUrl: thumbUrl, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
-        if (style !== "longstrip" && store.settings.autoMarkRead && atLast) {
-          if (!markedRead.has(chapterId)) {
-            markedRead.add(chapterId);
-            gql(MARK_CHAPTER_READ, { id: chapterId, isRead: true })
-              .then(() => { if (store.activeManga) { const updated = store.activeChapterList.map(c => c.id === chapterId ? { ...c, isRead: true } : c); checkAndMarkCompleted(store.activeManga.id, updated); } })
-              .catch(console.error);
-          }
-        }
+        // Progress save — updates "continue reading" position in history
+        // but does NOT count as a completion (completed=false is the default).
+        addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
+        // For paged (non-longstrip) mode, reaching the last page marks it read.
+        // markChapterRead will fire addHistory again with completed:true.
+        if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
       });
     }
   });
@@ -395,7 +418,7 @@
       appended  = new Set([store.activeChapter.id]);
       appending = false;
       if (autoNext) {
-        stripChapters    = [{ chapterId: store.activeChapter.id, chapterName: store.activeChapter.name, urls: store.pageUrls, startGlobalIdx: 0 }];
+        stripChapters    = [{ chapterId: store.activeChapter.id, chapterName: store.activeChapter.name, urls: store.pageUrls }];
         visibleChapterId = store.activeChapter.id;
       } else {
         stripChapters    = [];
@@ -405,7 +428,6 @@
     }
   });
 
-  $effect(() => { if (store.activeChapter?.id && containerEl) containerEl.scrollTop = 0; });
   $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
 
   function onWheel(e: WheelEvent) {
@@ -464,7 +486,7 @@
     dlBusy = false; dlOpen = false;
   }
 
-  let scrollCleanup: (() => void) | undefined;
+  let scrollCleanup: () => void = () => {};
 
   onMount(() => {
     showUi();
@@ -477,31 +499,32 @@
       if (hideTimer) clearTimeout(hideTimer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("wheel", onWheel);
-      scrollCleanup?.();
+      scrollCleanup();
     };
   });
 
   $effect(() => {
     if (!containerEl) return;
-    const _style = style;
-    const _len   = store.pageUrls.length;
-    const _auto  = autoNext;
+    void style; void store.pageUrls.length; void autoNext;
     untrack(() => {
-      scrollCleanup?.();
+      scrollCleanup();
       scrollCleanup = setupScrollTracking();
     });
-    return () => { scrollCleanup?.(); };
   });
 
-  const stripToRender = $derived(style === "longstrip"
-    ? (autoNext && stripChapters.length > 0
-        ? stripChapters
-        : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls, startGlobalIdx: 0 }])
-    : []);
+  const stripToRender = $derived(
+    style === "longstrip"
+      ? (autoNext && stripChapters.length > 0
+          ? stripChapters
+          : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }])
+      : []
+  );
 
-  const currentGroup = $derived(style === "double" && pageGroups.length
-    ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
-    : [store.pageNumber]);
+  const currentGroup = $derived(
+    style === "double" && pageGroups.length
+      ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
+      : [store.pageNumber]
+  );
 </script>
 
 <div class="root" role="presentation" onmousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
@@ -543,7 +566,7 @@
     </button>
     <button class="mode-btn" onclick={cycleStyle}>
       {#if style === "single"}<Square size={14} weight="light" />{:else}<Rows size={14} weight="light" />{/if}
-      <span class="mode-label">{styleLabel}</span>
+      <span class="mode-label">{style}</span>
     </button>
     {#if style !== "single"}
       <button class="mode-btn" class:active={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}>
@@ -589,7 +612,7 @@
           <img src={url} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading={i < 3 ? "eager" : "lazy"} decoding="async" height="1000" />
         {/each}
       {/each}
-      <div bind:this={sentinelEl} style="height:1px;flex-shrink:0;overflow-anchor:none"></div>
+      <div style="height:1px;flex-shrink:0"></div>
     {:else if pageReady}
       {#if style === "double" && pageGroups.length}
         <div class="double-wrap">
@@ -663,13 +686,13 @@
   .zoom-wrap { position: relative; flex-shrink: 0; }
   .zoom-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); padding: 4px var(--sp-2); border-radius: var(--radius-sm); min-width: 36px; text-align: center; transition: color var(--t-base), background var(--t-base); }
   .zoom-btn:hover { color: var(--text-secondary); background: var(--bg-raised); }
-  .zoom-popover { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-3) var(--sp-2); display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; min-width: 160px; animation: scaleIn 0.1s ease both; transform-origin: top center; }
+  .zoom-popover { position: absolute; top: calc(100% + 6px); left: 50%; translate: -50% 0; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-3) var(--sp-2); display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; min-width: 160px; animation: scaleIn 0.1s ease both; transform-origin: top center; }
   .zoom-slider { width: 140px; height: 3px; appearance: none; -webkit-appearance: none; background: var(--border-strong); border-radius: 2px; outline: none; cursor: pointer; }
   .zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent-fg); cursor: pointer; }
   .zoom-reset { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 2px var(--sp-2); border-radius: var(--radius-sm); transition: color var(--t-base), background var(--t-base); }
   .zoom-reset:hover { color: var(--text-primary); background: var(--bg-overlay); }
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
-  .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; overflow-anchor: auto; }
+  .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; overflow-anchor: none; }
   .viewer:focus { outline: none; }
   .img { display: block; user-select: none; image-rendering: auto; }
   .img.optimize-contrast { image-rendering: -webkit-optimize-contrast; }

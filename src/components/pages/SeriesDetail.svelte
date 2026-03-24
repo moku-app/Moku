@@ -248,8 +248,8 @@
     return [
       { label: ch.isRead ? "Mark as unread" : "Mark as read", icon: ch.isRead ? Circle : CheckCircle, onClick: () => markRead(ch.id, !ch.isRead) },
       { separator: true },
-      { label: "Mark above as read",   icon: CheckCircle, onClick: () => markAboveRead(idx),   disabled: idx === 0    || above.filter(c => !c.isRead).length === 0 },
-      { label: "Mark above as unread", icon: Circle,      onClick: () => markAboveUnread(idx), disabled: idx === 0    || above.filter(c => c.isRead).length === 0 },
+      { label: "Mark above as read",   icon: CheckCircle, onClick: () => markAboveRead(idx),   disabled: above.filter(c => !c.isRead).length === 0 },
+      { label: "Mark above as unread", icon: Circle,      onClick: () => markAboveUnread(idx), disabled: above.filter(c => c.isRead).length === 0 },
       { separator: true },
       { label: "Mark below as read",   icon: CheckCircle, onClick: () => markBelowRead(idx),   disabled: idx === last || below.filter(c => !c.isRead).length === 0 },
       { label: "Mark below as unread", icon: Circle,      onClick: () => markBelowUnread(idx), disabled: idx === last || below.filter(c => c.isRead).length === 0 },

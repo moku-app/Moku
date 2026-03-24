@@ -21,6 +21,20 @@ export interface HistoryEntry {
   readAt:       number;
 }
 
+/**
+ * ReadLogEntry — append-only record of every chapter-completion event.
+ * Unlike HistoryEntry (which dedupes per chapter for the "continue" UI),
+ * this log never overwrites existing entries. It is the source of truth
+ * for all reading stats.
+ */
+export interface ReadLogEntry {
+  mangaId:   number;
+  chapterId: number;
+  readAt:    number;
+  /** Minutes spent on this chapter (estimated from page count or default). */
+  minutes:   number;
+}
+
 export interface ReadingStats {
   totalChaptersRead: number;
   totalMangaRead:    number;
@@ -32,7 +46,7 @@ export interface ReadingStats {
   lastStreakDate:    string;
 }
 
-const AVG_MIN_PER_CHAPTER = 5;
+const AVG_MIN_PER_CHAPTER = 5; // fallback when no page count is available
 
 export const DEFAULT_READING_STATS: ReadingStats = {
   totalChaptersRead: 0,
@@ -230,8 +244,20 @@ class Store {
   navPage:           NavPage          = $state(saved?.navPage       ?? "home");
   libraryFilter:     LibraryFilter    = $state(saved?.libraryFilter ?? "library");
   history:           HistoryEntry[]   = $state(saved?.history       ?? []);
+  /**
+   * readLog — append-only, never deduped. Every chapter completion/progress
+   * event lands here. This is the authoritative source for all reading stats.
+   * Capped at 5 000 entries; oldest are trimmed first.
+   */
+  readLog:           ReadLogEntry[]   = $state(saved?.readLog       ?? []);
   readingStats:      ReadingStats     = $state(mergeStats(saved));
   settings:          Settings         = $state(mergeSettings(saved));
+
+  /**
+   * Bumped each time the reader closes. Home.svelte watches this to know
+   * when to re-fetch library data and refresh the hero section.
+   */
+  readerSessionId:   number           = $state(0);
 
   genreFilter:       string           = $state("");
   searchPrefill:     string           = $state("");
@@ -260,6 +286,7 @@ class Store {
       $effect(() => { persist({ navPage:       this.navPage       }); });
       $effect(() => { persist({ libraryFilter: this.libraryFilter }); });
       $effect(() => { persist({ history:       this.history       }); });
+      $effect(() => { persist({ readLog:       this.readLog       }); });
       $effect(() => { persist({ readingStats:  this.readingStats  }); });
       $effect(() => { persist({ settings:      this.settings      }); });
     });
@@ -277,19 +304,49 @@ class Store {
     this.activeChapterList = [];
     this.pageUrls          = [];
     this.pageNumber        = 1;
+    this.readerSessionId  += 1;   // signals Home to refresh
   }
 
-  addHistory(entry: HistoryEntry) {
-    const isNewChapter = !this.history.some(x => x.chapterId === entry.chapterId);
-
+  /**
+   * Record a reading event.
+   *
+   * @param entry     - The history entry for the "continue reading" UI.
+   * @param completed - True when the chapter was fully read (triggers stat
+   *                    accrual). False for mid-chapter progress updates.
+   * @param minutes   - Actual minutes to credit; defaults to AVG_MIN_PER_CHAPTER.
+   */
+  addHistory(entry: HistoryEntry, completed = false, minutes = AVG_MIN_PER_CHAPTER) {
+    // ── 1. Update the deduped "continue reading" history ──────────────────
+    // Always keep the latest position for each chapter at the top.
     if (this.history[0]?.chapterId === entry.chapterId) {
       this.history[0] = { ...this.history[0], pageNumber: entry.pageNumber, readAt: entry.readAt };
     } else {
       this.history = [entry, ...this.history.filter(x => x.chapterId !== entry.chapterId)].slice(0, 300);
     }
 
-    const uniqueChapters = new Set(this.history.map(e => e.chapterId));
-    const uniqueManga    = new Set(this.history.map(e => e.mangaId));
+    // ── 2. Append to the read log (only on completion) ────────────────────
+    // This is append-only — every completed chapter read lands here,
+    // including re-reads. We cap at 5 000 to keep storage bounded.
+    if (completed) {
+      const logEntry: ReadLogEntry = {
+        mangaId:   entry.mangaId,
+        chapterId: entry.chapterId,
+        readAt:    entry.readAt,
+        minutes,
+      };
+      this.readLog = [...this.readLog, logEntry].slice(-5000);
+    }
+
+    // ── 3. Recompute stats from the read log ──────────────────────────────
+    // Use the log as ground truth so stats are always accurate even after
+    // history is cleared or entries are back-filled.
+    const log = completed
+      ? [...this.readLog] // already updated above
+      : this.readLog;
+
+    const uniqueChapters = new Set(log.map(e => e.chapterId));
+    const uniqueManga    = new Set(log.map(e => e.mangaId));
+    const totalMinutes   = log.reduce((sum, e) => sum + e.minutes, 0);
 
     const today = todayStr();
     let { currentStreakDays, longestStreakDays, lastStreakDate } = this.readingStats;
@@ -303,9 +360,9 @@ class Store {
     }
 
     this.readingStats = {
-      totalChaptersRead: Math.max(this.readingStats.totalChaptersRead, uniqueChapters.size),
-      totalMangaRead:    Math.max(this.readingStats.totalMangaRead,    uniqueManga.size),
-      totalMinutesRead:  this.readingStats.totalMinutesRead + (isNewChapter ? AVG_MIN_PER_CHAPTER : 0),
+      totalChaptersRead: uniqueChapters.size,
+      totalMangaRead:    uniqueManga.size,
+      totalMinutesRead:  totalMinutes,
       firstReadAt:       this.readingStats.firstReadAt === 0 ? entry.readAt : this.readingStats.firstReadAt,
       lastReadAt:        entry.readAt,
       currentStreakDays,
@@ -314,11 +371,25 @@ class Store {
     };
   }
 
-  clearHistory()                        { this.history = []; }
-  clearHistoryForManga(mangaId: number) { this.history = this.history.filter(x => x.mangaId !== mangaId); }
+  clearHistory()                        { this.history = []; this.readLog = []; }
+  clearHistoryForManga(mangaId: number) {
+    this.history = this.history.filter(x => x.mangaId !== mangaId);
+    this.readLog  = this.readLog.filter(x => x.mangaId !== mangaId);
+    // Recompute stats after removal
+    const uniqueChapters = new Set(this.readLog.map(e => e.chapterId));
+    const uniqueManga    = new Set(this.readLog.map(e => e.mangaId));
+    const totalMinutes   = this.readLog.reduce((sum, e) => sum + e.minutes, 0);
+    this.readingStats = {
+      ...this.readingStats,
+      totalChaptersRead: uniqueChapters.size,
+      totalMangaRead:    uniqueManga.size,
+      totalMinutesRead:  totalMinutes,
+    };
+  }
 
   wipeAllData() {
     this.history      = [];
+    this.readLog      = [];
     this.readingStats = { ...DEFAULT_READING_STATS };
     this.settings     = { ...this.settings, folders: [COMPLETED_FOLDER_DEFAULT], heroSlots: [null, null, null, null], mangaLinks: {} };
   }
@@ -452,7 +523,7 @@ export const store = new Store();
 
 export function openReader(chapter: Chapter, chapterList: Chapter[])    { store.openReader(chapter, chapterList); }
 export function closeReader()                                            { store.closeReader(); }
-export function addHistory(entry: HistoryEntry)                          { store.addHistory(entry); }
+export function addHistory(entry: HistoryEntry, completed?: boolean, minutes?: number) { store.addHistory(entry, completed, minutes); }
 export function clearHistory()                                           { store.clearHistory(); }
 export function clearHistoryForManga(mangaId: number)                    { store.clearHistoryForManga(mangaId); }
 export function wipeAllData()                                            { store.wipeAllData(); }

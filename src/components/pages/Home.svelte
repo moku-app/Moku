@@ -22,7 +22,7 @@
   function formatReadTime(mins: number): string {
     if (mins < 1)   return `${Math.round(mins * 60)}s`;
     if (mins < 60)  return `${Math.round(mins)}m`;
-    const h = Math.floor(mins / 60), r = mins % 60;
+    const h = Math.floor(mins / 60), r = Math.round(mins % 60);
     if (h < 24) return r === 0 ? `${h}h` : `${h}h ${r}m`;
     const d = Math.floor(h / 24), rh = h % 24;
     return rh === 0 ? `${d}d` : `${d}d ${rh}h`;
@@ -35,11 +35,28 @@
   let loadingLibrary: boolean  = $state(true);
 
   onMount(() => {
+    loadLibrary();
+  });
+
+  function loadLibrary() {
     cache.get(CACHE_KEYS.LIBRARY, () =>
       gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then(d => d.mangas.nodes)
     ).then(m => { libraryManga = m; fetchExtraCompleted(m); })
      .catch(console.error)
      .finally(() => loadingLibrary = false);
+  }
+
+  // Re-fetch library and reset hero chapters whenever the reader closes,
+  // so the hero reflects the latest-read chapter immediately.
+  $effect(() => {
+    const sessionId = store.readerSessionId;
+    if (sessionId === 0) return; // skip initial mount — onMount handles that
+    cache.clear(CACHE_KEYS.LIBRARY);
+    loadingLibrary = true;
+    heroChapters    = [];
+    heroAllChapters = [];
+    heroChaptersFor = null;
+    loadLibrary();
   });
 
   async function fetchExtraCompleted(library: Manga[]) {
@@ -92,9 +109,9 @@
   const heroEntry   = $derived(activeSlot?.kind === "continue" ? activeSlot.entry : null);
   const heroMangaId = $derived(heroEntry?.mangaId ?? heroManga?.id ?? null);
 
-  function cycleNext() { activeIdx = (activeIdx + 1) % TOTAL_SLOTS; heroChapters = []; }
-  function cyclePrev() { activeIdx = (activeIdx - 1 + TOTAL_SLOTS) % TOTAL_SLOTS; heroChapters = []; }
-  function goToSlot(i: number) { if (i !== activeIdx) { activeIdx = i; heroChapters = []; } }
+  function cycleNext() { activeIdx = (activeIdx + 1) % TOTAL_SLOTS; heroChapters = []; heroAllChapters = []; }
+  function cyclePrev() { activeIdx = (activeIdx - 1 + TOTAL_SLOTS) % TOTAL_SLOTS; heroChapters = []; heroAllChapters = []; }
+  function goToSlot(i: number) { if (i !== activeIdx) { activeIdx = i; heroChapters = []; heroAllChapters = []; } }
 
   function onKey(e: KeyboardEvent) {
     if (e.target !== document.body && !(e.target instanceof HTMLElement && e.target.closest(".hero-stage"))) return;
@@ -108,6 +125,7 @@
 
   let heroStageH = $state(300);
   let heroChapters:    Chapter[] = $state([]);
+  let heroAllChapters: Chapter[] = $state([]);
   let loadingHeroChapters = $state(false);
   let heroChaptersFor: number | null = null;
 
@@ -120,14 +138,16 @@
     heroChaptersFor = mangaId;
     loadingHeroChapters = true;
     heroChapters = [];
+    heroAllChapters = [];
     try {
       const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId });
       if (heroChaptersFor !== mangaId) return;
       const all = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
+      heroAllChapters = all;
       const lastReadIdx = heroEntry ? all.findIndex(c => c.id === heroEntry!.chapterId) : all.findLastIndex(c => c.isRead);
       const startIdx = Math.max(0, lastReadIdx);
       heroChapters = all.slice(startIdx, startIdx + 5);
-    } catch { heroChapters = []; }
+    } catch { heroChapters = []; heroAllChapters = []; }
     finally { loadingHeroChapters = false; }
   }
 
@@ -137,7 +157,7 @@
     if (!heroMangaId) return;
     resuming = true;
     try {
-      let all = heroChapters;
+      let all = heroAllChapters;
       if (!all.length) {
         const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: heroMangaId });
         all = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
@@ -150,8 +170,8 @@
   async function resumeActive() {
     if (!heroEntry && heroManga) { store.activeManga = heroManga; return; }
     if (!heroEntry) return;
-    const target = heroChapters.find(c => c.id === heroEntry!.chapterId) ?? heroChapters[0];
-    if (target && heroChapters.length) { await openChapter(target); return; }
+    const target = heroAllChapters.find(c => c.id === heroEntry!.chapterId) ?? heroAllChapters[0];
+    if (target && heroAllChapters.length) { await openChapter(target); return; }
     resuming = true;
     try {
       const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: heroEntry.mangaId });
