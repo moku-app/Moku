@@ -13,7 +13,7 @@
 
 <br/>
 
-Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server). It wraps Suwayomi's GraphQL API in a native desktop app — no browser required, no Electron overhead.
+Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server). It wraps Suwayomi's GraphQL API in a lightweight Tauri app — no Electron overhead.
 
 ---
 
