@@ -104,10 +104,29 @@
         getVersion(),
         invoke<Array<{ tag_name: string; html_url: string }>>("list_releases"),
       ]);
-      if (!releases.length) return;
 
-      const latestTag = releases[0].tag_name.replace(/^v/, "");
-      if (latestTag !== currentVersion) {
+      // Filter out drafts / incomplete releases that have no tag_name
+      const valid = releases.filter(r => typeof r.tag_name === "string" && r.tag_name.trim());
+      if (!valid.length) return;
+
+      const parse = (tag: string): number[] =>
+        tag.replace(/^v/, "").split(".").map(Number);
+
+      const compare = (a: number[], b: number[]): number => {
+        for (let i = 0; i < 3; i++) {
+          if ((a[i] ?? 0) !== (b[i] ?? 0)) return (b[i] ?? 0) - (a[i] ?? 0);
+        }
+        return 0;
+      };
+
+      const latestTag = valid
+        .map(r => r.tag_name)
+        .sort((a, b) => compare(parse(a), parse(b)))[0]
+        .replace(/^v/, "");
+
+      // Only toast if latest is strictly newer than installed
+      const isNewer = compare(parse(latestTag), parse(currentVersion)) < 0;
+      if (isNewer) {
         addToast({
           kind: "info",
           title: `Update available — v${latestTag}`,

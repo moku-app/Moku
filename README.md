@@ -1,45 +1,112 @@
 <div align="center">
-  <img src="src/assets/moku-icon.svg" width="96" />
-  <h1>Moku</h1>
-  <p>A fast, minimal manga reader for <a href="https://github.com/Suwayomi/Suwayomi-Server">Suwayomi-Server</a>.<br/>Built with Tauri v2 and Svelte.</p>
+  <img src="docs/banner.svg" width="100%" alt="Moku" />
+</div>
+
+<div align="center">
+
+[![release](https://img.shields.io/github/v/release/Youwes09/Moku?style=flat&color=a8c4a8&labelColor=151515)](https://github.com/Youwes09/Moku/releases/latest)
+[![downloads](https://img.shields.io/github/downloads/Youwes09/Moku/total?style=flat&color=a8c4a8&labelColor=151515)](https://github.com/Youwes09/Moku/releases/latest)
+[![license](https://img.shields.io/github/license/Youwes09/Moku?style=flat&color=a8c4a8&labelColor=151515)](./LICENSE)
+[![discord](https://img.shields.io/discord/1485151759511978077?style=flat&color=a8c4a8&labelColor=151515&label=discord)](https://discord.gg/cfncTbJ2)
+
+</div>
+
+<br/>
+
+Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server). It wraps Suwayomi's GraphQL API in a native desktop app — no browser required, no Electron overhead.
+
+---
+
+## Screenshots
+
+<div align="center">
+  <img src="docs/screenshots/Moku-Home.png" width="49%" alt="Home" />
+  <img src="docs/screenshots/Moku-Discover.png" width="49%" alt="Discover" />
+  <img src="docs/screenshots/Moku-Reader.png" width="49%" alt="Reader" />
+  <img src="docs/screenshots/Moku-Preview.png" width="49%" alt="Preview" />
+  <img src="docs/screenshots/Moku-Tracker.png" width="49%" alt="Tracker" />
+  <img src="docs/screenshots/Moku-Settings.png" width="49%" alt="Settings" />
+</div>
+
+<div align="center">
+  <a href="docs/screenshots">View all screenshots →</a>
 </div>
 
 ---
 
-## Requirements
+## Features
 
-[Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) must be running. By default Moku expects it at `http://127.0.0.1:4567`.
-
-> Moku will attempt to launch the server automatically on startup if the `suwayomi-server` binary is on your `PATH`.
+- **Library management** — organize manga into folders, track unread counts, filter by genre
+- **Built-in reader** — single page, long strip, configurable fit modes, customizable keybinds
+- **Extension support** — install and manage Suwayomi extensions directly from the app
+- **Download management** — queue and monitor chapter downloads with progress toasts
+- **Tracker integration** — sync reading progress with AniList, MyAnimeList, Kitsu, and more
+- **Auto-start server** — optionally launch Suwayomi in the background on startup
+- **Multiple themes** — Dark, Light, Midnight, Warm, High Contrast, and more
+- **Auto-updates** — in-app update checker with silent background notifications
 
 ---
 
 ## Installation
 
-**Nix (recommended)**
+### Flatpak (Linux, recommended)
+
+Suwayomi-Server and a bundled JRE are included — no separate install needed.
 
 ```bash
-nix run github:Youwes09/moku
+flatpak install moku.flatpak
+flatpak run dev.moku.app
+```
+
+Download the latest `moku.flatpak` from the [releases page](https://github.com/Youwes09/Moku/releases/latest).
+
+### Nix
+
+```bash
+nix run github:Youwes09/Moku
 ```
 
 Add to your flake:
 
 ```nix
-inputs.moku.url = "github:Youwes09/moku";
+inputs.moku.url = "github:Youwes09/Moku";
 ```
 
-**From source**
+### Windows
 
-```bash
-git clone https://github.com/Youwes09/moku
-cd moku
-nix build
-./result/bin/moku
-```
+Download the `.exe` installer from the [releases page](https://github.com/Youwes09/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
+
+### macOS
+
+Download the `.dmg` from the [releases page](https://github.com/Youwes09/Moku/releases/latest).
+
+> **Note:** Builds are ad-hoc signed. On first launch you may need to run:
+> ```bash
+> xattr -rd com.apple.quarantine /Applications/Moku.app
+> ```
+
+---
+
+## Requirements
+
+If you're not using the bundled Flatpak or Windows installer, [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) must be running separately. By default Moku connects to `http://127.0.0.1:4567`.
+
+You can point Moku at any Suwayomi instance — local or remote — via **Settings → General → Server URL**.
 
 ---
 
 ## Development
+
+**Prerequisites:** [Rust](https://rustup.rs), [Node.js](https://nodejs.org), [pnpm](https://pnpm.io), and [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/).
+
+```bash
+git clone https://github.com/Youwes09/Moku
+cd Moku
+pnpm install
+pnpm tauri:dev
+```
+
+Or with Nix:
 
 ```bash
 nix develop
@@ -54,9 +121,17 @@ pnpm tauri:dev
 | | |
 |---|---|
 | [Tauri v2](https://tauri.app) | Native app shell |
-| [Svelte](https://svelte.dev) + [TypeScript](https://www.typescriptlang.org) | UI |
+| [Svelte 5](https://svelte.dev) + [TypeScript](https://www.typescriptlang.org) | UI |
 | [Vite](https://vitejs.dev) | Frontend bundler |
 | [Crane](https://github.com/ipetkov/crane) | Nix Rust builds |
+
+---
+
+## Community
+
+Questions, feedback, or just want to hang out — join the Discord.
+
+[![Discord](https://img.shields.io/discord/1485151759511978077?style=for-the-badge&color=a8c4a8&labelColor=151515&label=Join+the+Discord)](https://discord.gg/cfncTbJ2)
 
 ---
 

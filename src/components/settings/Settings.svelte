@@ -336,16 +336,26 @@
   let dlTotal         = $state<number | null>(null);
   let targetTag       = $state<string | null>(null); // tag being installed
 
+  let releasesLoaded = false; // plain var — not $state, so effect doesn't re-run on change
+
   $effect(() => {
     if (tab !== "about") return;
     getVersion().then(v => appVersion = v).catch(() => appVersion = "unknown");
-    if (releases.length === 0 && !releasesLoading) loadReleases();
+    if (!releasesLoaded) { releasesLoaded = true; loadReleases(); }
   });
 
   async function loadReleases() {
     releasesLoading = true; releasesError = null;
     try {
-      releases = await invoke<ReleaseInfo[]>("list_releases");
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Request timed out after 10s")), 10_000)
+      );
+      const all = await Promise.race([
+        invoke<ReleaseInfo[]>("list_releases"),
+        timeout,
+      ]);
+      // Filter out drafts / incomplete entries with no tag_name
+      releases = all.filter(r => typeof r.tag_name === "string" && r.tag_name.trim());
     } catch (e: any) {
       releasesError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -357,6 +367,25 @@
   function stripV(v: string) { return v.replace(/^v/, ""); }
 
   function isCurrentVersion(tag: string) { return stripV(tag) === appVersion; }
+
+  function parseSemver(v: string): number[] {
+    return stripV(v).split(".").map(Number);
+  }
+
+  function compareSemver(a: string, b: string): number {
+    const pa = parseSemver(a), pb = parseSemver(b);
+    for (let i = 0; i < 3; i++) {
+      if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pb[i] ?? 0) - (pa[i] ?? 0);
+    }
+    return 0;
+  }
+
+  // True when releases are loaded and installed version is >= highest published tag
+  let onLatestVersion = $derived((() => {
+    if (releasesLoading || releases.length === 0 || !appVersion || appVersion === "…") return false;
+    const sorted = releases.slice().sort((a, b) => compareSemver(a.tag_name, b.tag_name));
+    return compareSemver(appVersion, sorted[0].tag_name) >= 0;
+  })());
 
   function fmtDate(iso: string): string {
     if (!iso) return "";
@@ -1044,10 +1073,15 @@
                   <span class="toggle-desc">v{appVersion}</span>
                 </div>
                 <button class="step-btn" style="width:auto;padding:0 var(--sp-3);font-size:var(--text-xs);letter-spacing:var(--tracking-wide)"
-                  onclick={loadReleases} disabled={releasesLoading}>
+                  onclick={() => { releasesError = null; loadReleases(); }} disabled={releasesLoading}>
                   {releasesLoading ? "Loading…" : "Refresh"}
                 </button>
               </div>
+              {#if onLatestVersion}
+                <div class="step-row">
+                  <span class="toggle-desc" style="padding:0 var(--sp-3);color:var(--accent-fg)">✓ You're on the latest version.</span>
+                </div>
+              {/if}
 
               <!-- active download progress -->
               {#if updatePhase === "downloading" && IS_WINDOWS}
@@ -1157,6 +1191,7 @@
               <p class="section-title">Links</p>
               <div class="about-block">
                 <a href="https://github.com/Youwes09/Moku" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
+                <a href="https://discord.gg/cfncTbJ2" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none;margin-top:var(--sp-1)">Discord →</a>
               </div>
             </div>
 
