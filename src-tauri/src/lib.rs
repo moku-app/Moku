@@ -309,21 +309,39 @@ fn resolve_server_binary(
 
     #[cfg(target_os = "macos")]
     {
+        // Tauri places externalBin sidecars next to the main binary in
+        // Contents/MacOS/, not in Contents/Resources/.  Derive that path
+        // from resource_dir (Contents/Resources → Contents/MacOS).
+        let macos_dir = resource_dir.join("../MacOS")
+            .canonicalize()
+            .unwrap_or_else(|_| resource_dir.join("../MacOS"));
+
+        do_log(log, &format!("[resolve] macOS macos_dir = {:?}", macos_dir));
+
+        // Tauri strips the target triple when installing externalBin sidecars
+        // into Contents/MacOS/, so the binary is always just "suwayomi-server"
+        // at runtime. The triple-suffixed names are only needed on disk at
+        // build time for Tauri to pick the right arch during bundling.
         let candidates = [
+            "suwayomi-server",
             "suwayomi-server-aarch64-apple-darwin",
             "suwayomi-server-x86_64-apple-darwin",
-            "suwayomi-server",
         ];
-        for name in &candidates {
-            let p = resource_dir.join(name);
-            do_log(log, &format!("[resolve] macOS candidate: {:?} exists={}", p, p.exists()));
-            if p.exists() {
-                do_log(log, &format!("[resolve] using macOS candidate: {:?}", p));
-                return Ok(ServerInvocation {
-                    bin:         p.to_string_lossy().into_owned(),
-                    args:        vec![],
-                    working_dir: None,
-                });
+
+        // Search MacOS/ first (correct location), then Resources/ as fallback
+        // for flat dev layouts where the script sits next to resources.
+        for search_dir in &[&macos_dir, &resource_dir] {
+            for name in &candidates {
+                let p = search_dir.join(name);
+                do_log(log, &format!("[resolve] macOS candidate: {:?} exists={}", p, p.exists()));
+                if p.exists() {
+                    do_log(log, &format!("[resolve] using macOS sidecar: {:?}", p));
+                    return Ok(ServerInvocation {
+                        bin:         p.to_string_lossy().into_owned(),
+                        args:        vec![],
+                        working_dir: None,
+                    });
+                }
             }
         }
     }
