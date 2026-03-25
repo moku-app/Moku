@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
@@ -7,13 +7,17 @@
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import type { FitMode } from "../../store/state.svelte";
 
-  /** Average reading time per page in minutes — used for read-time estimates. */
-  const AVG_MIN_PER_PAGE = 0.33; // ~20 seconds/page → 5 min per 15-page chapter
+  // ─── Constants ────────────────────────────────────────────────────────────────
+
+  const AVG_MIN_PER_PAGE = 0.33;
+  const MAX_CACHED       = 10;
+  const READ_LINE_PCT    = 0.20;
+
+  // ─── Page cache ───────────────────────────────────────────────────────────────
 
   const pageCache  = new Map<number, string[]>();
   const inflight   = new Map<number, Promise<string[]>>();
   const cacheOrder: number[] = [];
-  const MAX_CACHED = 10;
 
   function cacheTouch(id: number) {
     const i = cacheOrder.indexOf(id);
@@ -36,7 +40,12 @@
     if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
     if (!inflight.has(chapterId)) {
       const p = gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
-        .then(d => { const urls = d.fetchChapterPages.pages.map(thumbUrl); pageCache.set(chapterId, urls); cacheTouch(chapterId); return urls; })
+        .then(d => {
+          const urls = d.fetchChapterPages.pages.map(thumbUrl);
+          pageCache.set(chapterId, urls);
+          cacheTouch(chapterId);
+          return urls;
+        })
         .finally(() => inflight.delete(chapterId));
       inflight.set(chapterId, p);
     }
@@ -47,6 +56,8 @@
       base.then(resolve, reject);
     });
   }
+
+  // ─── Image helpers ────────────────────────────────────────────────────────────
 
   const aspectCache = new Map<string, number>();
   function preloadImage(url: string) { new Image().src = url; }
@@ -64,16 +75,25 @@
     if (aspectCache.has(url)) return Promise.resolve(aspectCache.get(url)!);
     return new Promise(res => {
       const img = new Image();
-      img.onload  = () => { const r = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0.67; aspectCache.set(url, r); res(r); };
+      img.onload  = () => {
+        const r = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0.67;
+        aspectCache.set(url, r);
+        res(r);
+      };
       img.onerror = () => res(0.67);
       img.src = url;
     });
   }
 
+  // ─── Types ────────────────────────────────────────────────────────────────────
+
   interface StripChapter { chapterId: number; chapterName: string; urls: string[]; }
 
+  // ─── DOM refs ─────────────────────────────────────────────────────────────────
+
   let containerEl: HTMLDivElement;
-  let hideTimer:   ReturnType<typeof setTimeout> | null = null;
+
+  // ─── UI state ─────────────────────────────────────────────────────────────────
 
   let loading          = $state(true);
   let error: string | null = $state(null);
@@ -86,11 +106,17 @@
   let visibleChapterId: number | null = $state(null);
   let nextN            = $state(5);
   let dlBusy           = $state(false);
-  let markedRead   = new Set<number>();
-  let appended     = new Set<number>();
-  let appending    = false;
-  let abortCtrl:   AbortController | null = null;
-  let loadingId:   number | null = null;
+  let hideTimer:       ReturnType<typeof setTimeout> | null = null;
+
+  // ─── Non-reactive bookkeeping ─────────────────────────────────────────────────
+
+  let markedRead  = new Set<number>();
+  let appending   = false;
+  let abortCtrl:  AbortController | null = null;
+  let loadingId:  number | null = null;
+  let navToken    = 0;
+
+  // ─── Derived ──────────────────────────────────────────────────────────────────
 
   const rtl        = $derived(store.settings.readingDirection === "rtl");
   const fit        = $derived((store.settings.fitMode ?? "width") as FitMode);
@@ -106,7 +132,7 @@
       : store.activeChapter
   );
 
-  const adjacent = $derived((() => {
+  const adjacent = $derived.by(() => {
     const ref = displayChapter ?? store.activeChapter;
     if (!ref || !store.activeChapterList.length) return { prev: null, next: null, remaining: [] };
     const idx = store.activeChapterList.findIndex(c => c.id === ref.id);
@@ -115,14 +141,14 @@
       next:      idx < store.activeChapterList.length - 1 ? store.activeChapterList[idx + 1] : null,
       remaining: store.activeChapterList.slice(idx + 1),
     };
-  })());
+  });
 
-  const visibleChunkLastPage = $derived((() => {
+  const visibleChunkLastPage = $derived.by(() => {
     if (style !== "longstrip" || !autoNext) return lastPage;
     const chId  = visibleChapterId ?? store.activeChapter?.id;
     const chunk = stripChapters.find(c => c.chapterId === chId);
     return chunk?.urls.length ?? lastPage;
-  })());
+  });
 
   const imgCls = $derived([
     "img",
@@ -135,52 +161,21 @@
 
   const fitLabel = $derived({ width: "Fit W", height: "Fit H", screen: "Fit Screen", original: "1:1" }[fit]);
 
-  function markChapterRead(id: number) {
-    if (markedRead.has(id)) return;
-    markedRead.add(id);
+  const stripToRender = $derived(
+    style === "longstrip"
+      ? (autoNext && stripChapters.length > 0
+          ? stripChapters
+          : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }])
+      : []
+  );
 
-    // Find the chapter to get its page count for a time estimate.
-    const chapter = store.activeChapterList.find(c => c.id === id) ?? store.activeChapter;
-    const pages   = chapter?.pageCount ?? store.pageUrls.length ?? 15;
-    const minutes = Math.max(1, Math.round(pages * AVG_MIN_PER_PAGE));
+  const currentGroup = $derived(
+    style === "double" && pageGroups.length
+      ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
+      : [store.pageNumber]
+  );
 
-    // Record the completion in the read log with an accurate time estimate.
-    if (store.activeManga && chapter) {
-      addHistory(
-        {
-          mangaId:      store.activeManga.id,
-          mangaTitle:   store.activeManga.title,
-          thumbnailUrl: store.activeManga.thumbnailUrl,
-          chapterId:    id,
-          chapterName:  chapter.name,
-          pageNumber:   pages,
-          readAt:       Date.now(),
-        },
-        /* completed */ true,
-        minutes,
-      );
-    }
-
-    gql(MARK_CHAPTER_READ, { id, isRead: true })
-      .then(() => {
-        if (store.activeManga) {
-          const updated = store.activeChapterList.map(c => c.id === id ? { ...c, isRead: true } : c);
-          checkAndMarkCompleted(store.activeManga.id, updated);
-        }
-      })
-      .catch(e => { markedRead.delete(id); console.error(e); });
-  }
-
-  function maybeMarkCurrentRead() {
-    const ch = store.activeChapter;
-    if (ch && markOnNext) markChapterRead(ch.id);
-  }
-
-  function showUi() {
-    uiVisible = true;
-    if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => uiVisible = false, 3000);
-  }
+  // ─── Chapter loading ──────────────────────────────────────────────────────────
 
   $effect(() => {
     const ch = store.activeChapter;
@@ -192,7 +187,7 @@
     const ctrl = new AbortController();
     abortCtrl  = ctrl;
     loadingId  = id;
-    appended   = new Set([id]);
+    navToken++;
     appending  = false;
     markedRead = new Set();
     loading    = true;
@@ -208,17 +203,40 @@
       if (ctrl.signal.aborted) return;
       store.pageUrls = urls;
       pageReady      = true;
-      if (style === "longstrip" && autoNext) {
-        stripChapters    = [{ chapterId: id, chapterName: store.activeChapter?.name ?? "", urls }];
-        visibleChapterId = id;
-      }
-      loading = false;
+      loading        = false;
     } catch (e: any) {
       if (ctrl.signal.aborted) return;
       error   = e instanceof Error ? e.message : String(e);
       loading = false;
     }
   }
+
+  // ─── Strip initialisation ─────────────────────────────────────────────────────
+  // Runs when a chapter finishes loading in longstrip mode.
+  // Starts the strip with just the current chapter; appendNextChapter adds more
+  // as the user scrolls. Nothing is ever removed from the DOM mid-read.
+
+  $effect(() => {
+    if (style === "longstrip" && store.pageUrls.length && store.activeChapter) {
+      const ch   = store.activeChapter;
+      const urls = store.pageUrls;
+      appending = false;
+      if (autoNext) {
+        stripChapters    = [{ chapterId: ch.id, chapterName: ch.name, urls }];
+        visibleChapterId = ch.id;
+      } else {
+        stripChapters    = [];
+        visibleChapterId = null;
+      }
+      if (containerEl) containerEl.scrollTop = 0;
+    }
+  });
+
+  $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
+
+  // ─── Forward append only ──────────────────────────────────────────────────────
+  // Appends the next chapter to the bottom when the user scrolls past 80%.
+  // No eviction, no prepend, no sliding window — chapters accumulate forward.
 
   function appendNextChapter() {
     if (appending || !stripChapters.length) return;
@@ -227,146 +245,123 @@
     const lastIdx   = list.findIndex(c => c.id === lastChunk.chapterId);
     if (lastIdx < 0 || lastIdx >= list.length - 1) return;
     const next = list[lastIdx + 1];
-    if (!next || appended.has(next.id)) return;
-    appended.add(next.id);
+    if (!next || stripChapters.some(c => c.chapterId === next.id)) return;
     appending = true;
+
     fetchPages(next.id)
       .then(urls => {
         urls.forEach(url => measureAspect(url).catch(() => {}));
         urls.slice(0, 6).forEach(preloadImage);
         return urls;
       })
-      .then(async urls => {
-        if (stripChapters.some(c => c.chapterId === next.id)) return;
-        const MAX_STRIP = 8;
-        if (stripChapters.length >= MAX_STRIP && containerEl) {
-          const anchorTop    = containerEl.scrollTop;
-          const anchorHeight = containerEl.scrollHeight;
-          stripChapters = [...stripChapters.slice(1), { chapterId: next.id, chapterName: next.name, urls }];
-          await tick();
-          if (containerEl) containerEl.scrollTop = Math.max(0, anchorTop + (containerEl.scrollHeight - anchorHeight));
-        } else {
-          stripChapters = [...stripChapters, { chapterId: next.id, chapterName: next.name, urls }];
-        }
+      .then(urls => {
+        if (stripChapters.some(c => c.chapterId === next.id)) { appending = false; return; }
+        stripChapters = [...stripChapters, { chapterId: next.id, chapterName: next.name, urls }];
         appending = false;
       })
       .catch(() => { appending = false; });
   }
 
-  function setupScrollTracking() {
+  // ─── Scroll tracking ──────────────────────────────────────────────────────────
+
+  let stripChaptersRef: StripChapter[] = [];
+  $effect(() => { stripChaptersRef = stripChapters; });
+
+  let autoNextRef = false;
+  $effect(() => { autoNextRef = autoNext; });
+
+  function setupScrollTracking(): () => void {
     if (!containerEl || style !== "longstrip") return () => {};
-    const READ_LINE_PCT = 0.20;
 
     function onScroll() {
+      const imgs = containerEl.querySelectorAll<HTMLElement>("img[data-local-page]");
+      if (!imgs.length) return;
+
       const containerTop = containerEl.getBoundingClientRect().top;
       const readLineY    = containerTop + containerEl.clientHeight * READ_LINE_PCT;
-      const imgs         = containerEl.querySelectorAll<HTMLElement>("img[data-local-page]");
       let activePage: number | null = null;
       let activeChId: number | null = null;
+
       for (const img of imgs) {
         if (img.getBoundingClientRect().top <= readLineY) {
           activePage = Number(img.dataset.localPage);
           activeChId = Number(img.dataset.chapter);
         } else break;
       }
-      if (activePage === null && imgs.length > 0) {
-        activePage = Number((imgs[0] as HTMLElement).dataset.localPage);
-        activeChId = Number((imgs[0] as HTMLElement).dataset.chapter);
+
+      if (activePage === null) {
+        activePage = Number(imgs[0].dataset.localPage);
+        activeChId = Number(imgs[0].dataset.chapter);
       }
+
       if (activePage !== null) store.pageNumber = activePage;
       if (activeChId && activeChId !== visibleChapterId) visibleChapterId = activeChId;
 
       if (store.settings.autoMarkRead && activePage !== null && activeChId) {
-        const chunk = stripChapters.find(c => c.chapterId === activeChId);
+        const chunk = stripChaptersRef.find(c => c.chapterId === activeChId);
         const total = chunk ? chunk.urls.length : store.pageUrls.length;
-        if (total > 0 && activePage >= total - 1) markChapterRead(activeChId);
+        if (total > 0 && activePage >= total) markChapterRead(activeChId);
       }
 
       if (containerEl.scrollTop + containerEl.clientHeight >= containerEl.scrollHeight - 40) {
-        const last = stripChapters[stripChapters.length - 1];
+        const last = stripChaptersRef[stripChaptersRef.length - 1];
         if (last && store.settings.autoMarkRead) markChapterRead(last.chapterId);
       }
     }
 
-    function onScroll80() {
+    function onScrollAppend() {
+      if (!autoNextRef) return;
       const pct = (containerEl.scrollTop + containerEl.clientHeight) / containerEl.scrollHeight;
-      if (pct >= 0.8) appendNextChapter();
+      if (pct >= 0.80) appendNextChapter();
     }
 
-    containerEl.addEventListener("scroll", onScroll, { passive: true });
-    if (autoNext) containerEl.addEventListener("scroll", onScroll80, { passive: true });
-    onScroll();
+    containerEl.addEventListener("scroll", onScroll,       { passive: true });
+    containerEl.addEventListener("scroll", onScrollAppend, { passive: true });
+
     return () => {
       containerEl.removeEventListener("scroll", onScroll);
-      containerEl.removeEventListener("scroll", onScroll80);
+      containerEl.removeEventListener("scroll", onScrollAppend);
     };
   }
 
-  function advanceGroup(forward: boolean) {
-    if (!pageGroups.length) return;
-    const gi = pageGroups.findIndex(g => g.includes(store.pageNumber));
-    if (forward) {
-      if (gi < pageGroups.length - 1) store.pageNumber = pageGroups[gi + 1][0];
-      else if (adjacent.next) { store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
-      else closeReader();
-    } else {
-      if (gi > 0) store.pageNumber = pageGroups[gi - 1][0];
-      else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
-    }
-  }
+  // ─── Observer lifecycle ───────────────────────────────────────────────────────
 
-  function goForward() {
-    if (loading) return;
-    if (style === "longstrip") { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } return; }
-    if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
-    if (!store.pageUrls.length) return;
-    if (store.pageNumber < lastPage) { const target = store.pageNumber + 1; decodeImage(store.pageUrls[target - 1]).then(() => { if (store.pageNumber === target - 1) store.pageNumber = target; }); }
-    else if (adjacent.next) { maybeMarkCurrentRead(); store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
-    else closeReader();
-  }
-
-  function goBack() {
-    if (loading) return;
-    if (style === "longstrip") { if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList); return; }
-    if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
-    if (!store.pageUrls.length) return;
-    if (store.pageNumber > 1) { const target = store.pageNumber - 1; decodeImage(store.pageUrls[target - 1]).then(() => { if (store.pageNumber === target + 1) store.pageNumber = target; }); }
-    else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
-  }
-
-  const goNext = $derived(rtl ? goBack    : goForward);
-  const goPrev = $derived(rtl ? goForward : goBack);
-
-  function cycleStyle() {
-    const opts = ["single", "longstrip"] as const;
-    const cur  = style === "double" ? "single" : style;
-    updateSettings({ pageStyle: opts[(opts.indexOf(cur as typeof opts[number]) + 1) % opts.length] });
-  }
-
-  function cycleFit() {
-    const opts: FitMode[] = ["width", "height", "screen", "original"];
-    updateSettings({ fitMode: opts[(opts.indexOf(fit) + 1) % opts.length] });
-  }
+  let cleanupScroll: () => void = () => {};
 
   $effect(() => {
-    if (store.activeChapter && lastPage && store.activeManga) {
-      const chapterId   = store.activeChapter.id;
-      const chapterName = store.activeChapter.name;
-      const mangaId     = store.activeManga.id;
-      const mangaTitle  = store.activeManga.title;
-      const thumb       = store.activeManga.thumbnailUrl;
-      const pageNum     = store.pageNumber;
-      const atLast      = store.pageNumber === lastPage;
-      untrack(() => {
-        // Progress save — updates "continue reading" position in history
-        // but does NOT count as a completion (completed=false is the default).
-        addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
-        // For paged (non-longstrip) mode, reaching the last page marks it read.
-        // markChapterRead will fire addHistory again with completed:true.
-        if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
-      });
+    void style;
+    if (!containerEl) return;
+    untrack(() => {
+      cleanupScroll();
+      cleanupScroll = setupScrollTracking();
+    });
+  });
+
+  // ─── Prefetch + cache eviction ────────────────────────────────────────────────
+
+  $effect(() => {
+    if (store.activeChapter && store.activeChapterList.length) {
+      const idx = store.activeChapterList.findIndex(c => c.id === store.activeChapter!.id);
+      if (idx >= 0) {
+        const toPin: number[] = [store.activeChapter.id];
+        for (let i = 1; i <= 3; i++) {
+          const entry = store.activeChapterList[idx + i];
+          if (!entry) break;
+          toPin.push(entry.id);
+          fetchPages(entry.id)
+            .then(urls => { const n = i === 1 ? 8 : i === 2 ? 4 : 2; urls.slice(0, n).forEach(preloadImage); })
+            .catch(() => {});
+        }
+        if (idx > 0) {
+          toPin.push(store.activeChapterList[idx - 1].id);
+          fetchPages(store.activeChapterList[idx - 1].id).catch(() => {});
+        }
+        cacheEvict(new Set(toPin));
+      }
     }
   });
+
+  // ─── Double-page spread computation ──────────────────────────────────────────
 
   $effect(() => {
     if (style === "double" && store.pageUrls.length) {
@@ -389,6 +384,8 @@
     } else { pageGroups = []; }
   });
 
+  // ─── Preload around current page ─────────────────────────────────────────────
+
   $effect(() => {
     const ahead = store.settings.preloadPages ?? 3;
     for (let i = 1; i <= ahead; i++) { const url = store.pageUrls[store.pageNumber - 1 + i]; if (url) decodeImage(url); }
@@ -396,39 +393,120 @@
     if (behind) preloadImage(behind);
   });
 
+  // ─── Progress / history tracking ─────────────────────────────────────────────
+
   $effect(() => {
-    if (store.activeChapter && store.activeChapterList.length) {
-      const idx = store.activeChapterList.findIndex(c => c.id === store.activeChapter!.id);
-      if (idx >= 0) {
-        const toPin: number[] = [store.activeChapter.id];
-        for (let i = 1; i <= 3; i++) {
-          const entry = store.activeChapterList[idx + i];
-          if (!entry) break;
-          toPin.push(entry.id);
-          fetchPages(entry.id).then(urls => { const n = i === 1 ? 8 : i === 2 ? 4 : 2; urls.slice(0, n).forEach(preloadImage); }).catch(() => {});
+    if (store.activeChapter && lastPage && store.activeManga) {
+      const chapterId   = store.activeChapter.id;
+      const chapterName = store.activeChapter.name;
+      const mangaId     = store.activeManga.id;
+      const mangaTitle  = store.activeManga.title;
+      const thumb       = store.activeManga.thumbnailUrl;
+      const pageNum     = store.pageNumber;
+      const atLast      = store.pageNumber === lastPage;
+      untrack(() => {
+        addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
+        if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
+      });
+    }
+  });
+
+  // ─── Mark read ────────────────────────────────────────────────────────────────
+
+  function markChapterRead(id: number) {
+    if (markedRead.has(id)) return;
+    markedRead.add(id);
+    const chapter = store.activeChapterList.find(c => c.id === id) ?? store.activeChapter;
+    const pages   = chapter?.pageCount ?? store.pageUrls.length ?? 15;
+    const minutes = Math.max(1, Math.round(pages * AVG_MIN_PER_PAGE));
+    if (store.activeManga && chapter) {
+      addHistory(
+        { mangaId: store.activeManga.id, mangaTitle: store.activeManga.title, thumbnailUrl: store.activeManga.thumbnailUrl, chapterId: id, chapterName: chapter.name, pageNumber: pages, readAt: Date.now() },
+        true, minutes,
+      );
+    }
+    gql(MARK_CHAPTER_READ, { id, isRead: true })
+      .then(() => {
+        if (store.activeManga) {
+          const updated = store.activeChapterList.map(c => c.id === id ? { ...c, isRead: true } : c);
+          checkAndMarkCompleted(store.activeManga.id, updated);
         }
-        if (idx > 0) { const prev = store.activeChapterList[idx - 1]; toPin.push(prev.id); fetchPages(prev.id).catch(() => {}); }
-        cacheEvict(new Set(toPin));
-      }
-    }
-  });
+      })
+      .catch(e => { markedRead.delete(id); console.error(e); });
+  }
 
-  $effect(() => {
-    if (style === "longstrip" && store.pageUrls.length && store.activeChapter) {
-      appended  = new Set([store.activeChapter.id]);
-      appending = false;
-      if (autoNext) {
-        stripChapters    = [{ chapterId: store.activeChapter.id, chapterName: store.activeChapter.name, urls: store.pageUrls }];
-        visibleChapterId = store.activeChapter.id;
-      } else {
-        stripChapters    = [];
-        visibleChapterId = null;
-      }
-      if (containerEl) containerEl.scrollTop = 0;
-    }
-  });
+  function maybeMarkCurrentRead() {
+    const ch = store.activeChapter;
+    if (ch && markOnNext) markChapterRead(ch.id);
+  }
 
-  $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
+  // ─── Navigation ───────────────────────────────────────────────────────────────
+
+  function advanceGroup(forward: boolean) {
+    if (!pageGroups.length) return;
+    const gi = pageGroups.findIndex(g => g.includes(store.pageNumber));
+    if (forward) {
+      if (gi < pageGroups.length - 1) store.pageNumber = pageGroups[gi + 1][0];
+      else if (adjacent.next) { store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
+      else closeReader();
+    } else {
+      if (gi > 0) store.pageNumber = pageGroups[gi - 1][0];
+      else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
+    }
+  }
+
+  function goForward() {
+    if (loading) return;
+    if (style === "longstrip") { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } return; }
+    if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
+    if (!store.pageUrls.length) return;
+    if (store.pageNumber < lastPage) {
+      const target = store.pageNumber + 1;
+      const token  = ++navToken;
+      decodeImage(store.pageUrls[target - 1]).then(() => {
+        if (navToken === token && store.pageNumber === target - 1) store.pageNumber = target;
+      });
+    } else if (adjacent.next) { maybeMarkCurrentRead(); store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
+    else closeReader();
+  }
+
+  function goBack() {
+    if (loading) return;
+    if (style === "longstrip") { if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList); return; }
+    if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
+    if (!store.pageUrls.length) return;
+    if (store.pageNumber > 1) {
+      const target = store.pageNumber - 1;
+      const token  = ++navToken;
+      decodeImage(store.pageUrls[target - 1]).then(() => {
+        if (navToken === token && store.pageNumber === target + 1) store.pageNumber = target;
+      });
+    } else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
+  }
+
+  const goNext = $derived(rtl ? goBack    : goForward);
+  const goPrev = $derived(rtl ? goForward : goBack);
+
+  // ─── Settings toggles ─────────────────────────────────────────────────────────
+
+  function cycleStyle() {
+    const opts = ["single", "longstrip"] as const;
+    const cur  = style === "double" ? "single" : style;
+    updateSettings({ pageStyle: opts[(opts.indexOf(cur as typeof opts[number]) + 1) % opts.length] });
+  }
+
+  function cycleFit() {
+    const opts: FitMode[] = ["width", "height", "screen", "original"];
+    updateSettings({ fitMode: opts[(opts.indexOf(fit) + 1) % opts.length] });
+  }
+
+  // ─── UI helpers ───────────────────────────────────────────────────────────────
+
+  function showUi() {
+    uiVisible = true;
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => uiVisible = false, 3000);
+  }
 
   function onWheel(e: WheelEvent) {
     if (!e.ctrlKey) return;
@@ -486,45 +564,21 @@
     dlBusy = false; dlOpen = false;
   }
 
-  let scrollCleanup: () => void = () => {};
+  // ─── Mount / unmount ──────────────────────────────────────────────────────────
 
   onMount(() => {
     showUi();
     window.addEventListener("keydown", onKey);
     window.addEventListener("wheel", onWheel, { passive: false });
     containerEl?.focus({ preventScroll: true });
-    scrollCleanup = setupScrollTracking();
     return () => {
       abortCtrl?.abort();
       if (hideTimer) clearTimeout(hideTimer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("wheel", onWheel);
-      scrollCleanup();
+      cleanupScroll();
     };
   });
-
-  $effect(() => {
-    if (!containerEl) return;
-    void style; void store.pageUrls.length; void autoNext;
-    untrack(() => {
-      scrollCleanup();
-      scrollCleanup = setupScrollTracking();
-    });
-  });
-
-  const stripToRender = $derived(
-    style === "longstrip"
-      ? (autoNext && stripChapters.length > 0
-          ? stripChapters
-          : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }])
-      : []
-  );
-
-  const currentGroup = $derived(
-    style === "double" && pageGroups.length
-      ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
-      : [store.pageNumber]
-  );
 </script>
 
 <div class="root" role="presentation" onmousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
@@ -609,7 +663,16 @@
     {#if style === "longstrip"}
       {#each stripToRender as chunk}
         {#each chunk.urls as url, i}
-          <img src={url} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading={i < 3 ? "eager" : "lazy"} decoding="async" height="1000" />
+          <img
+            src={url}
+            alt="{chunk.chapterName} – Page {i + 1}"
+            data-local-page={i + 1}
+            data-chapter={chunk.chapterId}
+            data-total={chunk.urls.length}
+            class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}"
+            loading={i < 3 ? "eager" : "lazy"}
+            decoding="async"
+          />
         {/each}
       {/each}
       <div style="height:1px;flex-shrink:0"></div>
@@ -692,7 +755,7 @@
   .zoom-reset { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 2px var(--sp-2); border-radius: var(--radius-sm); transition: color var(--t-base), background var(--t-base); }
   .zoom-reset:hover { color: var(--text-primary); background: var(--bg-overlay); }
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
-  .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; overflow-anchor: none; }
+  .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
   .img { display: block; user-select: none; image-rendering: auto; }
   .img.optimize-contrast { image-rendering: -webkit-optimize-contrast; }

@@ -209,7 +209,7 @@
   const completedIds   = $derived(store.settings.folders.find(f => f.id === COMPLETED_FOLDER_ID)?.mangaIds ?? []);
   const completedPool  = $derived([...libraryManga, ...extraManga.filter(m => !libraryManga.some(l => l.id === m.id))]);
   const completedManga = $derived(completedIds.length > 0 ? completedPool.filter(m => completedIds.includes(m.id)).slice(0, 20) : []);
-  const recentHistory  = $derived(store.history.slice(0, 8));
+  const recentHistory  = $derived(store.history.slice(0, 6));
   const stats          = $derived(store.readingStats);
 
   function handleRowWheel(e: WheelEvent) {
