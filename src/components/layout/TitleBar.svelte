@@ -1,10 +1,27 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  const win = getCurrentWindow();
+  import { platform } from "@tauri-apps/plugin-os";
+
+  const win   = getCurrentWindow();
+  const isMac = platform() === "macos";
+
+  let isFullscreen = $state(false);
+
+  onMount(async () => {
+    isFullscreen = await win.isFullscreen();
+    const unlisten = await win.onResized(async () => {
+      isFullscreen = await win.isFullscreen();
+    });
+    return unlisten;
+  });
 </script>
 
+{#if !isFullscreen}
 <div class="bar" data-tauri-drag-region>
+  {#if isMac}<div class="mac-spacer"></div>{/if}
   <span class="title" data-tauri-drag-region>Moku</span>
+  {#if !isMac}
   <div class="controls">
     <button onclick={() => win.minimize()} title="Minimize" aria-label="Minimize">
       <svg width="10" height="1" viewBox="0 0 10 1">
@@ -23,7 +40,9 @@
       </svg>
     </button>
   </div>
+  {/if}
 </div>
+{/if}
 
 <style>
   .bar {
@@ -36,6 +55,12 @@
     border-bottom: 1px solid var(--border-dim);
     flex-shrink: 0;
     user-select: none;
+    -webkit-app-region: drag;
+  }
+  /* Spacer to clear the native macOS traffic lights (~70px) */
+  .mac-spacer {
+    width: 70px;
+    flex-shrink: 0;
     -webkit-app-region: drag;
   }
   .title {

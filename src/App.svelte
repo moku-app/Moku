@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { gql } from "./lib/client";
   import { GET_DOWNLOAD_STATUS } from "./lib/queries";
   import { store, addToast, setActiveDownloads, setSettingsOpen } from "./store/state.svelte";
@@ -16,6 +17,7 @@
   import MangaPreview from "./components/shared/MangaPreview.svelte";
 
   const MAX_ATTEMPTS = 60;
+  const win = getCurrentWindow();
 
   let serverProbeOk   = $state(!store.settings.autoStartServer);
   let appReady        = $state(!store.settings.autoStartServer);
@@ -147,6 +149,15 @@
     platformScale = await invoke<number>("get_platform_ui_scale").catch(() => 1);
     applyZoom();
 
+    // ── Fullscreen state sync ─────────────────────────────────────────────────
+    // Seed the initial state, then keep it in sync on every resize event.
+    // onResized is the correct Tauri 2 API — it fires on fullscreen enter/exit,
+    // window snap, and manual resize. isFullscreen() is cheap (single IPC call).
+    store.isFullscreen = await win.isFullscreen();
+    const unlistenResize = await win.onResized(async () => {
+      store.isFullscreen = await win.isFullscreen();
+    });
+
     if (store.settings.autoStartServer) {
       invoke<void>("spawn_server", { binary: store.settings.serverBinary }).catch((err: any) => {
         if (err?.kind === "NotConfigured") {
@@ -181,6 +192,7 @@
 
     return () => {
       cancelled = true;
+      unlistenResize();
       if (store.settings.autoStartServer) invoke("kill_server").catch(() => {});
       if (idleTimer) clearTimeout(idleTimer);
       if (pollInterval) clearInterval(pollInterval);
@@ -215,7 +227,7 @@
       <SplashScreen mode="idle" showCards={store.settings.splashCards ?? true}
         onDismiss={() => setTimeout(() => idle = false, 340)} />
     {/if}
-    {#if !store.activeChapter}<TitleBar />{/if}
+    {#if !store.activeChapter && !store.isFullscreen}<TitleBar />{/if}
     <div class="content">
       {#if store.activeChapter}<Reader />{:else}<Layout />{/if}
     </div>

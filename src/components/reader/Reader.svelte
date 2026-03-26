@@ -115,6 +115,9 @@
   let abortCtrl:  AbortController | null = null;
   let loadingId:  number | null = null;
   let navToken    = 0;
+  // Only write history after the user has genuinely moved past the opening page.
+  // Prevents the "started on page 1" entry being saved as last position on close.
+  let hasNavigated = false;
 
   // ─── Derived ──────────────────────────────────────────────────────────────────
 
@@ -188,9 +191,10 @@
     abortCtrl  = ctrl;
     loadingId  = id;
     navToken++;
-    appending  = false;
-    markedRead = new Set();
-    loading    = true;
+    appending    = false;
+    markedRead   = new Set();
+    hasNavigated = false;
+    loading      = true;
     error      = null;
     pageGroups = [];
     pageReady  = false;
@@ -394,17 +398,33 @@
   });
 
   // ─── Progress / history tracking ─────────────────────────────────────────────
+  // Only records history after the user has genuinely navigated (pageNumber > 1,
+  // or scrolled past page 1 in longstrip). This prevents the chapter-open event
+  // from writing "page 1" as the last-read position, which caused the history to
+  // always show the chapter you started on rather than where you left off.
 
   $effect(() => {
-    if (store.activeChapter && lastPage && store.activeManga) {
-      const chapterId   = store.activeChapter.id;
-      const chapterName = store.activeChapter.name;
+    // Use displayChapter, not store.activeChapter — in longstrip with autoNext,
+    // store.activeChapter stays as the chapter you *opened* (e.g. ch61) while
+    // displayChapter tracks visibleChapterId (the chapter actually on screen).
+    // Using store.activeChapter here caused every history write to stamp ch61
+    // even when the user had scrolled all the way to ch72.
+    const ch = displayChapter ?? store.activeChapter;
+    if (ch && lastPage && store.activeManga) {
+      const chapterId   = ch.id;
+      const chapterName = ch.name;
       const mangaId     = store.activeManga.id;
       const mangaTitle  = store.activeManga.title;
       const thumb       = store.activeManga.thumbnailUrl;
       const pageNum     = store.pageNumber;
       const atLast      = store.pageNumber === lastPage;
+
+      // Mark that the user has moved past the initial load.
+      if (pageNum > 1) hasNavigated = true;
+
       untrack(() => {
+        // Skip the very first page-1 write that fires on chapter load.
+        if (!hasNavigated) return;
         addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
         if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
       });

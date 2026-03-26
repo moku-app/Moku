@@ -1,4 +1,13 @@
 {
+  "app": {
+    "windows": [
+      {
+        "decorations": true,
+        "titleBarStyle": "overlay",
+        "hiddenTitle": true
+      }
+    ]
+  },
   "bundle": {
     "targets": ["dmg"],
     "externalBin": [

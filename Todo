@@ -14,10 +14,8 @@ Minor Revisions:
  - Add Hover Info on Library (Make sure doesn't conflict with additional clicks)
 
 Priority Bugs:
- - Resume on Home-Page leads to Reader, not Cached 5 chapters
- - Fix History (Counting Chapters, Etc)
  - Cache ALL Cover Pictures & Details for Manga in Library
-
+ - MacOS Full-Screen & UI Compatability (TitleBar)
 
 General/Misc Bugs:
  - Fix Highlightable Elements
@@ -27,6 +25,9 @@ General/Misc Bugs:
  - Investigate Prod vs. Dev Directory Change/Data Load (Caused by Library Algorithm Revision?)
 
 In-Progress:`
+ - Fix Reader Chapter Shifts (Glitched Sentinel)
+   - Still Shifts Down after reading ~8+ Chapters?
+   - Identify When Chapters are Unloaded, How to Preserve Structure
 
 
 Important Commands:

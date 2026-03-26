@@ -272,6 +272,8 @@ class Store {
   toasts:            Toast[]          = $state([]);
   activeChapter:     Chapter | null   = $state(null);
   activeChapterList: Chapter[]        = $state([]);
+  // UI-only: synced from Tauri window events in App.svelte. Not persisted.
+  isFullscreen:      boolean          = $state(false);
 
   // ── Discover session cache ────────────────────────────────────────────────
   // Survives navigation within a session but is never persisted to localStorage.
@@ -300,6 +302,9 @@ class Store {
   }
 
   closeReader() {
+    // Null activeChapter FIRST so the history $effect in Reader can't fire
+    // one last time with stale chapter + pageNumber=1, overwriting the real
+    // last-read position with page 1.
     this.activeChapter     = null;
     this.activeChapterList = [];
     this.pageUrls          = [];
