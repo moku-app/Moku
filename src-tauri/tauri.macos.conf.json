@@ -3,7 +3,7 @@
     "windows": [
       {
         "decorations": true,
-        "titleBarStyle": "overlay",
+        "titleBarStyle": "Overlay",
         "hiddenTitle": true
       }
     ]
