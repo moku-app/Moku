@@ -225,6 +225,7 @@ struct ServerInvocation {
     working_dir: Option<PathBuf>,
 }
 
+#[cfg(not(target_os = "macos"))]
 fn find_java_in_bundle(bundle_dir: &PathBuf, log: &mut Option<std::fs::File>) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     let java = bundle_dir.join("jre").join("bin").join("java.exe");
