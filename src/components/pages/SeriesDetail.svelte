@@ -69,7 +69,20 @@
   }
 
   const sortDir        = $derived(store.settings.chapterSortDir);
-  const sortedChapters = $derived(sortDir === "desc" ? [...chapters].reverse() : [...chapters]);
+  const sortMode       = $derived(store.settings.chapterSortMode ?? "source");
+  let sortMenuOpen     = $state(false);
+
+  const sortedChapters = $derived.by(() => {
+    const base = [...chapters];
+    if (sortMode === "chapterNumber") {
+      base.sort((a, b) => a.chapterNumber - b.chapterNumber);
+    } else if (sortMode === "uploadDate") {
+      base.sort((a, b) => Number(a.uploadDate ?? 0) - Number(b.uploadDate ?? 0));
+    } else {
+      base.sort((a, b) => a.sourceOrder - b.sourceOrder);
+    }
+    return sortDir === "desc" ? base.reverse() : base;
+  });
   const totalPages     = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
   const pageChapters   = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
   const readCount      = $derived(chapters.filter(c => c.isRead).length);
@@ -461,10 +474,27 @@
   <div class="list-wrap">
     <div class="list-header">
       <div class="list-header-left">
-        <button class="sort-btn" onclick={() => { updateSettings({ chapterSortDir: sortDir === "desc" ? "asc" : "desc" }); chapterPage = 1; }}>
-          {#if sortDir === "desc"}<SortDescending size={14} weight="light" />{:else}<SortAscending size={14} weight="light" />{/if}
-          {sortDir === "desc" ? "Newest first" : "Oldest first"}
-        </button>
+        <div class="sort-wrap">
+          <button class="sort-btn" onclick={() => sortMenuOpen = !sortMenuOpen}>
+            {#if sortDir === "desc"}<SortDescending size={14} weight="light" />{:else}<SortAscending size={14} weight="light" />{/if}
+            {{ source: "Source order", chapterNumber: "Ch. number", uploadDate: "Upload date" }[sortMode]}
+            <CaretDown size={10} weight="light" />
+          </button>
+          {#if sortMenuOpen}
+            <div class="sort-menu" role="presentation" onmouseleave={() => sortMenuOpen = false}>
+              {#each [["source","Source order"],["chapterNumber","Chapter number"],["uploadDate","Upload date"]] as [val, label]}
+                <button class="sort-option" class:active={sortMode === val}
+                  onclick={() => { updateSettings({ chapterSortMode: val as any }); chapterPage = 1; sortMenuOpen = false; }}>
+                  {label}
+                </button>
+              {/each}
+              <div class="sort-divider"></div>
+              <button class="sort-option" onclick={() => { updateSettings({ chapterSortDir: sortDir === "desc" ? "asc" : "desc" }); chapterPage = 1; sortMenuOpen = false; }}>
+                {sortDir === "desc" ? "↑ Ascending" : "↓ Descending"}
+              </button>
+            </div>
+          {/if}
+        </div>
         <!-- View toggle: icon reflects current state -->
         <button class="icon-btn" class:active={viewMode === "grid"} onclick={() => viewMode = viewMode === "list" ? "grid" : "list"} title={viewMode === "list" ? "Grid view" : "List view"}>
           {#if viewMode === "list"}<SquaresFour size={14} weight="light" />{:else}<List size={14} weight="light" />{/if}
@@ -791,6 +821,12 @@
   .list-header-left, .list-header-right { display: flex; align-items: center; gap: var(--sp-1); }
   .sort-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px var(--sp-2); border-radius: var(--radius-sm); color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
   .sort-btn:hover { color: var(--text-secondary); background: var(--bg-raised); }
+  .sort-wrap { position: relative; }
+  .sort-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 160px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: var(--sp-1); z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: scaleIn 0.1s ease both; transform-origin: top left; }
+  .sort-option { display: block; width: 100%; padding: 6px var(--sp-3); border-radius: var(--radius-sm); font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); background: none; border: none; cursor: pointer; text-align: left; transition: background var(--t-fast), color var(--t-fast); }
+  .sort-option:hover { background: var(--bg-overlay); color: var(--text-primary); }
+  .sort-option.active { color: var(--accent-fg); }
+  .sort-divider { height: 1px; background: var(--border-dim); margin: var(--sp-1) var(--sp-2); }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-muted); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
   .icon-btn.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }

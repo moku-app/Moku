@@ -7,6 +7,7 @@ export type LibraryFilter    = "all" | "library" | "downloaded" | string;
 export type NavPage          = "home" | "library" | "sources" | "explore" | "downloads" | "extensions" | "history" | "search" | "tracking";
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
+export type ChapterSortMode  = "source" | "chapterNumber" | "uploadDate";
 export type BuiltinTheme     = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
 export type Theme            = BuiltinTheme | string; // custom themes have string IDs like "custom:abc123"
 
@@ -164,6 +165,7 @@ export interface Settings {
   libraryPageSize:         number;
   showNsfw:                boolean;
   chapterSortDir:          ChapterSortDir;
+  chapterSortMode:         ChapterSortMode;
   chapterPageSize:         number;
   uiScale:                 number;
   compactSidebar:          boolean;
@@ -179,7 +181,6 @@ export interface Settings {
   folders:                 Folder[];
   markReadOnNext:          boolean;
   readerDebounceMs:        number;
-  overlayBars:             boolean;
   theme:                   Theme;
   libraryBranches:         boolean;
   renderLimit:             number;
@@ -228,6 +229,7 @@ export const DEFAULT_SETTINGS: Settings = {
   libraryPageSize:        48,
   showNsfw:               false,
   chapterSortDir:         "desc",
+  chapterSortMode:        "source",
   chapterPageSize:        25,
   uiScale:                100,
   compactSidebar:         false,
@@ -243,7 +245,6 @@ export const DEFAULT_SETTINGS: Settings = {
   folders:                [COMPLETED_FOLDER_DEFAULT],
   markReadOnNext:         true,
   readerDebounceMs:       120,
-  overlayBars:            false,
   theme:                  "dark",
   libraryBranches:        true,
   renderLimit:            48,
