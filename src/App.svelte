@@ -60,8 +60,8 @@
   }
 
   function resetIdle() {
-    if (idle) return;
     if (idleTimer) clearTimeout(idleTimer);
+    if (idle) return;                        // don't re-arm while PIN screen is showing
     const ms = (store.settings.idleTimeoutMin ?? 5) * 60 * 1000;
     if (ms === 0) return;
     idleTimer = setTimeout(() => idle = true, ms);
@@ -225,7 +225,7 @@
   <div class="root">
     {#if idle && !store.activeChapter}
       <SplashScreen mode="idle" showCards={store.settings.splashCards ?? true}
-        onDismiss={() => setTimeout(() => idle = false, 340)} />
+        onDismiss={() => { idle = false; resetIdle(); }} />
     {/if}
     {#if !store.activeChapter && !store.isFullscreen}<TitleBar />{/if}
     <div class="content">

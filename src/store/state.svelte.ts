@@ -116,6 +116,23 @@ export interface Settings {
   renderLimit:             number;
   heroSlots:               (number | null)[];
   mangaLinks:              Record<number, number[]>;
+  serverAuthUser:          string;
+  serverAuthPass:          string;
+  serverAuthEnabled:       boolean;
+  socksProxyEnabled:       boolean;
+  socksProxyHost:          string;
+  socksProxyPort:          string;
+  socksProxyVersion:       number;
+  socksProxyUsername:      string;
+  socksProxyPassword:      string;
+  flareSolverrEnabled:     boolean;
+  flareSolverrUrl:         string;
+  flareSolverrTimeout:     number;
+  flareSolverrSessionName: string;
+  flareSolverrSessionTtl:  number;
+  flareSolverrFallback:    boolean;
+  appLockEnabled:          boolean;
+  appLockPin:              string;
 }
 
 const COMPLETED_FOLDER_DEFAULT: Folder = {
@@ -161,6 +178,23 @@ export const DEFAULT_SETTINGS: Settings = {
   renderLimit:            48,
   heroSlots:              [null, null, null, null],
   mangaLinks:             {},
+  serverAuthUser:         "",
+  serverAuthPass:         "",
+  serverAuthEnabled:      false,
+  socksProxyEnabled:      false,
+  socksProxyHost:         "",
+  socksProxyPort:         "1080",
+  socksProxyVersion:      5,
+  socksProxyUsername:     "",
+  socksProxyPassword:     "",
+  flareSolverrEnabled:    false,
+  flareSolverrUrl:        "http://localhost:8191",
+  flareSolverrTimeout:    60,
+  flareSolverrSessionName: "moku",
+  flareSolverrSessionTtl: 15,
+  flareSolverrFallback:   false,
+  appLockEnabled:         false,
+  appLockPin:             "",
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────

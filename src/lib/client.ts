@@ -1,15 +1,26 @@
 const DEFAULT_URL = "http://127.0.0.1:4567";
 
-function getServerUrl(): string {
+function getSettings(): Record<string, any> {
   try {
     const raw = localStorage.getItem("moku-store");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const url = parsed?.state?.settings?.serverUrl;
-      if (typeof url === "string" && url.trim()) return url.replace(/\/$/, "");
-    }
+    if (raw) return JSON.parse(raw)?.settings ?? {};
   } catch {}
+  return {};
+}
+
+function getServerUrl(): string {
+  const url = getSettings().serverUrl;
+  if (typeof url === "string" && url.trim()) return url.replace(/\/$/, "");
   return DEFAULT_URL;
+}
+
+function getAuthHeader(): Record<string, string> {
+  const s = getSettings();
+  if (!s.serverAuthEnabled) return {};
+  const user = typeof s.serverAuthUser === "string" ? s.serverAuthUser.trim() : "";
+  const pass = typeof s.serverAuthPass === "string" ? s.serverAuthPass.trim() : "";
+  if (user && pass) return { Authorization: `Basic ${btoa(`${user}:${pass}`)}` };
+  return {};
 }
 
 function gqlUrl(): string { return `${getServerUrl()}/api/graphql`; }
@@ -25,7 +36,6 @@ interface GQLResponse<T> {
   errors?: { message: string }[];
 }
 
-/** Sleep that resolves early if the signal is aborted — never blocks a cancelled request. */
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
@@ -37,12 +47,6 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/**
- * Retry wrapper with these guarantees:
- * 1. AbortErrors always propagate immediately — no retry, no delay.
- * 2. Retry delays are abort-aware — closing a manga mid-delay doesn't hang.
- * 3. If the signal is already aborted before we even start, we bail instantly.
- */
 async function fetchWithRetry(
   url: string,
   init: RequestInit,
@@ -50,29 +54,19 @@ async function fetchWithRetry(
   retries = 3,
   delayMs = 300,
 ): Promise<Response> {
-  // Bail immediately if already aborted before we start
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
   for (let i = 0; i < retries; i++) {
-    // Check abort at the top of every iteration
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     try {
       const res = await fetch(url, { ...init, signal });
-
-      // Check abort again — fetch can return a response even after abort in some runtimes
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-
       return res;
     } catch (e: any) {
-      // Never retry aborted requests
       const isAbort = e?.name === "AbortError" || signal?.aborted;
       if (isAbort) throw new DOMException("Aborted", "AbortError");
-
-      // Last retry — give up
       if (i === retries - 1) throw e;
-
-      // Abort-aware delay between retries
       await abortableSleep(delayMs * Math.pow(1.5, i), signal);
     }
   }
@@ -86,11 +80,10 @@ export async function gql<T>(
 ): Promise<T> {
   const res = await fetchWithRetry(gqlUrl(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
     body: JSON.stringify({ query, variables }),
   }, signal);
 
-  // Check abort before reading the body — avoids hanging on res.json() after cancel
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   if (!res.ok) throw new Error(`Suwayomi HTTP ${res.status}`);
 

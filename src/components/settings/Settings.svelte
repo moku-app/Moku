@@ -1,12 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks } from "phosphor-svelte";
+  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks, Lock } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { open as openUrl } from "@tauri-apps/plugin-shell";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS } from "../../lib/queries";
+  import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
   import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen } from "../../store/state.svelte";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
@@ -14,7 +14,7 @@
   import type { Keybinds } from "../../lib/keybinds";
   import type { Tracker } from "../../lib/types";
 
-  type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "tracking" | "about" | "devtools";
+  type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "tracking" | "security" | "about" | "devtools";
 
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: "general",    label: "General",     icon: Gear       },
@@ -26,6 +26,7 @@
     { id: "storage",    label: "Storage",     icon: HardDrives },
     { id: "folders",    label: "Folders",     icon: FolderSimple },
     { id: "tracking",   label: "Tracking",    icon: ListChecks },
+    { id: "security",   label: "Security",    icon: Lock       },
     { id: "about",      label: "About",       icon: Info       },
     { id: "devtools",   label: "Dev Tools",   icon: Wrench     },
   ];
@@ -195,6 +196,145 @@
 
   
   let splashTriggered = $state(false);
+
+  let showAuthPass     = $state(false);
+  let showSocksPass    = $state(false);
+  let pinInput         = $state(store.settings.appLockPin ?? "");
+  let pinError         = $state("");
+  let secLoading       = $state(false);
+  let secError         = $state<string | null>(null);
+  let secSaved         = $state<string | null>(null);
+
+  let authUsername     = $state(store.settings.serverAuthUser ?? "");
+  let authPassword     = $state(store.settings.serverAuthPass ?? "");
+
+  let socksEnabled     = $state(store.settings.socksProxyEnabled ?? false);
+  let socksHost        = $state(store.settings.socksProxyHost ?? "");
+  let socksPort        = $state(store.settings.socksProxyPort ?? "1080");
+  let socksVersion     = $state(store.settings.socksProxyVersion ?? 5);
+  let socksUsername    = $state(store.settings.socksProxyUsername ?? "");
+  let socksPassword    = $state(store.settings.socksProxyPassword ?? "");
+
+  let flareEnabled     = $state(store.settings.flareSolverrEnabled ?? false);
+  let flareUrl         = $state(store.settings.flareSolverrUrl ?? "http://localhost:8191");
+  let flareTimeout     = $state(store.settings.flareSolverrTimeout ?? 60);
+  let flareSession     = $state(store.settings.flareSolverrSessionName ?? "moku");
+  let flareTtl         = $state(store.settings.flareSolverrSessionTtl ?? 15);
+  let flareFallback    = $state(store.settings.flareSolverrFallback ?? false);
+
+  function showSaved(key: string) {
+    secSaved = key; secError = null;
+    setTimeout(() => { if (secSaved === key) secSaved = null; }, 2000);
+  }
+
+  async function loadServerSecurity() {
+    try {
+      const res = await gql<{ settings: {
+        authMode: string; authUsername: string;
+        socksProxyEnabled: boolean; socksProxyHost: string; socksProxyPort: string;
+        socksProxyVersion: number; socksProxyUsername: string;
+        flareSolverrEnabled: boolean; flareSolverrUrl: string; flareSolverrTimeout: number;
+        flareSolverrSessionName: string; flareSolverrSessionTtl: number;
+        flareSolverrAsResponseFallback: boolean;
+      }}>(GET_SERVER_SECURITY);
+      const s = res.settings;
+      const authOn = s.authMode === "BASIC_AUTH";
+      updateSettings({ serverAuthEnabled: authOn, serverAuthUser: s.authUsername });
+      authUsername  = s.authUsername;
+      socksEnabled  = s.socksProxyEnabled;  socksHost    = s.socksProxyHost;
+      socksPort     = s.socksProxyPort;     socksVersion = s.socksProxyVersion;
+      socksUsername = s.socksProxyUsername;
+      flareEnabled  = s.flareSolverrEnabled; flareUrl    = s.flareSolverrUrl;
+      flareTimeout  = s.flareSolverrTimeout; flareSession = s.flareSolverrSessionName;
+      flareTtl      = s.flareSolverrSessionTtl; flareFallback = s.flareSolverrAsResponseFallback;
+      updateSettings({
+        socksProxyEnabled: socksEnabled, socksProxyHost: socksHost, socksProxyPort: socksPort,
+        socksProxyVersion: socksVersion, socksProxyUsername: socksUsername,
+        flareSolverrEnabled: flareEnabled, flareSolverrUrl: flareUrl,
+        flareSolverrTimeout: flareTimeout, flareSolverrSessionName: flareSession,
+        flareSolverrSessionTtl: flareTtl, flareSolverrFallback: flareFallback,
+      });
+    } catch {}
+  }
+
+  $effect(() => { if (tab === "security") loadServerSecurity(); });
+
+  async function enableAuth() {
+    if (!authUsername.trim() || !authPassword.trim()) {
+      secError = "Username and password are required"; return;
+    }
+    secLoading = true; secError = null;
+    updateSettings({ serverAuthEnabled: true, serverAuthUser: authUsername, serverAuthPass: authPassword });
+    try {
+      await gql(SET_SERVER_AUTH, { authMode: "BASIC_AUTH", authUsername: authUsername.trim(), authPassword: authPassword.trim() });
+      showSaved("auth");
+    } catch (e: any) {
+      updateSettings({ serverAuthEnabled: false });
+      secError = e?.message ?? "Failed to enable authentication";
+    } finally { secLoading = false; }
+  }
+
+  async function disableAuth() {
+    secLoading = true; secError = null;
+    try {
+      await gql(SET_SERVER_AUTH, { authMode: "NONE", authUsername: "", authPassword: "" });
+      updateSettings({ serverAuthEnabled: false, serverAuthUser: "", serverAuthPass: "" });
+      authUsername = ""; authPassword = "";
+      showSaved("auth");
+    } catch (e: any) {
+      secError = e?.message ?? "Failed to disable authentication";
+    } finally { secLoading = false; }
+  }
+
+  async function saveSocksProxy() {
+    secLoading = true; secError = null;
+    try {
+      await gql(SET_SOCKS_PROXY, {
+        socksProxyEnabled: socksEnabled, socksProxyHost: socksHost.trim(),
+        socksProxyPort: socksPort.trim(), socksProxyVersion: socksVersion,
+        socksProxyUsername: socksUsername.trim(), socksProxyPassword: socksPassword.trim(),
+      });
+      updateSettings({
+        socksProxyEnabled: socksEnabled, socksProxyHost: socksHost,
+        socksProxyPort: socksPort, socksProxyVersion: socksVersion,
+        socksProxyUsername: socksUsername, socksProxyPassword: socksPassword,
+      });
+      showSaved("socks");
+    } catch (e: any) {
+      secError = e?.message ?? "Failed to save SOCKS proxy";
+    } finally { secLoading = false; }
+  }
+
+  async function saveFlareSolverr() {
+    secLoading = true; secError = null;
+    try {
+      await gql(SET_FLARESOLVERR, {
+        flareSolverrEnabled: flareEnabled, flareSolverrUrl: flareUrl.trim(),
+        flareSolverrTimeout: flareTimeout, flareSolverrSessionName: flareSession.trim(),
+        flareSolverrSessionTtl: flareTtl, flareSolverrAsResponseFallback: flareFallback,
+      });
+      updateSettings({
+        flareSolverrEnabled: flareEnabled, flareSolverrUrl: flareUrl,
+        flareSolverrTimeout: flareTimeout, flareSolverrSessionName: flareSession,
+        flareSolverrSessionTtl: flareTtl, flareSolverrFallback: flareFallback,
+      });
+      showSaved("flare");
+    } catch (e: any) {
+      secError = e?.message ?? "Failed to save FlareSolverr";
+    } finally { secLoading = false; }
+  }
+
+  function commitPin() {
+    const cleaned = pinInput.replace(/\D/g, "").slice(0, 8);
+    pinInput = cleaned;
+    if (cleaned.length >= 4) {
+      updateSettings({ appLockPin: cleaned }); pinError = "";
+    } else if (cleaned.length > 0) {
+      pinError = "PIN must be at least 4 digits";
+    } else {
+      updateSettings({ appLockPin: "" }); pinError = "";
+    }
+  }
 
   // ── Tracker state ─────────────────────────────────────────────────────────────
 
@@ -486,13 +626,27 @@
             <div class="section">
               <p class="section-title">Interface Scale</p>
               <div class="scale-row">
-                <input type="range" min={70} max={200} step={5} value={store.settings.uiScale}
+                <input type="range" min={50} max={200} step={5} value={store.settings.uiScale}
                   oninput={(e) => updateSettings({ uiScale: Number(e.currentTarget.value) })} class="scale-slider" />
-                <span class="scale-val">{store.settings.uiScale}%</span>
+                <input
+                  type="number" min={50} max={200} step={1}
+                  class="scale-val-input"
+                  value={store.settings.uiScale}
+                  oninput={(e) => {
+                    const n = parseInt(e.currentTarget.value, 10);
+                    if (!isNaN(n) && n >= 50 && n <= 200) updateSettings({ uiScale: n });
+                  }}
+                  onblur={(e) => {
+                    const n = parseInt(e.currentTarget.value, 10);
+                    if (isNaN(n) || n < 50) { updateSettings({ uiScale: 50 }); e.currentTarget.value = "50"; }
+                    else if (n > 200) { updateSettings({ uiScale: 200 }); e.currentTarget.value = "200"; }
+                  }}
+                />
+                <span class="scale-pct">%</span>
                 <button class="step-btn" onclick={() => updateSettings({ uiScale: 100 })} disabled={store.settings.uiScale === 100} title="Reset">↺</button>
               </div>
               <p class="scale-hint">
-                {#each [70,80,90,100,110,125,150,175,200] as v}
+                {#each [50,60,70,80,90,100,110,125,150,175,200] as v}
                   <button class="scale-preset" class:active={store.settings.uiScale === v} onclick={() => updateSettings({ uiScale: v })}>{v}%</button>
                 {/each}
               </p>
@@ -793,11 +947,11 @@
         {:else if tab === "keybinds"}
           <div class="panel">
             <div class="section">
-              <div class="kb-header">
+              <div class="section-title-row">
                 <p class="section-title">Keyboard shortcuts</p>
-                <button class="reset-all-btn" onclick={resetKeybinds}>Reset all</button>
+                <button class="sec-action-btn" onclick={resetKeybinds}>Reset all</button>
               </div>
-              <p class="kb-hint">Click a key to rebind, then press the new combination.</p>
+              <p class="kb-hint">Click a binding to rebind, then press the new key combination.</p>
               <div class="kb-list">
                 {#each Object.keys(KEYBIND_LABELS) as key}
                   {@const k = key as keyof Keybinds}
@@ -1052,6 +1206,230 @@
 
           </div>
 
+        {:else if tab === "security"}
+          <div class="panel">
+
+            {#if secError}
+              <div class="sec-banner sec-banner-error">{secError}</div>
+            {/if}
+
+            <div class="section">
+              <div class="section-title-row">
+                <p class="section-title">Server Authentication</p>
+                <span class="sec-status-pill" class:sec-pill-on={store.settings.serverAuthEnabled}>
+                  {store.settings.serverAuthEnabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Username</span>
+                </div>
+                <input class="text-input" bind:value={authUsername} placeholder="Username" autocomplete="off" spellcheck="false" disabled={secLoading} />
+              </div>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Password</span>
+                </div>
+                <div class="sec-field-wrap">
+                  <input class="text-input" type={showAuthPass ? "text" : "password"} bind:value={authPassword} placeholder="Password" autocomplete="off" spellcheck="false" disabled={secLoading} />
+                  <button class="sec-eye-btn" onclick={() => showAuthPass = !showAuthPass} title={showAuthPass ? "Hide password" : "Show password"} tabindex="-1">
+                    {#if showAuthPass}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    {:else}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    {/if}
+                  </button>
+                </div>
+              </div>
+              <div class="step-row">
+                <div class="toggle-info"></div>
+                <div class="sec-btn-row">
+                  {#if store.settings.serverAuthEnabled}
+                    <button class="sec-action-btn sec-action-danger" onclick={disableAuth} disabled={secLoading}>
+                      {secLoading ? "Saving…" : "Disable"}
+                    </button>
+                  {/if}
+                  <button class="sec-action-btn sec-action-primary" onclick={enableAuth} disabled={secLoading || !authUsername.trim() || !authPassword.trim()}>
+                    {secLoading ? "Saving…" : secSaved === "auth" ? "Saved ✓" : store.settings.serverAuthEnabled ? "Update" : "Enable"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title-row">
+                <p class="section-title">App Lock</p>
+              </div>
+              <label class="toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">PIN lock</span>
+                  <span class="toggle-desc">Require a PIN on launch and after idle timeout</span>
+                </div>
+                <button role="switch" aria-checked={store.settings.appLockEnabled ?? false} aria-label="Enable PIN lock" class="toggle" class:on={store.settings.appLockEnabled} onclick={() => updateSettings({ appLockEnabled: !store.settings.appLockEnabled })}><span class="toggle-thumb"></span></button>
+              </label>
+              {#if store.settings.appLockEnabled}
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">PIN</span>
+                    <span class="toggle-desc">4–8 digits</span>
+                  </div>
+                  <div class="sec-pin-wrap">
+                    <div class="sec-pin-row">
+                      <input class="text-input sec-pin-input" type="password" inputmode="numeric" maxlength={8} value={pinInput}
+                        oninput={(e) => { pinInput = e.currentTarget.value.replace(/\D/g, "").slice(0, 8); pinError = ""; }}
+                        onkeydown={(e) => e.key === "Enter" && commitPin()} placeholder="••••" autocomplete="off" />
+                      <button class="sec-action-btn sec-action-primary"
+                        onclick={commitPin}
+                        disabled={pinInput.length > 0 && pinInput.length < 4}>
+                        {store.settings.appLockPin && pinInput === store.settings.appLockPin ? "Saved ✓" : "Save"}
+                      </button>
+                    </div>
+                    {#if pinError}<span class="sec-pin-error">{pinError}</span>{/if}
+                  </div>
+                </div>
+              {/if}
+            </div>
+
+            <div class="section">
+              <div class="section-title-row">
+                <p class="section-title">SOCKS Proxy</p>
+              </div>
+              <label class="toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Enable SOCKS proxy</span>
+                  <span class="toggle-desc">Route Suwayomi traffic through a SOCKS4/5 proxy</span>
+                </div>
+                <button role="switch" aria-checked={socksEnabled} aria-label="Enable SOCKS proxy" class="toggle" class:on={socksEnabled} onclick={() => socksEnabled = !socksEnabled}><span class="toggle-thumb"></span></button>
+              </label>
+              {#if socksEnabled}
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Version</span>
+                  </div>
+                  <div class="select-wrap" id="socks-ver">
+                    <button class="select-btn" onclick={() => toggleSelect("socks-ver")}>
+                      <span>SOCKS{socksVersion}</span>
+                      <svg class="select-caret" class:open={selectOpen === "socks-ver"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+                    </button>
+                    {#if selectOpen === "socks-ver"}
+                      <div class="select-menu">
+                        {#each [[4,"SOCKS4"],[5,"SOCKS5"]] as [v, l]}
+                          <button class="select-option" class:active={socksVersion === v} onclick={() => { socksVersion = v as number; selectOpen = null; }}>{l}</button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Host</span>
+                  </div>
+                  <input class="text-input" bind:value={socksHost} placeholder="127.0.0.1" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Port</span>
+                  </div>
+                  <input class="text-input sec-port-input" bind:value={socksPort} placeholder="1080" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Username</span>
+                    <span class="toggle-desc">Optional</span>
+                  </div>
+                  <input class="text-input" bind:value={socksUsername} placeholder="Username" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Password</span>
+                    <span class="toggle-desc">Optional</span>
+                  </div>
+                  <div class="sec-field-wrap">
+                    <input class="text-input" type={showSocksPass ? "text" : "password"} bind:value={socksPassword} placeholder="Password" autocomplete="off" spellcheck="false" />
+                    <button class="sec-eye-btn" onclick={() => showSocksPass = !showSocksPass} title={showSocksPass ? "Hide password" : "Show password"} tabindex="-1">
+                      {#if showSocksPass}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      {:else}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info"></div>
+                  <button class="sec-action-btn sec-action-primary" onclick={saveSocksProxy} disabled={secLoading}>
+                    {secLoading ? "Saving…" : secSaved === "socks" ? "Saved ✓" : "Save"}
+                  </button>
+                </div>
+              {/if}
+            </div>
+
+            <div class="section">
+              <div class="section-title-row">
+                <p class="section-title">FlareSolverr</p>
+              </div>
+              <label class="toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Enable FlareSolverr</span>
+                  <span class="toggle-desc">Bypass Cloudflare challenges for sources that require it</span>
+                </div>
+                <button role="switch" aria-checked={flareEnabled} aria-label="Enable FlareSolverr" class="toggle" class:on={flareEnabled} onclick={() => flareEnabled = !flareEnabled}><span class="toggle-thumb"></span></button>
+              </label>
+              {#if flareEnabled}
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">URL</span>
+                    <span class="toggle-desc">FlareSolverr instance address</span>
+                  </div>
+                  <input class="text-input" bind:value={flareUrl} placeholder="http://localhost:8191" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Timeout</span>
+                    <span class="toggle-desc">Max wait per request, in seconds</span>
+                  </div>
+                  <div class="step-controls">
+                    <button class="step-btn" onclick={() => flareTimeout = Math.max(10, flareTimeout - 10)}>−</button>
+                    <span class="step-val">{flareTimeout}s</span>
+                    <button class="step-btn" onclick={() => flareTimeout = Math.min(300, flareTimeout + 10)}>+</button>
+                  </div>
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Session name</span>
+                    <span class="toggle-desc">Reuse browser session across requests</span>
+                  </div>
+                  <input class="text-input" bind:value={flareSession} placeholder="moku" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Session TTL</span>
+                    <span class="toggle-desc">Minutes before session is refreshed</span>
+                  </div>
+                  <div class="step-controls">
+                    <button class="step-btn" onclick={() => flareTtl = Math.max(1, flareTtl - 1)}>−</button>
+                    <span class="step-val">{flareTtl}m</span>
+                    <button class="step-btn" onclick={() => flareTtl = Math.min(60, flareTtl + 1)}>+</button>
+                  </div>
+                </div>
+                <label class="toggle-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Response fallback</span>
+                    <span class="toggle-desc">Use FlareSolverr's response when the direct request fails</span>
+                  </div>
+                  <button role="switch" aria-checked={flareFallback} aria-label="Use as response fallback" class="toggle" class:on={flareFallback} onclick={() => flareFallback = !flareFallback}><span class="toggle-thumb"></span></button>
+                </label>
+                <div class="step-row">
+                  <div class="toggle-info"></div>
+                  <button class="sec-action-btn sec-action-primary" onclick={saveFlareSolverr} disabled={secLoading}>
+                    {secLoading ? "Saving…" : secSaved === "flare" ? "Saved ✓" : "Save"}
+                  </button>
+                </div>
+              {/if}
+            </div>
+
+          </div>
+
         {:else if tab === "about"}
           <div class="panel">
 
@@ -1287,7 +1665,18 @@
 
   .scale-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); }
   .scale-slider { flex: 1; }
-  .scale-val { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); min-width: 40px; text-align: center; }
+  .scale-val-input {
+    font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary);
+    width: 42px; text-align: center; padding: 3px 4px;
+    background: var(--bg-raised); border: 1px solid var(--border-dim);
+    border-radius: var(--radius-sm); outline: none;
+    transition: border-color var(--t-base);
+    -moz-appearance: textfield;
+  }
+  .scale-val-input::-webkit-inner-spin-button,
+  .scale-val-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .scale-val-input:focus { border-color: var(--border-strong); }
+  .scale-pct { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); margin-left: calc(var(--sp-1) * -1); }
   .scale-hint { padding: 0 var(--sp-3) var(--sp-2); display: flex; gap: var(--sp-1); flex-wrap: wrap; }
   .scale-preset { font-family: var(--font-ui); font-size: var(--text-2xs); padding: 2px 7px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .scale-preset:hover { color: var(--text-muted); border-color: var(--border-strong); }
@@ -1310,9 +1699,6 @@
   .theme-card-check { position: absolute; top: 6px; right: 6px; font-size: 10px; color: var(--accent-fg); background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 1px 4px; }
 
   /* Keybinds */
-  .kb-header { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-3) var(--sp-2); }
-  .reset-all-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
-  .reset-all-btn:hover { color: var(--text-secondary); border-color: var(--border-strong); }
   .kb-hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: 0 var(--sp-3) var(--sp-3); }
   .kb-list { display: flex; flex-direction: column; gap: 1px; }
   .kb-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); transition: background var(--t-fast); }
@@ -1476,6 +1862,35 @@
   .oauth-input { width: 100%; background: var(--bg-overlay); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); outline: none; transition: border-color var(--t-base); }
   .oauth-input:focus { border-color: var(--border-focus); }
   .oauth-btns { display: flex; align-items: center; gap: var(--sp-2); }
+
+  /* ── Security tab ───────────────────────────────────────────────────── */
+  .sec-banner { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-2); border-radius: var(--radius-sm); }
+  .sec-banner-error { color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); }
+
+  .section-title-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
+  .section-title-row .section-title { padding: 0; }
+  .sec-status-pill { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: var(--bg-overlay); flex-shrink: 0; cursor: default; }
+  .sec-pill-on { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
+
+  .sec-field-wrap { position: relative; flex-shrink: 0; }
+  .sec-field-wrap .text-input { padding-right: 34px; }
+  .sec-eye-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base); }
+  .sec-eye-btn:hover { color: var(--text-muted); }
+
+  .sec-btn-row { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+  .sec-action-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .sec-action-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
+  .sec-action-btn:disabled { opacity: 0.35; cursor: default; }
+  .sec-action-primary { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
+  .sec-action-primary:hover:not(:disabled) { filter: brightness(1.1); }
+  .sec-action-danger { border-color: var(--color-error); color: var(--color-error); }
+  .sec-action-danger:hover:not(:disabled) { background: var(--color-error-bg); }
+
+  .sec-pin-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .sec-pin-wrap .sec-pin-row { display: flex; align-items: center; gap: var(--sp-2); }
+  .sec-pin-input { width: 96px; text-align: center; letter-spacing: 0.25em; }
+  .sec-port-input { width: 88px; }
+  .sec-pin-error { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--color-error); letter-spacing: var(--tracking-wide); }
 
   @keyframes fadeIn  { from { opacity: 0 }           to { opacity: 1 } }
   @keyframes scaleIn { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }
