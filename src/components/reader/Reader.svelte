@@ -127,6 +127,7 @@
   const maxW       = $derived(store.settings.maxPageWidth ?? 900);
   const autoNext   = $derived(store.settings.autoNextChapter ?? false);
   const markOnNext = $derived(store.settings.markReadOnNext ?? true);
+  const overlayBars = $derived(store.settings.overlayBars ?? false);
   const lastPage   = $derived(store.pageUrls.length);
 
   const displayChapter = $derived(
@@ -601,7 +602,7 @@
   });
 </script>
 
-<div class="root" role="presentation" onmousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
+<div class="root" class:overlay-bars={overlayBars} role="presentation" onmousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
 
   <div class="topbar" class:hidden={!uiVisible}>
     <button class="icon-btn" onclick={closeReader} title="Close reader"><X size={15} weight="light" /></button>
@@ -752,6 +753,10 @@
 
 <style>
   .root { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: var(--z-reader); transform: translateZ(0); will-change: transform; }
+  .overlay-bars { position: fixed; }
+  .overlay-bars .topbar    { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
+  .overlay-bars .bottombar { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; }
+  .overlay-bars .viewer    { height: 100%; }
   .topbar { display: flex; align-items: center; gap: var(--sp-1); padding: 0 var(--sp-3); height: 40px; background: var(--bg-void); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; position: relative; z-index: 2; transition: opacity 0.25s ease; }
   .topbar.hidden, .bottombar.hidden { opacity: 0; pointer-events: none; }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-muted); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }

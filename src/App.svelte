@@ -11,21 +11,70 @@
   import Layout       from "./components/layout/Layout.svelte";
   import Reader       from "./components/reader/Reader.svelte";
   import Settings     from "./components/settings/Settings.svelte";
+  import ThemeEditor  from "./components/settings/ThemeEditor.svelte";
   import TitleBar     from "./components/layout/TitleBar.svelte";
   import Toaster      from "./components/layout/Toaster.svelte";
   import SplashScreen from "./components/layout/SplashScreen.svelte";
   import MangaPreview from "./components/shared/MangaPreview.svelte";
 
-  const MAX_ATTEMPTS = 60;
+  let themeStyleEl: HTMLStyleElement | null = null;
+
+  $effect(() => {
+    const themeId  = store.settings.theme ?? "dark";
+    const isCustom = themeId.startsWith("custom:");
+
+    if (!isCustom) {
+      themeStyleEl?.remove();
+      themeStyleEl = null;
+      document.documentElement.setAttribute("data-theme", themeId);
+      return;
+    }
+
+    const custom = store.settings.customThemes?.find(t => t.id === themeId);
+    if (!custom) {
+      themeStyleEl?.remove();
+      themeStyleEl = null;
+      document.documentElement.setAttribute("data-theme", "dark");
+      return;
+    }
+
+    const vars = Object.entries(custom.tokens)
+      .map(([k, v]) => `  --${k}: ${v};`)
+      .join("\n");
+    const css = `[data-theme="custom"] {\n${vars}\n}`;
+
+    if (!themeStyleEl) {
+      themeStyleEl = document.createElement("style");
+      themeStyleEl.id = "moku-custom-theme";
+      document.head.appendChild(themeStyleEl);
+    }
+    themeStyleEl.textContent = css;
+    document.documentElement.setAttribute("data-theme", "custom");
+  });
+
+  let themeEditorOpen   = $state(false);
+  let themeEditorEditId = $state<string | null>(null);
+
+  function openThemeEditor(id?: string | null) {
+    themeEditorEditId = id ?? null;
+    themeEditorOpen   = true;
+  }
+
+  function closeThemeEditor() {
+    themeEditorOpen   = false;
+    themeEditorEditId = null;
+  }
+
+  const MAX_ATTEMPTS = 10;
   const win = getCurrentWindow();
 
-  let serverProbeOk   = $state(!store.settings.autoStartServer);
-  let appReady        = $state(!store.settings.autoStartServer);
-  let failed          = $state(false);
-  let notConfigured   = $state(false);
-  let idle            = $state(false);
-  let devSplash       = $state(false);
-  let platformScale   = $state(1);
+  let serverProbeOk = $state(false);
+  let appReady      = $state(false);
+  let failed        = $state(false);
+  let notConfigured = $state(false);
+  let idle          = $state(false);
+  let devSplash     = $state(false);
+  let platformScale = $state(1);
 
   function applyZoom() {
     const normalized = store.settings.uiScale * platformScale;
@@ -61,7 +110,7 @@
 
   function resetIdle() {
     if (idleTimer) clearTimeout(idleTimer);
-    if (idle) return;                        // don't re-arm while PIN screen is showing
+    if (idle) return;
     const ms = (store.settings.idleTimeoutMin ?? 5) * 60 * 1000;
     if (ms === 0) return;
     idleTimer = setTimeout(() => idle = true, ms);
@@ -77,13 +126,8 @@
   });
 
   $effect(() => {
-    // Re-runs whenever uiScale or platformScale changes.
     store.settings.uiScale; platformScale;
     applyZoom();
-  });
-
-  $effect(() => {
-    document.documentElement.setAttribute("data-theme", store.settings.theme ?? "dark");
   });
 
   $effect(() => {
@@ -95,11 +139,6 @@
     return () => clearInterval(pollInterval);
   });
 
-  // ── Auto-update check (runs once after app is ready) ─────────────────────────
-  //
-  // Fetches the GitHub releases list via the Rust command and compares the latest
-  // tag against the installed version. On mismatch, shows a single non-blocking
-  // info toast. No modal, no blocking UI.
   async function checkForUpdateSilently() {
     try {
       const [currentVersion, releases] = await Promise.all([
@@ -107,7 +146,6 @@
         invoke<Array<{ tag_name: string; html_url: string }>>("list_releases"),
       ]);
 
-      // Filter out drafts / incomplete releases that have no tag_name
       const valid = releases.filter(r => typeof r.tag_name === "string" && r.tag_name.trim());
       if (!valid.length) return;
 
@@ -126,7 +164,6 @@
         .sort((a, b) => compare(parse(a), parse(b)))[0]
         .replace(/^v/, "");
 
-      // Only toast if latest is strictly newer than installed
       const isNewer = compare(parse(latestTag), parse(currentVersion)) < 0;
       if (isNewer) {
         addToast({
@@ -136,23 +173,50 @@
           duration: 8000,
         });
       }
-    } catch {
-      // Silently ignore — no network, private repo rate-limit, etc.
+    } catch {}
+  }
+
+  let cancelProbe = false;
+
+  function startProbe() {
+    cancelProbe = false;
+    failed      = false;
+    let tries   = 0;
+
+    async function probe() {
+      if (cancelProbe) return;
+      tries++;
+      try {
+        const rawUrl = store.settings.serverUrl;
+        const base   = typeof rawUrl === "string" && rawUrl.trim()
+          ? rawUrl.replace(/\/$/, "")
+          : "http://127.0.0.1:4567";
+        const s      = store.settings;
+        const auth: Record<string, string> = s.serverAuthEnabled && s.serverAuthUser && s.serverAuthPass
+          ? { Authorization: `Basic ${btoa(`${s.serverAuthUser.trim()}:${s.serverAuthPass.trim()}`)}` }
+          : {};
+        const res = await fetch(`${base}/api/graphql`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...auth },
+          body: JSON.stringify({ query: "{ __typename }" }),
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok && !cancelProbe) { serverProbeOk = true; return; }
+      } catch {}
+      if (tries >= MAX_ATTEMPTS && !cancelProbe) { failed = true; return; }
+      if (!cancelProbe) setTimeout(probe, 750);
     }
+
+    setTimeout(probe, 800);
   }
 
   onMount(async () => {
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => devSplash = true;
 
-    // Fetch the platform scale factor then immediately re-apply zoom.
     platformScale = await invoke<number>("get_platform_ui_scale").catch(() => 1);
     applyZoom();
 
-    // ── Fullscreen state sync ─────────────────────────────────────────────────
-    // Seed the initial state, then keep it in sync on every resize event.
-    // onResized is the correct Tauri 2 API — it fires on fullscreen enter/exit,
-    // window snap, and manual resize. isFullscreen() is cheap (single IPC call).
     store.isFullscreen = await win.isFullscreen();
     const unlistenResize = await win.onResized(async () => {
       store.isFullscreen = await win.isFullscreen();
@@ -168,30 +232,13 @@
       });
     }
 
-    if (!serverProbeOk) {
-      let cancelled = false, tries = 0;
-      async function probe() {
-        if (cancelled) return;
-        tries++;
-        try {
-          const res = await fetch(`${store.settings.serverUrl}/api/graphql`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: "{ __typename }" }),
-            signal: AbortSignal.timeout(2000),
-          });
-          if (res.ok && !cancelled) { serverProbeOk = true; return; }
-        } catch {}
-        if (tries >= MAX_ATTEMPTS && !cancelled) { failed = true; return; }
-        if (!cancelled) setTimeout(probe, 500);
-      }
-      setTimeout(probe, 800);
-    }
+    startProbe();
 
     type P = { chapterId: number; mangaId: number; progress: number }[];
     unlistenDownload = await listen<P>("download-progress", e => { setActiveDownloads(e.payload); });
 
     return () => {
-      cancelled = true;
+      cancelProbe = true;
       unlistenResize();
       if (store.settings.autoStartServer) invoke("kill_server").catch(() => {});
       if (idleTimer) clearTimeout(idleTimer);
@@ -201,16 +248,24 @@
     };
   });
 
-  // Run the update check once, 5 seconds after the app finishes loading.
-  // The delay avoids adding to startup latency and ensures list_releases
-  // doesn't compete with the server probe.
   $effect(() => {
     if (!appReady) return;
     const timer = setTimeout(checkForUpdateSilently, 5_000);
     return () => clearTimeout(timer);
   });
 
-  function handleRetry() { failed = false; notConfigured = false; serverProbeOk = false; }
+  function handleRetry() {
+    failed        = false;
+    notConfigured = false;
+    serverProbeOk = false;
+    startProbe();
+  }
+
+  function handleBypass() {
+    cancelProbe   = true;
+    serverProbeOk = true;
+    appReady      = true;
+  }
 </script>
 
 {#if devSplash}
@@ -220,7 +275,8 @@
   <SplashScreen mode="loading" ringFull={serverProbeOk} {failed} {notConfigured}
     showCards={store.settings.splashCards ?? true}
     onReady={() => appReady = true}
-    onRetry={handleRetry} />
+    onRetry={handleRetry}
+    onBypass={handleBypass} />
 {:else}
   <div class="root">
     {#if idle && !store.activeChapter}
@@ -231,7 +287,13 @@
     <div class="content">
       {#if store.activeChapter}<Reader />{:else}<Layout />{/if}
     </div>
-    {#if store.settingsOpen}<Settings />{/if}
+    {#if store.settingsOpen}<Settings onOpenThemeEditor={openThemeEditor} />{/if}
+    {#if themeEditorOpen}
+      <ThemeEditor
+        bind:editingId={themeEditorEditId}
+        onClose={closeThemeEditor}
+      />
+    {/if}
     <MangaPreview />
     <Toaster />
   </div>

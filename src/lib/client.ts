@@ -1,21 +1,14 @@
+import { store } from "../store/state.svelte";
+
 const DEFAULT_URL = "http://127.0.0.1:4567";
 
-function getSettings(): Record<string, any> {
-  try {
-    const raw = localStorage.getItem("moku-store");
-    if (raw) return JSON.parse(raw)?.settings ?? {};
-  } catch {}
-  return {};
-}
-
 function getServerUrl(): string {
-  const url = getSettings().serverUrl;
-  if (typeof url === "string" && url.trim()) return url.replace(/\/$/, "");
-  return DEFAULT_URL;
+  const url = store.settings.serverUrl;
+  return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : DEFAULT_URL;
 }
 
 function getAuthHeader(): Record<string, string> {
-  const s = getSettings();
+  const s = store.settings;
   if (!s.serverAuthEnabled) return {};
   const user = typeof s.serverAuthUser === "string" ? s.serverAuthUser.trim() : "";
   const pass = typeof s.serverAuthPass === "string" ? s.serverAuthPass.trim() : "";

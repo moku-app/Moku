@@ -7,12 +7,17 @@
   import { open as openUrl } from "@tauri-apps/plugin-shell";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
-  import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen } from "../../store/state.svelte";
+  import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme } from "../../store/state.svelte";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
   import type { Keybinds } from "../../lib/keybinds";
   import type { Tracker } from "../../lib/types";
+
+  interface Props {
+    onOpenThemeEditor?: (id?: string | null) => void;
+  }
+  let { onOpenThemeEditor }: Props = $props();
 
   type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "tracking" | "security" | "about" | "devtools";
 
@@ -710,6 +715,67 @@
                     {#if active}<span class="theme-card-check">✓</span>{/if}
                   </button>
                 {/each}
+
+                <!-- Custom theme cards -->
+                {#each store.settings.customThemes ?? [] as custom}
+                  {@const active = store.settings.theme === custom.id}
+                  <div class="theme-card custom-theme-card" class:active>
+                    <button
+                      class="custom-theme-select"
+                      onclick={() => updateSettings({ theme: custom.id })}
+                      title="Apply {custom.name}"
+                    >
+                      <div class="theme-preview">
+                        <div class="theme-preview-bg" style="background:{custom.tokens['bg-base']}">
+                          <div class="theme-preview-sidebar" style="background:{custom.tokens['bg-surface']}"></div>
+                          <div class="theme-preview-content">
+                            <div class="theme-preview-accent" style="background:{custom.tokens['accent']}"></div>
+                            <div class="theme-preview-text" style="background:{custom.tokens['text-primary']}55"></div>
+                            <div class="theme-preview-text" style="background:{custom.tokens['text-primary']}33;width:60%"></div>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="theme-card-info">
+                        <span class="theme-card-label">{custom.name}</span>
+                        <span class="theme-card-desc custom-badge">Custom</span>
+                      </div>
+                    </button>
+                    <div class="custom-theme-actions">
+                      <button
+                        class="custom-theme-edit-btn"
+                        onclick={() => onOpenThemeEditor?.(custom.id)}
+                        title="Edit theme"
+                      >
+                        <Pencil size={10} />
+                      </button>
+                      <button
+                        class="custom-theme-delete-btn"
+                        onclick={() => {
+                          if (confirm(`Delete theme "${custom.name}"?`)) deleteCustomTheme(custom.id);
+                        }}
+                        title="Delete theme"
+                      >
+                        <Trash size={10} />
+                      </button>
+                    </div>
+                    {#if active}<span class="theme-card-check">✓</span>{/if}
+                  </div>
+                {/each}
+
+                <!-- New Theme button -->
+                <button
+                  class="theme-card new-theme-card"
+                  onclick={() => onOpenThemeEditor?.(null)}
+                  title="Create a custom theme"
+                >
+                  <div class="new-theme-icon">
+                    <Plus size={18} weight="light" />
+                  </div>
+                  <div class="theme-card-info">
+                    <span class="theme-card-label">New Theme</span>
+                    <span class="theme-card-desc">Create custom</span>
+                  </div>
+                </button>
               </div>
             </div>
           </div>
@@ -754,6 +820,10 @@
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Page gap</span><span class="toggle-desc">Add spacing between pages in longstrip mode</span></div>
                 <button role="switch" aria-checked={store.settings.pageGap} aria-label="Page gap" class="toggle" class:on={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}><span class="toggle-thumb"></span></button>
+              </label>
+              <label class="toggle-row">
+                <div class="toggle-info"><span class="toggle-label">Overlay bars</span><span class="toggle-desc">Top and bottom bars float over the page instead of pushing it</span></div>
+                <button role="switch" aria-checked={store.settings.overlayBars ?? false} aria-label="Overlay bars" class="toggle" class:on={store.settings.overlayBars ?? false} onclick={() => updateSettings({ overlayBars: !(store.settings.overlayBars ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -1894,4 +1964,60 @@
 
   @keyframes fadeIn  { from { opacity: 0 }           to { opacity: 1 } }
   @keyframes scaleIn { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+
+  /* ── Custom theme cards ─────────────────────────────────────────────── */
+  .custom-theme-card {
+    position: relative;
+    display: flex; flex-direction: column;
+    padding: 0; cursor: default;
+  }
+  .custom-theme-select {
+    flex: 1; text-align: left; cursor: pointer;
+    display: flex; flex-direction: column;
+    background: none; border: none; color: inherit;
+    font-family: inherit;
+  }
+  .custom-badge {
+    color: var(--accent-fg) !important;
+  }
+  .custom-theme-actions {
+    display: none;
+    position: absolute; top: 5px; left: 5px;
+    flex-direction: row; gap: 3px;
+    z-index: 1;
+  }
+  .custom-theme-card:hover .custom-theme-actions { display: flex; }
+
+  .custom-theme-edit-btn,
+  .custom-theme-delete-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 3px;
+    font-size: 10px; cursor: pointer;
+    border: 1px solid var(--border-base);
+    background: var(--bg-overlay);
+    transition: background var(--t-base), color var(--t-base), border-color var(--t-base);
+  }
+  .custom-theme-edit-btn { color: var(--text-muted); }
+  .custom-theme-edit-btn:hover { color: var(--accent-fg); background: var(--accent-muted); border-color: var(--accent-dim); }
+  .custom-theme-delete-btn { color: var(--text-faint); }
+  .custom-theme-delete-btn:hover { color: var(--color-error); background: var(--color-error-bg); border-color: var(--color-error); }
+
+  /* ── New theme button ───────────────────────────────────────────────── */
+  .new-theme-card {
+    display: flex; flex-direction: column;
+    border-style: dashed !important;
+    border-color: var(--border-base) !important;
+    background: transparent !important;
+    transition: border-color var(--t-base) !important, background var(--t-base) !important;
+  }
+  .new-theme-card:hover {
+    border-color: var(--accent-dim) !important;
+    background: var(--accent-muted) !important;
+  }
+  .new-theme-icon {
+    height: 70px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-faint);
+    transition: color var(--t-base);
+  }
+  .new-theme-card:hover .new-theme-icon { color: var(--accent-fg); }
 </style>

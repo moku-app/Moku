@@ -7,7 +7,75 @@ export type LibraryFilter    = "all" | "library" | "downloaded" | string;
 export type NavPage          = "home" | "library" | "sources" | "explore" | "downloads" | "extensions" | "history" | "search" | "tracking";
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
-export type Theme            = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
+export type BuiltinTheme     = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
+export type Theme            = BuiltinTheme | string; // custom themes have string IDs like "custom:abc123"
+
+export interface ThemeTokens {
+  /* Backgrounds */
+  "bg-void":    string;
+  "bg-base":    string;
+  "bg-surface": string;
+  "bg-raised":  string;
+  "bg-overlay": string;
+  "bg-subtle":  string;
+  /* Borders */
+  "border-dim":    string;
+  "border-base":   string;
+  "border-strong": string;
+  "border-focus":  string;
+  /* Text */
+  "text-primary":   string;
+  "text-secondary": string;
+  "text-muted":     string;
+  "text-faint":     string;
+  "text-disabled":  string;
+  /* Accent */
+  "accent":        string;
+  "accent-dim":    string;
+  "accent-muted":  string;
+  "accent-fg":     string;
+  "accent-bright": string;
+  /* Semantic */
+  "color-error":    string;
+  "color-error-bg": string;
+  "color-success":  string;
+  "color-info":     string;
+  "color-info-bg":  string;
+}
+
+export interface CustomTheme {
+  id:     string; // "custom:abc123"
+  name:   string;
+  tokens: ThemeTokens;
+}
+
+export const DEFAULT_THEME_TOKENS: ThemeTokens = {
+  "bg-void":    "#080808",
+  "bg-base":    "#0c0c0c",
+  "bg-surface": "#101010",
+  "bg-raised":  "#151515",
+  "bg-overlay": "#1a1a1a",
+  "bg-subtle":  "#202020",
+  "border-dim":    "#1c1c1c",
+  "border-base":   "#242424",
+  "border-strong": "#2e2e2e",
+  "border-focus":  "#4a5c4a",
+  "text-primary":   "#f0efec",
+  "text-secondary": "#c8c6c0",
+  "text-muted":     "#8a8880",
+  "text-faint":     "#4e4d4a",
+  "text-disabled":  "#2a2a28",
+  "accent":        "#6b8f6b",
+  "accent-dim":    "#2a3d2a",
+  "accent-muted":  "#1a251a",
+  "accent-fg":     "#a8c4a8",
+  "accent-bright": "#8fb88f",
+  "color-error":    "#c47a7a",
+  "color-error-bg": "#1f1212",
+  "color-success":  "#7aab7a",
+  "color-info":     "#7a9ec4",
+  "color-info-bg":  "#121a1f",
+};
 
 export const COMPLETED_FOLDER_ID = "completed";
 
@@ -111,6 +179,7 @@ export interface Settings {
   folders:                 Folder[];
   markReadOnNext:          boolean;
   readerDebounceMs:        number;
+  overlayBars:             boolean;
   theme:                   Theme;
   libraryBranches:         boolean;
   renderLimit:             number;
@@ -133,6 +202,7 @@ export interface Settings {
   flareSolverrFallback:    boolean;
   appLockEnabled:          boolean;
   appLockPin:              string;
+  customThemes:            CustomTheme[];
 }
 
 const COMPLETED_FOLDER_DEFAULT: Folder = {
@@ -173,6 +243,7 @@ export const DEFAULT_SETTINGS: Settings = {
   folders:                [COMPLETED_FOLDER_DEFAULT],
   markReadOnNext:         true,
   readerDebounceMs:       120,
+  overlayBars:            false,
   theme:                  "dark",
   libraryBranches:        true,
   renderLimit:            48,
@@ -195,6 +266,7 @@ export const DEFAULT_SETTINGS: Settings = {
   flareSolverrFallback:   false,
   appLockEnabled:         false,
   appLockPin:             "",
+  customThemes:           [],
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -258,6 +330,7 @@ function mergeSettings(saved: any): Settings {
     keybinds:   { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
     heroSlots:  saved?.settings?.heroSlots ?? [null, null, null, null],
     mangaLinks: saved?.settings?.mangaLinks ?? {},
+    customThemes: saved?.settings?.customThemes ?? [],
   };
 }
 
@@ -549,6 +622,20 @@ class Store {
     return this.settings.folders.filter(f => f.mangaIds.includes(mangaId));
   }
 
+  saveCustomTheme(theme: CustomTheme) {
+    const existing = this.settings.customThemes.findIndex(t => t.id === theme.id);
+    const next = existing >= 0
+      ? this.settings.customThemes.map((t, i) => i === existing ? theme : t)
+      : [...this.settings.customThemes, theme];
+    this.settings = { ...this.settings, customThemes: next };
+  }
+
+  deleteCustomTheme(id: string) {
+    const next = this.settings.customThemes.filter(t => t.id !== id);
+    const wasActive = this.settings.theme === id;
+    this.settings = { ...this.settings, customThemes: next, theme: wasActive ? "dark" : this.settings.theme };
+  }
+
   clearDiscoverCache() {
     this.discoverCache      = new Map();
     this.discoverLibraryIds = new Set();
@@ -598,3 +685,5 @@ export function assignMangaToFolder(folderId: string, mangaId: number)   { store
 export function removeMangaFromFolder(folderId: string, mangaId: number) { store.removeMangaFromFolder(folderId, mangaId); }
 export function getMangaFolders(mangaId: number)                         { return store.getMangaFolders(mangaId); }
 export function clearDiscoverCache()                                       { store.clearDiscoverCache(); }
+export function saveCustomTheme(theme: CustomTheme)                        { store.saveCustomTheme(theme); }
+export function deleteCustomTheme(id: string)                              { store.deleteCustomTheme(id); }

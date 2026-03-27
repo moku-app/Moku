@@ -13,11 +13,12 @@
     showFps?:       boolean;
     onReady?:       () => void;
     onRetry?:       () => void;
+    onBypass?:      () => void;
     onDismiss?:     () => void;
   }
 
   let { mode = "loading", ringFull = false, failed = false, notConfigured = false,
-        showCards = true, showFps = false, onReady, onRetry, onDismiss }: Props = $props();
+        showCards = true, showFps = false, onReady, onRetry, onBypass, onDismiss }: Props = $props();
 
   const lockEnabled = $derived(
     store.settings.appLockEnabled && (store.settings.appLockPin?.length ?? 0) >= 4
@@ -26,7 +27,7 @@
   let pinEntry    = $state("");
   let pinShake    = $state(false);
   let pinUnlocked = $state(false);
-  let pinVisible  = $state(false);  // delayed so the pin block fades in after the ring completes
+  let pinVisible  = $state(false);
 
   function submitPin() {
     if (pinEntry === store.settings.appLockPin) {
@@ -49,12 +50,10 @@
     }
   }
 
+  function handleRetry()  { onRetry?.();  }
+  function handleBypass() { onBypass?.(); }
+
   const EXIT_MS = 320;
-  // Server typically takes 8-20s to boot. We animate the ring through three
-  // phases so it always feels like something is happening:
-  //   0 → 0.75  over ~12s  (eased crawl while server starts)
-  //   0.75 → 0.92 over ~8s  (slow down near the end, implying "almost there")
-  //   jumps to 1.0 the moment the probe succeeds
   const PHASE1_TARGET = 0.85;
   const PHASE1_MS     = 3000;
   const PHASE2_TARGET = 0.95;
@@ -74,7 +73,6 @@
     setTimeout(() => cb?.(), EXIT_MS);
   }
 
-  // Animate ring progress with easing so it never stalls visually
   let animFrame: number;
   let animStart: number | null = null;
   let animPhase = 1;
@@ -86,7 +84,6 @@
 
     if (animPhase === 1) {
       const t = Math.min(elapsed / PHASE1_MS, 1);
-      // ease-out cubic so it starts fast and slows down
       const eased = 1 - Math.pow(1 - t, 3);
       ringProg = 0.025 + eased * (PHASE1_TARGET - 0.025);
       if (t >= 1) { animPhase = 2; animStart = ts; }
@@ -94,7 +91,6 @@
       const t = Math.min(elapsed / PHASE2_MS, 1);
       const eased = 1 - Math.pow(1 - t, 4);
       ringProg = PHASE1_TARGET + eased * (PHASE2_TARGET - PHASE1_TARGET);
-      // Phase 2 never completes on its own — only ringFull triggers completion
     }
 
     animFrame = requestAnimationFrame(animateRing);
@@ -112,7 +108,6 @@
       cancelAnimationFrame(animFrame);
       ringProg = 1;
       if (lockEnabled && !pinUnlocked) {
-        // Short pause after ring completes, then fade the PIN block in
         setTimeout(() => { pinVisible = true; }, 400);
       } else {
         setTimeout(() => triggerExit(onReady), 650);
@@ -309,9 +304,6 @@
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }
 
-  // Attach PIN keydown to the window so it fires regardless of which element has
-  // focus — the pin-block div is not natively focusable and would silently drop
-  // key events otherwise.
   $effect(() => {
     const needsPin =
       (mode === "idle" && lockEnabled) ||
@@ -371,7 +363,6 @@
     </div>
 
   {:else}
-    <!-- Logo + ring — always present, ring fades out when pin takes over -->
     <div style="position:relative;width:140px;height:140px;margin-bottom:20px;z-index:1">
       {#if !failed && !notConfigured}
         <svg width={ringSize} height={ringSize}
@@ -390,32 +381,23 @@
     </div>
     <p class="title-label">moku</p>
 
-    <!-- Bottom area: status text → fades out, pin dots → fades in. Same space, no DOM swap. -->
     <div class="bottom-area" style="z-index:1">
-
-      <!-- Status / error — fades out once pin is visible -->
       <div class="status-slot" class:status-slot-hide={lockEnabled && pinVisible}>
-        {#if notConfigured}
+        {#if failed || notConfigured}
           <div class="error-box">
-            <p class="error-title">Server not configured</p>
-            <p class="error-body">Set the server path in Settings, then retry</p>
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button class="retry-btn" onclick={() => { store.settingsOpen = true; }}>Settings</button>
-              <button class="retry-btn" onclick={onRetry}>Retry</button>
+            <p class="error-label">
+              {failed ? "Could not reach server" : "Server not configured"}
+            </p>
+            <div class="error-actions">
+              <button class="err-btn" onclick={handleRetry}>Retry</button>
+              <button class="err-btn err-btn--primary" onclick={handleBypass}>Enter app</button>
             </div>
-          </div>
-        {:else if failed}
-          <div class="error-box error-box--danger">
-            <p class="error-title" style="color:var(--color-error)">Could not reach Suwayomi</p>
-            <p class="error-body">Make sure tachidesk-server is on your PATH</p>
-            <button class="retry-btn" style="margin-top:8px" onclick={onRetry}>Retry</button>
           </div>
         {:else}
           <p class="status-text">{ringFull ? "" : `Initializing server${dots}`}</p>
         {/if}
       </div>
 
-      <!-- PIN dots — fades in after ring completes, same position as status text -->
       {#if lockEnabled}
         <div class="pin-slot" class:pin-slot-visible={pinVisible}>
           <div class="pin-dots" class:pin-shake={pinShake}>
@@ -426,7 +408,6 @@
           <button class="pin-submit-btn" onclick={submitPin} tabindex="-1" aria-label="Submit PIN">Unlock</button>
         </div>
       {/if}
-
     </div>
   {/if}
 </div>
@@ -442,38 +423,28 @@
   .logo-breathe { animation: logoBreathe 4s ease-in-out infinite; }
   .hint { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); letter-spacing: 0.22em; text-transform: uppercase; margin: 0; user-select: none; animation: hintFade 3.5s ease-in-out infinite; }
   .title-label { font-family: var(--font-ui); font-size: 11px; font-weight: 500; letter-spacing: 0.26em; text-transform: uppercase; color: var(--text-secondary); margin: 0 0 8px; z-index: 1; user-select: none; }
-  .retry-btn { margin-top: 4px; padding: 5px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.08em; }
-  .retry-btn:hover { border-color: var(--border-strong); color: var(--text-secondary); }
-  .error-box { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 20px; border-radius: var(--radius-lg); background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12); max-width: 260px; text-align: center; backdrop-filter: blur(4px); }
-  .error-box--danger { border-color: rgba(220,50,50,0.5); }
-  .error-title { font-family: var(--font-ui); font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0.1em; margin: 0; }
-  .error-body { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); letter-spacing: 0.05em; margin: 0; line-height: 1.6; }
+  .error-box { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 20px; border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--border-base); min-width: 200px; text-align: center; animation: errIn 0.25s cubic-bezier(0,0,0.2,1) both; }
+  @keyframes errIn { from { opacity:0; transform:translateY(4px) } to { opacity:1; transform:translateY(0) } }
+  .error-label { font-family: var(--font-ui); font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0.06em; margin: 0; }
+  .error-actions { display: flex; gap: 6px; }
+  .err-btn { padding: 5px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-base); background: transparent; color: var(--text-muted); cursor: pointer; font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.04em; transition: border-color 0.15s, color 0.15s; }
+  .err-btn:hover { border-color: var(--border-strong); color: var(--text-secondary); }
+  .err-btn--primary { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
+  .err-btn--primary:hover { border-color: var(--accent); color: var(--accent-bright); }
 
-  /* ── Loading → PIN unified bottom area ───────────────────────────────────── */
-  /* Fixed-height container so logo/title never move during the swap */
-  .bottom-area { display: flex; align-items: center; justify-content: center; height: 48px; position: relative; }
-
-  /* Status text slot */
+  .bottom-area { display: flex; align-items: center; justify-content: center; min-height: 48px; position: relative; }
   .status-slot { display: flex; align-items: center; justify-content: center; transition: opacity 0.35s ease; position: absolute; }
   .status-slot-hide { opacity: 0; pointer-events: none; }
   .status-text { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); letter-spacing: 0.12em; margin: 0; min-width: 160px; text-align: center; }
-
-  /* Ring fades out as PIN takes over */
   .loading-ring { transition: opacity 0.5s ease; }
   .ring-hide { opacity: 0; }
-
-  /* PIN dots slot — starts invisible, fades in */
   .pin-slot { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); position: absolute; opacity: 0; transform: translateY(4px); transition: opacity 0.4s ease, transform 0.4s ease; pointer-events: none; }
   .pin-slot-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
-
-  /* PIN dots shared between loading and idle modes */
   .pin-block { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); position: relative; }
   .pin-dots { display: flex; gap: 12px; align-items: center; }
   .pin-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border-strong); background: transparent; transition: background 0.12s, border-color 0.12s; }
   .pin-dot-filled { background: var(--accent); border-color: var(--accent); }
   @keyframes pinShake { 0%,100% { transform:translateX(0) } 20%,60% { transform:translateX(-6px) } 40%,80% { transform:translateX(6px) } }
   .pin-shake { animation: pinShake 0.42s ease; }
-
-  /* Visually hidden submit button — tappable, invisible */
   .pin-submit-btn { opacity: 0; width: 1px; height: 1px; overflow: hidden; padding: 0; border: none; background: none; cursor: pointer; pointer-events: auto; position: absolute; }
 </style>
