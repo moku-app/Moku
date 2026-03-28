@@ -1,40 +1,75 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash } from "phosphor-svelte";
+  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_LIBRARY, GET_MANGA, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
+  import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { store, setActiveManga, setLibraryFilter } from "../../store/state.svelte";
-  import { addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders } from "../../store/state.svelte";
-  import { COMPLETED_FOLDER_ID } from "../../store/state.svelte";
-  import type { Manga, Chapter } from "../../lib/types";
+  import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings } from "../../store/state.svelte";
+  import type { Manga, Category, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
-  const CARD_MIN_W = 130;
-  const CARD_GAP   = 16;
+  const CARD_MIN_W     = 130;
+  const CARD_GAP       = 16;
+  const COMPLETED_NAME = "Completed";
 
-  let allManga:        Manga[]     = $state([]);
-  let extraManga:      Manga[]     = $state([]); // non-library manga needed for folders (e.g. completed)
-  let loading:         boolean     = $state(true);
-  let error:           string|null = $state(null);
-  let retryCount:      number      = $state(0);
-  let search:          string      = $state("");
-  let renderVisible:   number      = $state(0);
-  let scrollEl:        HTMLDivElement;
-  let containerWidth:  number      = $state(800);
-  let ctx:  { x: number; y: number; manga: Manga } | null = $state(null);
-  let emptyCtx: { x: number; y: number } | null           = $state(null);
+  // Drag type discriminators. We keep the custom MIME types for standards
+  // browsers, but also rely on `activeDragKind` as the authoritative signal
+  // because Tauri's WebKit sometimes strips custom MIME types from
+  // dataTransfer.types during dragover/drop events.
+  const DT_TAB   = "application/x-moku-tab";
+  const DT_MANGA = "application/x-moku-manga";
 
-  let prevChapterId: number | null = null;
+  // Set at dragstart, cleared at dragend. This is the authoritative
+  // discriminator — not affected by MIME stripping in any webview.
+  let activeDragKind: "tab" | "manga" | null = $state(null);
+  // Track insert position for the green drop-indicator bar (tab reorder).
+  // -1 = no indicator. Value = index in visibleCategories before which the bar shows.
+  let dragInsertIdx: number = $state(-1);
 
-  $effect(() => {
-    const wasOpen = prevChapterId !== null;
-    prevChapterId = store.activeChapter?.id ?? null;
-    if (wasOpen && !store.activeChapter) cache.clear(CACHE_KEYS.LIBRARY);
-  });
+  let allManga:       Manga[]      = $state([]);
+  let categories:     Category[]   = $state([]);
+  let loading:        boolean      = $state(true);
+  let error:          string|null  = $state(null);
+  let retryCount:     number       = $state(0);
+  let search:         string       = $state("");
+  let renderVisible:  number       = $state(0);
+  let scrollEl:       HTMLDivElement;
+  let containerWidth: number       = $state(800);
+  let ctx:     { x: number; y: number; manga: Manga } | null = $state(null);
+  let emptyCtx:{ x: number; y: number } | null               = $state(null);
 
-  function fetchLibrary() {
+  // ── Completed category auto-create ────────────────────────────────────────
+
+  async function ensureCompletedCategory(cats: Category[]): Promise<Category[]> {
+    if (cats.some(c => c.name === COMPLETED_NAME)) return cats;
+    try {
+      const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name: COMPLETED_NAME });
+      return [...cats, res.createCategory.category];
+    } catch { return cats; }
+  }
+
+  // ── Data loading ──────────────────────────────────────────────────────────
+
+  // Guard flag: true while Library is publishing to CATEGORIES itself, so the
+  // subscriber below doesn't re-fire reloadCategories in an infinite loop.
+  let suppressCatSubscriber = false;
+
+  /** Fetch and apply categories directly — never cached, always fresh. */
+  async function reloadCategories() {
+    try {
+      const d = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
+      const cats = await ensureCompletedCategory(d.categories.nodes);
+      categories = cats;
+      // Publish full category data (including mangas.nodes) so Settings can
+      // pick up order changes. Guard prevents re-entrancy.
+      suppressCatSubscriber = true;
+      cache.set(CACHE_KEYS.CATEGORIES, cats);
+      suppressCatSubscriber = false;
+    } catch (e) { console.error(e); }
+  }
+
+  function loadLibrary() {
     return cache.get(
       CACHE_KEYS.LIBRARY,
       () => gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then(d => d.mangas.nodes),
@@ -43,11 +78,16 @@
     );
   }
 
-  function loadData() {
-    fetchLibrary()
-      .then(nodes => { allManga = dedupeMangaByTitle(dedupeMangaById(nodes), store.settings.mangaLinks); error = null; })
-      .catch(e => error = e.message)
-      .finally(() => loading = false);
+  async function loadData() {
+    try {
+      const [nodes] = await Promise.all([loadLibrary(), reloadCategories()]);
+      allManga = dedupeMangaByTitle(dedupeMangaById(nodes), store.settings.mangaLinks);
+      error    = null;
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
   }
 
   $effect(() => {
@@ -57,42 +97,51 @@
     untrack(() => loadData());
   });
 
-  // Lazily fetch manga that are in a folder but not in the library (e.g. completed but removed from library)
-  $effect(() => {
-    const allIds   = new Set(allManga.map(m => m.id));
-    const missingIds = store.settings.folders
-      .flatMap(f => f.mangaIds)
-      .filter(id => !allIds.has(id));
-    if (!missingIds.length) return;
-    const toFetch = [...new Set(missingIds)].filter(id => !extraManga.some(m => m.id === id));
-    if (!toFetch.length) return;
-    untrack(() => {
-      Promise.all(
-        toFetch.map(id =>
-          cache.get(CACHE_KEYS.MANGA(id), () =>
-            gql<{ manga: Manga }>(GET_MANGA, { id }).then(d => d.manga)
-          ).catch(() => null)
-        )
-      ).then(results => {
-        const valid = results.filter(Boolean) as Manga[];
-        if (valid.length) extraManga = dedupeMangaById([...extraManga, ...valid]);
-      });
-    });
-  });
-
   $effect(() => { if (scrollEl) scrollEl.scrollTo({ top: 0 }); });
 
+  // Reset filter to library if the active category tab no longer exists.
+  // Uses untrack on the write side to avoid a read→write→re-run loop.
   $effect(() => {
-    const f = store.settings.folders.find(f => f.id === store.libraryFilter);
-    if (f && !f.showTab) untrack(() => { store.libraryFilter = "library"; });
+    const f = store.libraryFilter;
+    if (f === "library" || f === "downloaded") return;
+    const id = Number(f);
+    if (!categories.some(c => c.id === id)) {
+      untrack(() => { store.libraryFilter = "library"; });
+    }
   });
 
-  const isBuiltin = (f: string) => f === "library" || f === "downloaded";
+  // Re-fetch library when reader closes
+  let prevChapterId: number | null = null;
+  $effect(() => {
+    const wasOpen = prevChapterId !== null;
+    prevChapterId = store.activeChapter?.id ?? null;
+    if (wasOpen && !store.activeChapter) {
+      cache.clear(CACHE_KEYS.LIBRARY);
+      untrack(() => loadData());
+    }
+  });
 
-  // All manga available for folder filtering — library + any extras fetched above
-  const folderPool = $derived((() => {
-    const seen = new Set(allManga.map(m => m.id));
-    return [...allManga, ...extraManga.filter(m => !seen.has(m.id))];
+  // ── Derived ───────────────────────────────────────────────────────────────
+
+  const visibleCategories = $derived((() => {
+    const defaultId = store.settings.defaultLibraryCategoryId ?? null;
+    return categories
+      .filter(c => c.id !== 0 && !(store.settings.hiddenCategoryIds ?? []).includes(c.id))
+      .sort((a, b) => {
+        // Starred folder always first
+        if (a.id === defaultId) return -1;
+        if (b.id === defaultId) return  1;
+        return a.order - b.order;
+      });
+  })());
+
+  const categoryMangaMap = $derived((() => {
+    const map = new Map<number, Manga[]>();
+    for (const cat of categories) {
+      const nodes = cat.mangas?.nodes ?? [];
+      map.set(cat.id, nodes);
+    }
+    return map;
   })());
 
   const filtered = $derived((() => {
@@ -104,12 +153,9 @@
       const items = allManga.filter(m => (m.downloadCount ?? 0) > 0);
       return q ? items.filter(m => m.title.toLowerCase().includes(q)) : items;
     }
-    const folder = store.settings.folders.find(f => f.id === store.libraryFilter);
-    if (folder) {
-      const items = folderPool.filter(m => folder.mangaIds.includes(m.id));
-      return q ? items.filter(m => m.title.toLowerCase().includes(q)) : items;
-    }
-    return [];
+    const id    = Number(store.libraryFilter);
+    const items = categoryMangaMap.get(id) ?? [];
+    return q ? items.filter(m => m.title.toLowerCase().includes(q)) : items;
   })());
 
   const cols           = $derived(Math.max(1, Math.floor((containerWidth + CARD_GAP) / (CARD_MIN_W + CARD_GAP))));
@@ -119,18 +165,224 @@
 
   $effect(() => { filtered; untrack(() => { renderVisible = store.settings.renderLimit ?? 48; }); });
 
-  const counts = $derived({
-    library:    allManga.length,
-    downloaded: allManga.filter(m => (m.downloadCount ?? 0) > 0).length,
-    ...store.settings.folders.reduce((a, f) => ({ ...a, [f.id]: folderPool.filter(m => f.mangaIds.includes(m.id)).length }), {} as Record<string, number>),
-  });
+  const counts = $derived((() => {
+    const m: Record<string, number> = {
+      library:    allManga.length,
+      downloaded: allManga.filter(m => (m.downloadCount ?? 0) > 0).length,
+    };
+    for (const cat of visibleCategories) {
+      m[String(cat.id)] = (categoryMangaMap.get(cat.id) ?? []).length;
+    }
+    return m;
+  })());
 
   function loadMore() { renderVisible += store.settings.renderLimit ?? 48; }
+
+  // ── Drag: tab reorder ─────────────────────────────────────────────────────
+  //
+  // Optimistically reorders categories immediately on drop, then syncs to server.
+  // `activeDragKind` is the reliable discriminator — not dataTransfer.types.
+
+  let dragTabId:     number | null = $state(null);
+  let dragOverTabId: number | null = $state(null);
+
+  function onTabDragStart(e: DragEvent, cat: Category) {
+    // If a manga card drag is already in flight (e.g. dragged over a tab and
+    // WebKit fires dragstart on the underlying draggable tab element), ignore it
+    // so we don't clobber activeDragKind and break the manga drop.
+    if (activeDragKind === "manga") { e.preventDefault(); return; }
+    activeDragKind = "tab";
+    dragTabId = cat.id;
+    e.dataTransfer!.effectAllowed = "move";
+    e.dataTransfer!.setData(DT_TAB, String(cat.id));
+    e.dataTransfer!.setData("text/plain", `tab:${cat.id}`);
+  }
+
+  function onTabDragOver(e: DragEvent, cat: Category, idx: number) {
+    if (activeDragKind !== "tab") return;
+    if (dragTabId === null || dragTabId === cat.id) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "move";
+    dragOverTabId = cat.id;
+    dragInsertIdx = idx; // show green bar before this tab
+  }
+
+  function onTabDragLeave() {
+    dragOverTabId = null;
+    // Don't clear dragInsertIdx on leave — wait for the next dragover or drop
+    // so the bar doesn't flicker as the cursor crosses element boundaries.
+  }
+
+  async function onTabDrop(e: DragEvent, dropCat: Category) {
+    e.preventDefault();
+    dragOverTabId = null;
+    dragInsertIdx = -1;
+
+    if (activeDragKind !== "tab") return;
+    if (dragTabId === null || dragTabId === dropCat.id) { dragTabId = null; return; }
+
+    const dragId = dragTabId;
+    dragTabId = null;
+    activeDragKind = null;
+
+    // Work on `categories` sorted by current .order (server-authoritative)
+    const sorted = [...categories]
+      .filter(c => c.id !== 0)
+      .sort((a, b) => a.order - b.order);
+
+    const fromIdx = sorted.findIndex(c => c.id === dragId);
+    const toIdx   = sorted.findIndex(c => c.id === dropCat.id);
+    if (fromIdx < 0 || toIdx < 0) return;
+
+    // Optimistic reorder: splice, reassign .order, merge back into categories
+    const reordered = [...sorted];
+    const [moved]   = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    const withNewOrder = reordered.map((c, i) => ({ ...c, order: i + 1 }));
+    categories = categories.map(c => withNewOrder.find(u => u.id === c.id) ?? c);
+
+    // Server sync — position is 1-based index of the drop target in sorted list
+    const newPos = toIdx + 1;
+    try {
+      await gql<{ updateCategoryOrder: { categories: Category[] } }>(
+        UPDATE_CATEGORY_ORDER,
+        { id: dragId, position: newPos },
+      );
+      // Publish reordered categories so Settings panel reflects new order.
+      suppressCatSubscriber = true;
+      cache.set(CACHE_KEYS.CATEGORIES, [...categories]);
+      suppressCatSubscriber = false;
+    } catch (err) {
+      console.error("Tab reorder failed:", err);
+      await reloadCategories(); // revert to server truth on error
+    }
+  }
+
+  function onTabDragEnd() {
+    activeDragKind = null;
+    dragTabId = null;
+    dragOverTabId = null;
+    dragInsertIdx = -1;
+  }
+
+  // ── Drag: manga card → folder tab ─────────────────────────────────────────
+  //
+  // `activeDragKind` is set to "manga" at dragstart so every handler knows
+  // what is being dragged without relying on dataTransfer.types.
+
+  let dragMangaId:     number | null = $state(null);
+  let dropTargetTabId: number | null = $state(null);
+
+  // Off-screen container for the custom drag ghost — created once per drag.
+  let dragGhostEl: HTMLDivElement | null = null;
+
+  function onCardDragStart(e: DragEvent, m: Manga) {
+    activeDragKind = "manga";
+    dragMangaId = m.id;
+    e.dataTransfer!.effectAllowed = "copyMove";
+    e.dataTransfer!.setData(DT_MANGA, String(m.id));
+    e.dataTransfer!.setData("text/plain", `manga:${m.id}`);
+
+    // ── Custom drag ghost ──────────────────────────────────────────────────
+    if (dragGhostEl) dragGhostEl.remove();
+    const ghost = document.createElement("div");
+    ghost.style.cssText = [
+      "position:fixed", "top:-9999px", "left:-9999px",
+      "width:72px",
+      "border-radius:10px",
+      "overflow:hidden",
+      "box-shadow:0 8px 24px rgba(0,0,0,0.7)",
+      "border:1.5px solid var(--accent-dim)",
+      "background:var(--bg-raised)",
+      "pointer-events:none",
+      "z-index:99999",
+    ].join(";");
+
+    const img = document.createElement("img");
+    img.src = thumbUrl(m.thumbnailUrl);
+    img.style.cssText = "width:72px;aspect-ratio:2/3;object-fit:cover;display:block;";
+
+    const label = document.createElement("div");
+    label.textContent = m.title;
+    label.style.cssText = [
+      "padding:4px 6px",
+      "font-size:9px",
+      "line-height:1.3",
+      "color:var(--text-secondary)",
+      "background:var(--bg-raised)",
+      "white-space:nowrap",
+      "overflow:hidden",
+      "text-overflow:ellipsis",
+      "font-family:var(--font-ui)",
+      "letter-spacing:var(--tracking-wide)",
+    ].join(";");
+
+    ghost.appendChild(img);
+    ghost.appendChild(label);
+    document.body.appendChild(ghost);
+    dragGhostEl = ghost;
+    e.dataTransfer!.setDragImage(ghost, 36, 40);
+  }
+
+  function onCardDragEnd() {
+    activeDragKind = null;
+    dragMangaId = null;
+    dropTargetTabId = null;
+    if (dragGhostEl) { dragGhostEl.remove(); dragGhostEl = null; }
+  }
+
+  function onFolderTabDragOver(e: DragEvent, cat: Category) {
+    if (activeDragKind !== "manga") return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "copy";
+    dropTargetTabId = cat.id;
+  }
+
+  function onFolderTabDragLeave() {
+    if (activeDragKind !== "manga") return;
+    dropTargetTabId = null;
+  }
+
+  async function onFolderTabDrop(e: DragEvent, cat: Category) {
+    if (activeDragKind !== "manga") return;
+    e.preventDefault();
+    dropTargetTabId = null;
+
+    const mid = dragMangaId;
+    activeDragKind = null;
+    dragMangaId = null;
+    if (mid === null) return;
+
+    const manga = allManga.find(m => m.id === mid);
+    if (!manga) return;
+    await toggleMangaCategory(manga, cat);
+  }
+
+  // ── Unified dispatchers for folder tabs ───────────────────────────────────
+  // `activeDragKind` ensures each handler ignores drags it doesn't own.
+
+  function tabDragOver(e: DragEvent, cat: Category, idx: number) {
+    if      (activeDragKind === "tab")   onTabDragOver(e, cat, idx);
+    else if (activeDragKind === "manga") onFolderTabDragOver(e, cat);
+  }
+
+  function tabDragLeave() {
+    if      (activeDragKind === "tab")   onTabDragLeave();
+    else if (activeDragKind === "manga") onFolderTabDragLeave();
+  }
+
+  function tabDrop(e: DragEvent, cat: Category) {
+    if      (activeDragKind === "tab")   onTabDrop(e, cat);
+    else if (activeDragKind === "manga") onFolderTabDrop(e, cat);
+  }
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
 
   async function removeFromLibrary(manga: Manga) {
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
     allManga = allManga.filter(m => m.id !== manga.id);
     cache.clearGroup(CACHE_GROUPS.LIBRARY);
+    await reloadCategories();
   }
 
   async function deleteAllDownloads(manga: Manga) {
@@ -144,32 +396,108 @@
     } catch (e) { console.error(e); }
   }
 
+  async function toggleMangaCategory(manga: Manga, cat: Category) {
+    const inCat = (categoryMangaMap.get(cat.id) ?? []).some(m => m.id === manga.id);
+    // Optimistic update: patch categories in-place so counts and content
+    // update instantly without waiting for the server round-trip.
+    categories = categories.map(c => {
+      if (c.id !== cat.id || !c.mangas) return c;
+      const nodes = inCat
+        ? c.mangas.nodes.filter(m => m.id !== manga.id)
+        : [...c.mangas.nodes, manga];
+      return { ...c, mangas: { nodes } };
+    });
+    try {
+      await gql(UPDATE_MANGA_CATEGORIES, {
+        mangaId:    manga.id,
+        addTo:      inCat ? [] : [cat.id],
+        removeFrom: inCat ? [cat.id] : [],
+      });
+      // Reload to get the authoritative state from the server
+      await reloadCategories();
+    } catch (e) {
+      console.error(e);
+      // Revert on failure
+      await reloadCategories();
+    }
+  }
+
+  async function createAndAssign(manga: Manga) {
+    const name = prompt("Folder name:");
+    if (!name?.trim()) return;
+    try {
+      const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name: name.trim() });
+      const cat = res.createCategory.category;
+      await gql(UPDATE_MANGA_CATEGORIES, { mangaId: manga.id, addTo: [cat.id], removeFrom: [] });
+      await reloadCategories();
+    } catch (e) { console.error(e); }
+  }
+
+  // ── Context menu ──────────────────────────────────────────────────────────
+
   function openCtx(e: MouseEvent, m: Manga) { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, manga: m }; }
 
   function buildCtxItems(m: Manga): MenuEntry[] {
-    const mangaFolders = getMangaFolders(m.id);
-    const folderEntries: MenuEntry[] = store.settings.folders.map(f => {
-      const inFolder = mangaFolders.some(mf => mf.id === f.id);
-      return { label: inFolder ? `Remove from ${f.name}` : `Add to ${f.name}`, icon: Folder, onClick: () => inFolder ? removeMangaFromFolder(f.id, m.id) : assignMangaToFolder(f.id, m.id) };
+    const catEntries: MenuEntry[] = visibleCategories.map(cat => {
+      const inCat = (categoryMangaMap.get(cat.id) ?? []).some(x => x.id === m.id);
+      return {
+        label: inCat ? `Remove from ${cat.name}` : `Add to ${cat.name}`,
+        icon:  Folder,
+        onClick: () => toggleMangaCategory(m, cat),
+      };
     });
     return [
       { label: m.inLibrary ? "Remove from library" : "Add to library", icon: Books, onClick: () => m.inLibrary ? removeFromLibrary(m) : gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).then(() => { allManga = allManga.map(x => x.id === m.id ? { ...x, inLibrary: true } : x); cache.clear(CACHE_KEYS.LIBRARY); }).catch(console.error) },
       { label: "Delete all downloads", icon: Trash, danger: true, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => deleteAllDownloads(m) },
-      ...(folderEntries.length ? [{ separator: true } as MenuEntry, ...folderEntries] : []),
+      ...(catEntries.length ? [{ separator: true } as MenuEntry, ...catEntries] : []),
       { separator: true },
-      { label: "New folder", icon: FolderSimplePlus, onClick: () => { const name = prompt("Folder name:"); if (name?.trim()) { const id = addFolder(name.trim()); assignMangaToFolder(id, m.id); } } },
+      { label: "New folder", icon: FolderSimplePlus, onClick: () => createAndAssign(m) },
     ];
   }
 
   function buildEmptyCtx(): MenuEntry[] {
-    return [{ label: "New folder", icon: FolderSimplePlus, onClick: () => { const name = prompt("Folder name:"); if (name?.trim()) addFolder(name.trim()); } }];
+    return [{
+      label: "New folder",
+      icon:  FolderSimplePlus,
+      onClick: async () => {
+        const name = prompt("Folder name:");
+        if (!name?.trim()) return;
+        try {
+          await gql(CREATE_CATEGORY, { name: name.trim() });
+          await reloadCategories();
+        } catch (e) { console.error(e); }
+      },
+    }];
+  }
+
+  // ── Completed auto-assign ─────────────────────────────────────────────────
+
+  export async function checkAndMarkCompleted(mangaId: number, chaps: Chapter[]) {
+    await storeCheckAndMarkCompleted(mangaId, chaps, categories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
+    await reloadCategories();
   }
 
   onMount(() => {
     const ro = new ResizeObserver(([e]) => containerWidth = e.contentRect.width);
     ro.observe(scrollEl);
-    const unsub = cache.subscribe(CACHE_KEYS.LIBRARY, loadData);
-    return () => { ro.disconnect(); unsub(); };
+    const unsub = cache.subscribe(CACHE_KEYS.LIBRARY, () => loadData());
+
+    // When Settings reorders folders, re-fetch so we get the correct order
+    // AND keep mangas.nodes intact. Guard prevents re-entrancy when Library
+    // itself publishes to this key.
+    const unsubCats = cache.subscribe(CACHE_KEYS.CATEGORIES, () => {
+      if (suppressCatSubscriber) return;
+      reloadCategories();
+    });
+
+    // One-time: if a default folder is pinned and the user hasn't navigated
+    // to a specific tab yet, jump straight to it.
+    const defaultId = store.settings.defaultLibraryCategoryId;
+    if (defaultId && store.libraryFilter === "library") {
+      store.libraryFilter = String(defaultId);
+    }
+
+    return () => { ro.disconnect(); unsub(); unsubCats(); };
   });
 </script>
 
@@ -223,12 +551,36 @@
               <span class="tab-count">{counts[f] ?? 0}</span>
             </button>
           {/each}
-          {#each store.settings.folders.filter(f => f.showTab) as folder}
-            <button class="tab" class:active={store.libraryFilter === folder.id} onclick={() => store.libraryFilter = folder.id}>
-              <Folder size={11} weight="bold" />
-              {folder.name}
-              <span class="tab-count">{counts[folder.id] ?? 0}</span>
+          {#each visibleCategories as cat, idx}
+            {@const isDefault = (store.settings.defaultLibraryCategoryId ?? null) === cat.id}
+            {#if dragInsertIdx === idx && activeDragKind === "tab"}
+              <div class="tab-insert-bar" aria-hidden="true"></div>
+            {/if}
+            <button
+              class="tab"
+              class:active={store.libraryFilter === String(cat.id)}
+              class:tab-dragging={dragTabId === cat.id}
+              class:tab-drop-target={dropTargetTabId === cat.id}
+              class:tab-default={isDefault}
+              draggable="true"
+              onclick={() => store.libraryFilter = String(cat.id)}
+              ondragstart={(e) => onTabDragStart(e, cat)}
+              ondragover={(e) => tabDragOver(e, cat, idx)}
+              ondragleave={tabDragLeave}
+              ondrop={(e) => tabDrop(e, cat)}
+              ondragend={onTabDragEnd}
+            >
+              {#if isDefault}
+                <Star size={11} weight="fill" style="color:var(--accent-fg)" />
+              {:else}
+                <Folder size={11} weight="bold" />
+              {/if}
+              {cat.name}
+              <span class="tab-count">{counts[String(cat.id)] ?? 0}</span>
             </button>
+            {#if dragInsertIdx === idx + 1 && activeDragKind === "tab" && idx === visibleCategories.length - 1}
+              <div class="tab-insert-bar" aria-hidden="true"></div>
+            {/if}
           {/each}
         </div>
       </div>
@@ -257,7 +609,15 @@
     {:else}
       <div class="grid" style="--cols:{cols}">
         {#each visibleManga as m (m.id)}
-          <button class="card" onclick={() => store.activeManga = m} oncontextmenu={(e) => openCtx(e, m)}>
+          <button
+            class="card"
+            class:card-dragging={dragMangaId === m.id}
+            draggable="true"
+            onclick={() => store.activeManga = m}
+            oncontextmenu={(e) => openCtx(e, m)}
+            ondragstart={(e) => onCardDragStart(e, m)}
+            ondragend={onCardDragEnd}
+          >
             <div class="cover-wrap">
               <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" loading="lazy" decoding="async" />
               {#if m.downloadCount}<span class="badge-dl">{m.downloadCount}</span>{/if}
@@ -297,9 +657,13 @@
   .header-left { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
   .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; }
-  .tab { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); }
+  .tab { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: grab; }
   .tab:hover { color: var(--text-muted); }
   .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); }
+  .tab-default { color: var(--text-muted); }
+  .tab-dragging { opacity: 0.4; cursor: grabbing; }
+  .tab-drop-target { background: var(--accent-muted) !important; color: var(--accent-fg) !important; outline: 1px dashed var(--accent); }
+  .tab-insert-bar { width: 2px; height: 22px; background: var(--accent); border-radius: 2px; flex-shrink: 0; box-shadow: 0 0 6px var(--accent); pointer-events: none; }
   .tab-count { font-size: var(--text-2xs); opacity: 0.6; }
   .search-wrap { position: relative; display: flex; align-items: center; }
   .search-wrap :global(.search-icon) { position: absolute; left: 10px; color: var(--text-faint); pointer-events: none; }
@@ -308,6 +672,7 @@
   .search:focus { border-color: var(--border-strong); }
   .grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
   .card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+  .card-dragging { opacity: 0.4; cursor: grabbing; }
   .card:hover .cover { filter: brightness(1.07); }
   .card:hover .title { color: var(--text-primary); }
   .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); }

@@ -1,3 +1,15 @@
+export interface Category {
+  id: number;
+  name: string;
+  order: number;
+  default: boolean;
+  includeInUpdate: string;
+  includeInDownload: string;
+  mangas?: {
+    nodes: Manga[];
+  };
+}
+
 export interface Manga {
   id: number;
   title: string;

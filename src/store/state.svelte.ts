@@ -1,4 +1,4 @@
-import type { Manga, Chapter, Source } from "../lib/types";
+import type { Manga, Chapter, Category, Source } from "../lib/types";
 import { DEFAULT_KEYBINDS, type Keybinds } from "../lib/keybinds";
 
 export type PageStyle        = "single" | "double" | "longstrip";
@@ -78,7 +78,6 @@ export const DEFAULT_THEME_TOKENS: ThemeTokens = {
   "color-info-bg":  "#121a1f",
 };
 
-export const COMPLETED_FOLDER_ID = "completed";
 
 export interface HistoryEntry {
   mangaId:      number;
@@ -142,13 +141,6 @@ export interface ActiveDownload {
   progress:  number;
 }
 
-export interface Folder {
-  id:       string;
-  name:     string;
-  mangaIds: number[];
-  showTab:  boolean;
-  system?:  boolean;
-}
 
 export interface Settings {
   pageStyle:               PageStyle;
@@ -178,7 +170,6 @@ export interface Settings {
   idleTimeoutMin?:         number;
   splashCards?:            boolean;
   storageLimitGb:          number | null;
-  folders:                 Folder[];
   markReadOnNext:          boolean;
   readerDebounceMs:        number;
   theme:                   Theme;
@@ -204,15 +195,11 @@ export interface Settings {
   appLockEnabled:          boolean;
   appLockPin:              string;
   customThemes:            CustomTheme[];
+  hiddenCategoryIds:       number[];
+  /** Category ID that opens by default when the Library tab is first visited. null = no default (shows Saved). */
+  defaultLibraryCategoryId: number | null;
 }
 
-const COMPLETED_FOLDER_DEFAULT: Folder = {
-  id:       COMPLETED_FOLDER_ID,
-  name:     "Completed",
-  mangaIds: [],
-  showTab:  true,
-  system:   true,
-};
 
 export const DEFAULT_SETTINGS: Settings = {
   pageStyle:              "longstrip",
@@ -242,7 +229,6 @@ export const DEFAULT_SETTINGS: Settings = {
   idleTimeoutMin:         5,
   splashCards:            true,
   storageLimitGb:         null,
-  folders:                [COMPLETED_FOLDER_DEFAULT],
   markReadOnNext:         true,
   readerDebounceMs:       120,
   theme:                  "dark",
@@ -268,6 +254,8 @@ export const DEFAULT_SETTINGS: Settings = {
   appLockEnabled:         false,
   appLockPin:             "",
   customThemes:           [],
+  hiddenCategoryIds:      [],
+  defaultLibraryCategoryId: null,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -318,20 +306,14 @@ const saved = (() => {
 })();
 
 function mergeSettings(saved: any): Settings {
-  const userFolders: Folder[]   = saved?.settings?.folders ?? [];
-  const existingCompleted       = userFolders.find(f => f.id === COMPLETED_FOLDER_ID);
-  const completedFolder: Folder = existingCompleted
-    ? { ...COMPLETED_FOLDER_DEFAULT, mangaIds: existingCompleted.mangaIds }
-    : COMPLETED_FOLDER_DEFAULT;
-  const otherFolders = userFolders.filter(f => f.id !== COMPLETED_FOLDER_ID);
   return {
     ...DEFAULT_SETTINGS,
     ...saved?.settings,
-    folders:    [completedFolder, ...otherFolders],
-    keybinds:   { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
-    heroSlots:  saved?.settings?.heroSlots ?? [null, null, null, null],
-    mangaLinks: saved?.settings?.mangaLinks ?? {},
+    keybinds:     { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
+    heroSlots:    saved?.settings?.heroSlots ?? [null, null, null, null],
+    mangaLinks:   saved?.settings?.mangaLinks ?? {},
     customThemes: saved?.settings?.customThemes ?? [],
+    hiddenCategoryIds: saved?.settings?.hiddenCategoryIds ?? [],
   };
 }
 
@@ -350,7 +332,7 @@ const genId = () => Math.random().toString(36).slice(2, 10);
 
 class Store {
   navPage:           NavPage          = $state(saved?.navPage       ?? "home");
-  libraryFilter:     LibraryFilter    = $state(saved?.libraryFilter ?? "library");
+  libraryFilter:     LibraryFilter    = $state("library");
   history:           HistoryEntry[]   = $state(saved?.history       ?? []);
   /**
    * readLog — append-only, never deduped. Every chapter completion/progress
@@ -504,31 +486,9 @@ class Store {
     this.history      = [];
     this.readLog      = [];
     this.readingStats = { ...DEFAULT_READING_STATS };
-    this.settings     = { ...this.settings, folders: [COMPLETED_FOLDER_DEFAULT], heroSlots: [null, null, null, null], mangaLinks: {} };
+    this.settings     = { ...this.settings, heroSlots: [null, null, null, null], mangaLinks: {} };
   }
 
-  markMangaCompleted(mangaId: number) {
-    const folder = this.settings.folders.find(f => f.id === COMPLETED_FOLDER_ID);
-    if (!folder) return;
-    if (!folder.mangaIds.includes(mangaId))
-      folder.mangaIds = [...folder.mangaIds, mangaId];
-  }
-
-  unmarkMangaCompleted(mangaId: number) {
-    const folder = this.settings.folders.find(f => f.id === COMPLETED_FOLDER_ID);
-    if (!folder) return;
-    folder.mangaIds = folder.mangaIds.filter(id => id !== mangaId);
-  }
-
-  isCompleted(mangaId: number): boolean {
-    return this.settings.folders.find(f => f.id === COMPLETED_FOLDER_ID)?.mangaIds.includes(mangaId) ?? false;
-  }
-
-  checkAndMarkCompleted(mangaId: number, chapters: Chapter[]) {
-    if (!chapters.length) return;
-    if (chapters.every(c => c.isRead)) this.markMangaCompleted(mangaId);
-    else this.unmarkMangaCompleted(mangaId);
-  }
 
   linkManga(idA: number, idB: number) {
     if (idA === idB) return;
@@ -575,53 +535,6 @@ class Store {
   updateSettings(patch: Partial<Settings>)       { this.settings = { ...this.settings, ...patch }; }
   resetKeybinds()                                { this.settings = { ...this.settings, keybinds: DEFAULT_KEYBINDS }; }
 
-  addFolder(name: string): string {
-    const id = genId();
-    this.settings = { ...this.settings, folders: [...this.settings.folders, { id, name: name.trim(), mangaIds: [], showTab: false }] };
-    return id;
-  }
-
-  removeFolder(id: string) {
-    this.settings = { ...this.settings, folders: this.settings.folders.filter(f => f.id !== id || f.system) };
-  }
-
-  renameFolder(id: string, name: string) {
-    this.settings = {
-      ...this.settings,
-      folders: this.settings.folders.map(f => f.id === id && !f.system ? { ...f, name: name.trim() } : f),
-    };
-  }
-
-  toggleFolderTab(id: string) {
-    this.settings = {
-      ...this.settings,
-      folders: this.settings.folders.map(f => f.id === id ? { ...f, showTab: !f.showTab } : f),
-    };
-  }
-
-  assignMangaToFolder(folderId: string, mangaId: number) {
-    this.settings = {
-      ...this.settings,
-      folders: this.settings.folders.map(f =>
-        f.id === folderId && !f.mangaIds.includes(mangaId)
-          ? { ...f, mangaIds: [...f.mangaIds, mangaId] }
-          : f
-      ),
-    };
-  }
-
-  removeMangaFromFolder(folderId: string, mangaId: number) {
-    this.settings = {
-      ...this.settings,
-      folders: this.settings.folders.map(f =>
-        f.id === folderId ? { ...f, mangaIds: f.mangaIds.filter(id => id !== mangaId) } : f
-      ),
-    };
-  }
-
-  getMangaFolders(mangaId: number): Folder[] {
-    return this.settings.folders.filter(f => f.mangaIds.includes(mangaId));
-  }
 
   saveCustomTheme(theme: CustomTheme) {
     const existing = this.settings.customThemes.findIndex(t => t.id === theme.id);
@@ -635,6 +548,42 @@ class Store {
     const next = this.settings.customThemes.filter(t => t.id !== id);
     const wasActive = this.settings.theme === id;
     this.settings = { ...this.settings, customThemes: next, theme: wasActive ? "dark" : this.settings.theme };
+  }
+
+  /**
+   * Auto-assign or remove the "Completed" category for a manga based on
+   * whether all chapters are read. Pass the `gql` executor to avoid a
+   * circular import between state.svelte.ts and client.ts.
+   *
+   * Call after any batch mark-read/unread operation.
+   */
+  async checkAndMarkCompleted(
+    mangaId:    number,
+    chaps:      Chapter[],
+    categories: Category[],
+    gqlFn:      (query: string, vars: Record<string, unknown>) => Promise<unknown>,
+    UPDATE_MANGA_CATEGORIES: string,
+    UPDATE_MANGA?: string,
+  ): Promise<void> {
+    if (!chaps.length) return;
+    const allRead   = chaps.every(c => c.isRead);
+    const completed = categories.find(c => c.name === "Completed");
+    if (!completed) return;
+    if (allRead) {
+      await gqlFn(UPDATE_MANGA_CATEGORIES, { mangaId, addTo: [completed.id], removeFrom: [] }).catch(console.error);
+      // Ensure the manga is in the library so it shows up in the Saved tab
+      if (UPDATE_MANGA) {
+        await gqlFn(UPDATE_MANGA, { id: mangaId, inLibrary: true }).catch(console.error);
+      }
+    } else {
+      await gqlFn(UPDATE_MANGA_CATEGORIES, { mangaId, addTo: [], removeFrom: [completed.id] }).catch(console.error);
+    }
+  }
+
+  toggleHiddenCategory(id: number) {
+    const ids = this.settings.hiddenCategoryIds ?? [];
+    const next = ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id];
+    this.settings = { ...this.settings, hiddenCategoryIds: next };
   }
 
   clearDiscoverCache() {
@@ -654,10 +603,6 @@ export function addHistory(entry: HistoryEntry, completed?: boolean, minutes?: n
 export function clearHistory()                                           { store.clearHistory(); }
 export function clearHistoryForManga(mangaId: number)                    { store.clearHistoryForManga(mangaId); }
 export function wipeAllData()                                            { store.wipeAllData(); }
-export function markMangaCompleted(mangaId: number)                      { store.markMangaCompleted(mangaId); }
-export function unmarkMangaCompleted(mangaId: number)                    { store.unmarkMangaCompleted(mangaId); }
-export function isCompleted(mangaId: number)                             { return store.isCompleted(mangaId); }
-export function checkAndMarkCompleted(mangaId: number, c: Chapter[])     { store.checkAndMarkCompleted(mangaId, c); }
 export function linkManga(idA: number, idB: number)                      { store.linkManga(idA, idB); }
 export function unlinkManga(idA: number, idB: number)                    { store.unlinkManga(idA, idB); }
 export function getLinkedMangaIds(mangaId: number)                       { return store.getLinkedMangaIds(mangaId); }
@@ -678,13 +623,17 @@ export function setLibraryTagFilter(next: string[])                      { store
 export function setSettingsOpen(next: boolean)                           { store.setSettingsOpen(next); }
 export function updateSettings(patch: Partial<Settings>)                 { store.updateSettings(patch); }
 export function resetKeybinds()                                          { store.resetKeybinds(); }
-export function addFolder(name: string)                                  { return store.addFolder(name); }
-export function removeFolder(id: string)                                 { store.removeFolder(id); }
-export function renameFolder(id: string, name: string)                   { store.renameFolder(id, name); }
-export function toggleFolderTab(id: string)                              { store.toggleFolderTab(id); }
-export function assignMangaToFolder(folderId: string, mangaId: number)   { store.assignMangaToFolder(folderId, mangaId); }
-export function removeMangaFromFolder(folderId: string, mangaId: number) { store.removeMangaFromFolder(folderId, mangaId); }
-export function getMangaFolders(mangaId: number)                         { return store.getMangaFolders(mangaId); }
 export function clearDiscoverCache()                                       { store.clearDiscoverCache(); }
+export function toggleHiddenCategory(id: number)                           { store.toggleHiddenCategory(id); }
 export function saveCustomTheme(theme: CustomTheme)                        { store.saveCustomTheme(theme); }
 export function deleteCustomTheme(id: string)                              { store.deleteCustomTheme(id); }
+export async function checkAndMarkCompleted(
+  mangaId:    number,
+  chaps:      Chapter[],
+  categories: Category[],
+  gqlFn:      (query: string, vars: Record<string, unknown>) => Promise<unknown>,
+  UPDATE_MANGA_CATEGORIES: string,
+  UPDATE_MANGA?: string,
+): Promise<void> {
+  return store.checkAndMarkCompleted(mangaId, chaps, categories, gqlFn, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
+}

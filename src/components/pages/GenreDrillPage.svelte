@@ -2,11 +2,11 @@
   import { ArrowLeft, BookmarkSimple, FolderSimplePlus, Folder, CircleNotch } from "phosphor-svelte";
   import { untrack } from "svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
+  import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
   import { dedupeSources, dedupeMangaById } from "../../lib/util";
-  import { store, addFolder, assignMangaToFolder, setGenreFilter, setPreviewManga, setNavPage } from "../../store/state.svelte";
-  import type { Manga, Source } from "../../lib/types";
+  import { store, setGenreFilter, setPreviewManga, setNavPage } from "../../store/state.svelte";
+  import type { Manga, Source, Category } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
   const PAGE_SIZE     = 50;
@@ -39,6 +39,8 @@
   let loadingMore            = $state(false);
   let visibleCount           = $state(PAGE_SIZE);
   let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
+  let categories: Category[] = $state([]);
+  let catsLoaded             = false;
 
   const nextPageMap = new Map<string, number>();
   let sources: Source[] = $state([]);
@@ -143,19 +145,42 @@
     }
   }
 
+  function openCtx(e: MouseEvent, m: Manga) {
+    e.preventDefault();
+    ctx = { x: e.clientX, y: e.clientY, manga: m };
+    if (!catsLoaded) {
+      catsLoaded = true;
+      gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES)
+        .then(d => { categories = d.categories.nodes.filter(c => c.id !== 0); })
+        .catch(console.error);
+    }
+  }
+
   function buildCtxItems(m: Manga): MenuEntry[] {
     return [
       { label: m.inLibrary ? "In Library" : "Add to library", icon: BookmarkSimple, disabled: m.inLibrary,
         onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).then(() => { sourceManga = sourceManga.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x); cache.clear(CACHE_KEYS.LIBRARY); }).catch(console.error) },
-      ...(store.settings.folders.length > 0 ? [
+      ...(categories.length > 0 ? [
         { separator: true } as MenuEntry,
-        ...store.settings.folders.map((f): MenuEntry => ({
-          label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name, icon: Folder,
-          onClick: () => assignMangaToFolder(f.id, m.id),
+        ...categories.map((cat): MenuEntry => ({
+          label: (cat.mangas?.nodes ?? []).some(x => x.id === m.id) ? `✓ ${cat.name}` : cat.name, icon: Folder,
+          onClick: () => gql(UPDATE_MANGA_CATEGORIES, { mangaId: m.id, addTo: [cat.id], removeFrom: [] }).catch(console.error),
         })),
       ] : []),
       { separator: true },
-      { label: "New folder & add", icon: FolderSimplePlus, onClick: () => { const name = prompt("Folder name:"); if (name?.trim()) { const id = addFolder(name.trim()); assignMangaToFolder(id, m.id); } } },
+      { label: "New folder & add", icon: FolderSimplePlus, onClick: async () => {
+        const name = prompt("Folder name:");
+        if (!name?.trim()) return;
+        const res = await gql<{ createCategory: { category: Category } }>(
+          CREATE_CATEGORY,
+          { name: name.trim() }
+        ).catch(console.error);
+        if (res) {
+          const cat = (res as any).createCategory.category;
+          categories = [...categories, cat];
+          await gql(UPDATE_MANGA_CATEGORIES, { mangaId: m.id, addTo: [cat.id], removeFrom: [] }).catch(console.error);
+        }
+      }},
     ];
   }
 
@@ -190,7 +215,7 @@
   {:else}
     <div class="grid">
       {#each visibleItems as m (m.id)}
-        <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); ctx = { x: e.clientX, y: e.clientY, manga: m }; }}>
+        <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => { e.stopPropagation(); openCtx(e, m); }}>
           <div class="cover-wrap">
             <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
             {#if m.inLibrary}<span class="in-library-badge">Saved</span>{/if}

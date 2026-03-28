@@ -1,14 +1,16 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks, Lock } from "phosphor-svelte";
+  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks, Lock, Eye, EyeSlash, Star } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { open as openUrl } from "@tauri-apps/plugin-shell";
   import { gql, thumbUrl } from "../../lib/client";
+  import { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
-  import { store, updateSettings, resetKeybinds, addFolder, removeFolder, renameFolder, toggleFolderTab, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme } from "../../store/state.svelte";
-  import { cache } from "../../lib/cache";
+  import type { Category } from "../../lib/types";
+  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory } from "../../store/state.svelte";
+  import { cache, CACHE_KEYS } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
   import type { Keybinds } from "../../lib/keybinds";
@@ -168,22 +170,101 @@
   }
 
   
-  let newFolderName  = $state("");
-  let editingId: string | null = $state(null);
-  let editingName    = $state("");
+  let categories:     Category[]   = $state([]);
+  let catsLoading:    boolean      = $state(false);
+  let catsError:      string|null  = $state(null);
+  let newFolderName   = $state("");
+  let editingId: number | null     = $state(null);
+  let editingName     = $state("");
 
-  function createFolder() {
+  async function loadCategories() {
+    catsLoading = true; catsError = null;
+    try {
+      const res = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
+      categories = res.categories.nodes.filter(c => c.id !== 0);
+      // Publish so Library picks up order changes via its subscription
+      cache.set(CACHE_KEYS.CATEGORIES, categories);
+    } catch (e: any) {
+      catsError = e?.message ?? "Failed to load folders";
+    } finally { catsLoading = false; }
+  }
+
+  async function createFolder() {
     const name = newFolderName.trim();
     if (!name) return;
-    addFolder(name); newFolderName = "";
+    try {
+      const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name });
+      categories = [...categories, res.createCategory.category];
+      newFolderName = "";
+      cache.set(CACHE_KEYS.CATEGORIES, categories);
+    } catch (e: any) { catsError = e?.message ?? "Failed to create folder"; }
   }
 
-  function startEdit(id: string, name: string) { editingId = id; editingName = name; }
+  function startEdit(id: number, name: string) { editingId = id; editingName = name; }
 
-  function commitEdit() {
-    if (editingId && editingName.trim()) renameFolder(editingId, editingName.trim());
+  async function commitEdit() {
+    if (editingId !== null && editingName.trim()) {
+      try {
+        await gql(UPDATE_CATEGORY, { id: editingId, name: editingName.trim() });
+        categories = categories.map(c => c.id === editingId ? { ...c, name: editingName.trim() } : c);
+        cache.set(CACHE_KEYS.CATEGORIES, categories);
+      } catch (e: any) { catsError = e?.message ?? "Failed to rename"; }
+    }
     editingId = null; editingName = "";
   }
+
+  async function deleteFolder(id: number) {
+    try {
+      await gql(DELETE_CATEGORY, { id });
+      categories = categories.filter(c => c.id !== id);
+      cache.set(CACHE_KEYS.CATEGORIES, categories);
+    } catch (e: any) { catsError = e?.message ?? "Failed to delete folder"; }
+  }
+
+  async function moveCategory(id: number, direction: -1 | 1) {
+    const idx = categories.findIndex(c => c.id === id);
+    if (idx < 0) return;
+    const newPos = idx + 1 + direction;
+    if (newPos < 1 || newPos > categories.length) return;
+    // Optimistic reorder so the UI moves instantly
+    const reordered = [...categories];
+    const [moved] = reordered.splice(idx, 1);
+    reordered.splice(idx + direction, 0, moved);
+    categories = reordered.map((c, i) => ({ ...c, order: i + 1 }));
+    // Publish optimistic order immediately — Library re-fetches on this signal
+    cache.set(CACHE_KEYS.CATEGORIES, categories);
+    try {
+      const res = await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id, position: newPos });
+      const updated = res.updateCategoryOrder.categories.filter(c => c.id !== 0);
+      categories = updated.sort((a, b) => a.order - b.order);
+      // Publish server-authoritative order
+      cache.set(CACHE_KEYS.CATEGORIES, categories);
+    } catch (e: any) {
+      catsError = e?.message ?? "Failed to reorder";
+      await loadCategories(); // revert — loadCategories also publishes
+    }
+  }
+
+  // Subscribe to the shared categories cache so Library-initiated drag reorders
+  // are reflected in the Settings folder list without needing a manual reload.
+  // Library publishes its full category data (with mangas.nodes), so we only
+  // pull the ordering signal — no content is lost here since Settings never
+  // renders mangas.nodes, just names and counts.
+  $effect(() => {
+    const unsub = cache.subscribe(CACHE_KEYS.CATEGORIES, async () => {
+      // Don't clobber an in-progress server fetch
+      if (catsLoading) return;
+      // Re-read directly from the server so we get mangas.nodes counts too.
+      // This is a lightweight call and only fires when Library reorders.
+      try {
+        const res = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
+        categories = res.categories.nodes.filter(c => c.id !== 0);
+      } catch {}
+    });
+    return unsub;
+  });
+
+  $effect(() => { if (tab === "folders" && !categories.length && !catsLoading) loadCategories(); });
 
   
   let selectOpen: string | null = $state(null);
@@ -1132,7 +1213,10 @@
           <div class="panel">
             <div class="section">
               <p class="section-title">Manage Folders</p>
-              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-3);display:block">Assign manga to folders from the series detail page.</p>
+              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-3);display:block">Folders are stored as Suwayomi categories. Changes sync across all clients.</p>
+              {#if catsError}
+                <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-2);color:var(--color-error);display:block">{catsError}</p>
+              {/if}
               <div class="folder-create-row">
                 <input class="text-input" placeholder="New folder name…" bind:value={newFolderName}
                   onkeydown={(e) => e.key === "Enter" && createFolder()} style="flex:1;width:auto" />
@@ -1140,26 +1224,39 @@
                   <Plus size={13} weight="bold" /> Create
                 </button>
               </div>
-              {#if store.settings.folders.length === 0}
+              {#if catsLoading}
+                <p class="storage-loading">Loading folders…</p>
+              {:else if categories.length === 0}
                 <p class="storage-loading">No folders yet. Create one above.</p>
               {:else}
                 <div class="folder-list">
-                  {#each store.settings.folders as folder}
+                  {#each categories as cat, i}
                     <div class="folder-row">
-                      {#if editingId === folder.id}
+                      {#if editingId === cat.id}
                         <input class="text-input" bind:value={editingName}
                           onkeydown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") editingId = null; }}
                           onblur={commitEdit} style="flex:1;width:auto" use:focusInput />
                         <button class="kb-reset" onclick={commitEdit} title="Save">✓</button>
                       {:else}
                         <FolderSimple size={14} weight="light" style="color:var(--text-faint);flex-shrink:0" />
-                        <span class="folder-row-name">{folder.name}</span>
-                        <span class="folder-row-count">{folder.mangaIds.length} manga</span>
-                        <button class="folder-tab-toggle" class:on={folder.showTab} onclick={() => toggleFolderTab(folder.id)}>
-                          {folder.showTab ? "Tab on" : "Tab off"}
-                        </button>
-                        <button class="kb-reset" onclick={() => startEdit(folder.id, folder.name)} title="Rename"><Pencil size={12} weight="light" /></button>
-                        <button class="kb-reset folder-delete" onclick={() => removeFolder(folder.id)} title="Delete"><Trash size={12} weight="light" /></button>
+                        <span class="folder-row-name">{cat.name}</span>
+                        <span class="folder-row-count">{cat.mangas?.nodes.length ?? 0} manga</span>
+                        <button
+                          class="kb-reset"
+                          class:folder-default-active={(store.settings.defaultLibraryCategoryId ?? null) === cat.id}
+                          onclick={() => updateSettings({ defaultLibraryCategoryId: (store.settings.defaultLibraryCategoryId ?? null) === cat.id ? null : cat.id })}
+                          title={(store.settings.defaultLibraryCategoryId ?? null) === cat.id ? "Remove as default folder" : "Set as default folder — opens first when you visit Library"}
+                        ><Star size={13} weight={(store.settings.defaultLibraryCategoryId ?? null) === cat.id ? "fill" : "light"} /></button>
+                        <button
+                          class="kb-reset"
+                          class:folder-hidden={(store.settings.hiddenCategoryIds ?? []).includes(cat.id)}
+                          onclick={() => toggleHiddenCategory(cat.id)}
+                          title={(store.settings.hiddenCategoryIds ?? []).includes(cat.id) ? "Show in Saved tab" : "Hide from Saved tab"}
+                        >{#if (store.settings.hiddenCategoryIds ?? []).includes(cat.id)}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}</button>
+                        <button class="kb-reset" onclick={() => moveCategory(cat.id, -1)} disabled={i === 0} title="Move up">↑</button>
+                        <button class="kb-reset" onclick={() => moveCategory(cat.id, 1)} disabled={i === categories.length - 1} title="Move down">↓</button>
+                        <button class="kb-reset" onclick={() => startEdit(cat.id, cat.name)} title="Rename"><Pencil size={12} weight="light" /></button>
+                        <button class="kb-reset folder-delete" onclick={() => deleteFolder(cat.id)} title="Delete"><Trash size={12} weight="light" /></button>
                       {/if}
                     </div>
                   {/each}
@@ -1819,6 +1916,8 @@
   .folder-tab-toggle.on { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
   .folder-tab-toggle:hover { color: var(--text-muted); border-color: var(--border-strong); }
   .folder-delete:hover:not(:disabled) { color: var(--color-error) !important; }
+  .folder-hidden { opacity: 0.35; }
+  .folder-default-active { color: var(--accent-fg) !important; }
 
   /* About */
   .about-block { padding: 0 var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }

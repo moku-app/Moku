@@ -191,6 +191,95 @@ export const GET_DOWNLOADS_PATH = `
   }
 `;
 
+// ── Categories ────────────────────────────────────────────────────────────────
+
+export const GET_CATEGORIES = `
+  query GetCategories {
+    categories {
+      nodes {
+        id
+        name
+        order
+        default
+        includeInUpdate
+        includeInDownload
+        mangas {
+          nodes {
+            id
+            title
+            thumbnailUrl
+            inLibrary
+            downloadCount
+            unreadCount
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const CREATE_CATEGORY = `
+  mutation CreateCategory($name: String!) {
+    createCategory(input: { name: $name }) {
+      category {
+        id
+        name
+        order
+        default
+        includeInUpdate
+        includeInDownload
+      }
+    }
+  }
+`;
+
+export const UPDATE_CATEGORY = `
+  mutation UpdateCategory($id: Int!, $name: String) {
+    updateCategory(input: { id: $id, patch: { name: $name } }) {
+      category {
+        id
+        name
+        order
+      }
+    }
+  }
+`;
+
+export const DELETE_CATEGORY = `
+  mutation DeleteCategory($id: Int!) {
+    deleteCategory(input: { categoryId: $id }) {
+      category {
+        id
+      }
+    }
+  }
+`;
+
+export const UPDATE_CATEGORY_ORDER = `
+  mutation UpdateCategoryOrder($id: Int!, $position: Int!) {
+    updateCategoryOrder(input: { id: $id, position: $position }) {
+      categories {
+        id
+        name
+        order
+        default
+        includeInUpdate
+        includeInDownload
+      }
+    }
+  }
+`;
+
+export const UPDATE_MANGA_CATEGORIES = `
+  mutation UpdateMangaCategories($mangaId: Int!, $addTo: [Int!]!, $removeFrom: [Int!]!) {
+    updateMangaCategories(input: { id: $mangaId, patch: { addToCategories: $addTo, removeFromCategories: $removeFrom } }) {
+      manga {
+        id
+      }
+    }
+  }
+`;
+
 // ── Downloads ─────────────────────────────────────────────────────────────────
 
 export const GET_DOWNLOAD_STATUS = `

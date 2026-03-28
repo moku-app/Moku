@@ -2,11 +2,11 @@
   import { onMount, untrack } from "svelte";
   import { Play, ArrowRight, ArrowLeft, BookOpen, Clock, Fire, TrendUp, CalendarBlank, CheckCircle, PushPin, X as XIcon, MagnifyingGlass, ListBullets } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_LIBRARY, GET_CHAPTERS, GET_MANGA } from "../../lib/queries";
+  import { GET_LIBRARY, GET_CHAPTERS, GET_MANGA, GET_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { store, openReader, COMPLETED_FOLDER_ID, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter } from "../../store/state.svelte";
+  import { store, openReader, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter } from "../../store/state.svelte";
   import type { HistoryEntry } from "../../store/state.svelte";
-  import type { Manga, Chapter } from "../../lib/types";
+  import type { Manga, Chapter, Category } from "../../lib/types";
 
   function timeAgo(ts: number): string {
     const diff = Date.now() - ts, m = Math.floor(diff / 60000);
@@ -30,20 +30,31 @@
 
   function focusEl(node: HTMLElement) { node.focus(); }
 
-  let libraryManga:   Manga[]  = $state([]);
-  let extraManga:     Manga[]  = $state([]);
-  let loadingLibrary: boolean  = $state(true);
+  let libraryManga:       Manga[]            = $state([]);
+  let extraManga:         Manga[]            = $state([]);
+  let loadingLibrary:     boolean            = $state(true);
+  let completedCategory:  Category | null    = $state(null);
 
   onMount(() => {
     loadLibrary();
   });
 
   function loadLibrary() {
-    cache.get(CACHE_KEYS.LIBRARY, () =>
+    const libraryP  = cache.get(CACHE_KEYS.LIBRARY, () =>
       gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then(d => d.mangas.nodes)
-    ).then(m => { libraryManga = m; fetchExtraCompleted(m); })
-     .catch(console.error)
-     .finally(() => loadingLibrary = false);
+    );
+    const categoriesP = gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES)
+      .then(d => d.categories.nodes.find(c => c.name === "Completed") ?? null)
+      .catch(() => null);
+
+    Promise.all([libraryP, categoriesP])
+      .then(([m, completed]) => {
+        libraryManga      = m;
+        completedCategory = completed;
+        fetchExtraCompleted(m, completed);
+      })
+      .catch(console.error)
+      .finally(() => loadingLibrary = false);
   }
 
   // Re-fetch library and reset hero chapters whenever the reader closes,
@@ -59,8 +70,8 @@
     loadLibrary();
   });
 
-  async function fetchExtraCompleted(library: Manga[]) {
-    const completedIds = store.settings.folders.find(f => f.id === COMPLETED_FOLDER_ID)?.mangaIds ?? [];
+  async function fetchExtraCompleted(library: Manga[], completed: Category | null) {
+    const completedIds = completed?.mangas?.nodes.map(m => m.id) ?? [];
     const missingIds = completedIds.filter(id => !library.some(m => m.id === id));
     if (!missingIds.length) return;
     const results = await Promise.allSettled(missingIds.map(id => gql<{ manga: Manga }>(GET_MANGA, { id }).then(d => d.manga)));
@@ -206,7 +217,7 @@
   function pinManga(m: Manga) { if (pickerSlotIndex !== null) { setHeroSlot(pickerSlotIndex, m.id); closePicker(); } }
   function unpinSlot(i: 1|2|3) { setHeroSlot(i, null); }
 
-  const completedIds   = $derived(store.settings.folders.find(f => f.id === COMPLETED_FOLDER_ID)?.mangaIds ?? []);
+  const completedIds   = $derived(completedCategory?.mangas?.nodes.map(m => m.id) ?? []);
   const completedPool  = $derived([...libraryManga, ...extraManga.filter(m => !libraryManga.some(l => l.id === m.id))]);
   const completedManga = $derived(completedIds.length > 0 ? completedPool.filter(m => completedIds.includes(m.id)).slice(0, 20) : []);
   const recentHistory  = $derived(store.history.slice(0, 6));

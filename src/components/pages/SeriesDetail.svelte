@@ -2,10 +2,11 @@
   import { onMount, untrack } from "svelte";
   import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA } from "../../lib/queries";
+  import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
-  import { store, addToast, updateSettings, addFolder, assignMangaToFolder, removeMangaFromFolder, getMangaFolders, openReader, checkAndMarkCompleted, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga } from "../../store/state.svelte";
-  import type { Manga, Chapter } from "../../lib/types";
+  import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
+  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, checkAndMarkCompleted as storeCheckAndMarkCompleted } from "../../store/state.svelte";
+  import type { Manga, Chapter, Category } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
   import MigrateModal from "./MigrateModal.svelte";
   import TrackingPanel from "../shared/TrackingPanel.svelte";
@@ -36,6 +37,9 @@
   let folderPickerOpen: boolean         = $state(false);
   let folderCreating:  boolean          = $state(false);
   let folderNewName:   string           = $state("");
+  let mangaCategories: Category[]       = $state([]);
+  let allCategories:   Category[]       = $state([]);
+  let catsLoading:     boolean          = $state(false);
   let rangeFrom:       string           = $state("");
   let rangeTo:         string           = $state("");
   let showRange:       boolean          = $state(false);
@@ -102,8 +106,33 @@
   })());
 
   const statusLabel     = $derived(manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null);
-  const assignedFolders = $derived(store.activeManga ? getMangaFolders(store.activeManga.id) : []);
+  const assignedFolders = $derived(mangaCategories.filter(c => c.id !== 0));
   const hasFolders      = $derived(assignedFolders.length > 0);
+
+  function loadCategories(mangaId: number) {
+    catsLoading = true;
+    gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES)
+      .then(d => {
+        allCategories   = d.categories.nodes.filter(c => c.id !== 0);
+        mangaCategories = allCategories.filter(c => c.mangas?.nodes.some(m => m.id === mangaId));
+      })
+      .catch(console.error)
+      .finally(() => { catsLoading = false; });
+  }
+
+  async function checkAndMarkCompleted(mangaId: number, chaps: Chapter[]) {
+    await storeCheckAndMarkCompleted(mangaId, chaps, allCategories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
+    // Sync local mangaCategories state after the mutation
+    if (chaps.length) {
+      const allRead   = chaps.every(c => c.isRead);
+      const completed = allCategories.find(c => c.name === "Completed");
+      if (completed) {
+        const inCompleted = mangaCategories.some(c => c.id === completed.id);
+        if (allRead && !inCompleted)  mangaCategories = [...mangaCategories, completed];
+        else if (!allRead && inCompleted) mangaCategories = mangaCategories.filter(c => c.id !== completed.id);
+      }
+    }
+  }
 
   function loadManga(id: number) {
     mangaAbort?.abort();
@@ -164,7 +193,7 @@
 
   $effect(() => {
     const m = store.activeManga;
-    if (m) untrack(() => { loadManga(m.id); loadChapters(m.id); });
+    if (m) untrack(() => { loadManga(m.id); loadChapters(m.id); loadCategories(m.id); });
   });
 
   let prevChapterId: number | null = null;
@@ -300,12 +329,32 @@
     enqueueMultiple(sortedChapters.filter(c => c.chapterNumber >= lo && c.chapterNumber <= hi && !c.isDownloaded).map(c => c.id));
   }
 
-  function createFolder() {
+  async function createCategory() {
     const name = folderNewName.trim();
     if (!name || !store.activeManga) return;
-    const id = addFolder(name);
-    assignMangaToFolder(id, store.activeManga.id);
+    try {
+      const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name });
+      const cat = res.createCategory.category;
+      await gql(UPDATE_MANGA_CATEGORIES, { mangaId: store.activeManga.id, addTo: [cat.id], removeFrom: [] });
+      allCategories   = [...allCategories, cat];
+      mangaCategories = [...mangaCategories, cat];
+    } catch (e) { console.error(e); }
     folderNewName = ""; folderCreating = false;
+  }
+
+  async function toggleCategory(cat: Category) {
+    if (!store.activeManga) return;
+    const inCat = mangaCategories.some(c => c.id === cat.id);
+    try {
+      await gql(UPDATE_MANGA_CATEGORIES, {
+        mangaId:    store.activeManga.id,
+        addTo:      inCat ? [] : [cat.id],
+        removeFrom: inCat ? [cat.id] : [],
+      });
+      mangaCategories = inCat
+        ? mangaCategories.filter(c => c.id !== cat.id)
+        : [...mangaCategories, cat];
+    } catch (e) { console.error(e); }
   }
 
   onMount(() => () => { mangaAbort?.abort(); chapterAbort?.abort(); });
@@ -505,29 +554,30 @@
           <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
         </button>
 
-        <!-- Folder picker -->
+        <!-- Category picker -->
         <div class="fp-wrap" bind:this={folderPickerRef}>
           <button class="icon-btn" class:active={hasFolders} onclick={() => folderPickerOpen = !folderPickerOpen}>
             <FolderSimplePlus size={14} weight={hasFolders ? "fill" : "light"} />
           </button>
           {#if folderPickerOpen}
             <div class="fp-menu">
-              {#if store.settings.folders.length === 0 && !folderCreating}
+              {#if catsLoading}
+                <p class="fp-empty">Loading…</p>
+              {:else if allCategories.length === 0 && !folderCreating}
                 <p class="fp-empty">No folders yet</p>
               {/if}
-              {#each store.settings.folders as folder}
-                {@const isIn = store.activeManga ? folder.mangaIds.includes(store.activeManga.id) : false}
-                <button class="fp-item" class:fp-item-active={isIn}
-                  onclick={() => store.activeManga && (isIn ? removeMangaFromFolder(folder.id, store.activeManga.id) : assignMangaToFolder(folder.id, store.activeManga.id))}>
-                  <span class="fp-check">{isIn ? "✓" : ""}</span>{folder.name}
+              {#each allCategories as cat}
+                {@const isIn = mangaCategories.some(c => c.id === cat.id)}
+                <button class="fp-item" class:fp-item-active={isIn} onclick={() => toggleCategory(cat)}>
+                  <span class="fp-check">{isIn ? "✓" : ""}</span>{cat.name}
                 </button>
               {/each}
               <div class="fp-div"></div>
               {#if folderCreating}
                 <div class="fp-create">
                   <input class="fp-input" placeholder="Folder name…" bind:value={folderNewName}
-                    onkeydown={(e) => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }} use:focusOnMount />
-                  <button class="fp-confirm" onclick={createFolder} disabled={!folderNewName.trim()}>Add</button>
+                    onkeydown={(e) => { if (e.key === "Enter") createCategory(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }} use:focusOnMount />
+                  <button class="fp-confirm" onclick={createCategory} disabled={!folderNewName.trim()}>Add</button>
                   <button class="fp-cancel" onclick={() => { folderCreating = false; folderNewName = ""; }}>
                     <X size={12} weight="light" />
                   </button>

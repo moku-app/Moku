@@ -2,11 +2,11 @@
   import { onDestroy } from "svelte";
   import { BookmarkSimple, FolderSimplePlus, Folder, Sparkle, ArrowsClockwise } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
+  import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
   import { dedupeSources, dedupeMangaByTitle, dedupeMangaById } from "../../lib/util";
-  import { store, addFolder, assignMangaToFolder, setPreviewManga, clearDiscoverCache } from "../../store/state.svelte";
-  import type { Manga, Source } from "../../lib/types";
+  import { store, setPreviewManga, clearDiscoverCache } from "../../store/state.svelte";
+  import type { Manga, Source, Category } from "../../lib/types";
   import ContextMenu from "../shared/ContextMenu.svelte";
   import type { MenuEntry } from "../shared/ContextMenu.svelte";
   import SourceBrowse from "../shared/SourceBrowse.svelte";
@@ -48,6 +48,8 @@
 
   let activeCtrl: AbortController | null = null;
   let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
+  let categories: Category[] = $state([]);
+  let catsLoaded             = false;
 
   const isLoading   = $derived(genreLoading || refreshing || (currentGenre === "All" && loadingLib));
   const visibleGrid = $derived(genreResults.get(currentGenre) ?? []);
@@ -253,6 +255,12 @@
   function openCtx(e: MouseEvent, m: Manga) {
     e.preventDefault(); e.stopPropagation();
     ctx = { x: e.clientX, y: e.clientY, manga: m };
+    if (!catsLoaded) {
+      catsLoaded = true;
+      gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES)
+        .then(d => { categories = d.categories.nodes.filter(c => c.id !== 0); })
+        .catch(console.error);
+    }
   }
 
   function buildCtxItems(m: Manga): MenuEntry[] {
@@ -266,20 +274,26 @@
             store.discoverLibraryIds = new Set([...store.discoverLibraryIds, m.id]);
           }).catch(console.error),
       },
-      ...(store.settings.folders.length > 0 ? [
+      ...(categories.length > 0 ? [
         { separator: true } as MenuEntry,
-        ...store.settings.folders.map(f => ({
-          label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name,
+        ...categories.map(cat => ({
+          label: (cat.mangas?.nodes ?? []).some(x => x.id === m.id) ? `✓ ${cat.name}` : cat.name,
           icon: Folder,
-          onClick: () => assignMangaToFolder(f.id, m.id),
+          onClick: () => gql(UPDATE_MANGA_CATEGORIES, { mangaId: m.id, addTo: [cat.id], removeFrom: [] }).catch(console.error),
         })),
       ] : []),
       { separator: true },
       {
         label: "New folder & add", icon: FolderSimplePlus,
-        onClick: () => {
+        onClick: async () => {
           const n = prompt("Folder name:");
-          if (n?.trim()) { const id = addFolder(n.trim()); assignMangaToFolder(id, m.id); }
+          if (!n?.trim()) return;
+          const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name: n.trim() }).catch(console.error);
+          if (res) {
+            const cat = res.createCategory.category;
+            categories = [...categories, cat];
+            await gql(UPDATE_MANGA_CATEGORIES, { mangaId: m.id, addTo: [cat.id], removeFrom: [] }).catch(console.error);
+          }
         },
       },
     ];

@@ -199,8 +199,7 @@
     error      = null;
     pageGroups = [];
     pageReady  = false;
-    stripChapters    = [];
-    visibleChapterId = null;
+    stripChapters = [];
     store.pageUrls   = [];
     store.pageNumber = 1;
     try {
@@ -457,7 +456,7 @@
   }
 
   function maybeMarkCurrentRead() {
-    const ch = store.activeChapter;
+    const ch = displayChapter ?? store.activeChapter;
     if (ch && markOnNext) markChapterRead(ch.id);
   }
 
@@ -711,11 +710,11 @@
   </div>
 
   <div class="bottombar" class:hidden={!uiVisible}>
-    <button class="nav-btn" onclick={goPrev} disabled={loading || (style === "longstrip" ? !adjacent.prev : (store.pageNumber === 1 && !adjacent.prev))}>
-      <ArrowLeft size={13} weight="light" />
+    <button class="nav-btn" onclick={goBack} disabled={loading || (style === "longstrip" ? !adjacent.prev : (store.pageNumber === 1 && !adjacent.prev))}>
+      {#if rtl}<ArrowRight size={13} weight="light" />{:else}<ArrowLeft size={13} weight="light" />{/if}
     </button>
-    <button class="nav-btn" onclick={goNext} disabled={loading || (style === "longstrip" ? !adjacent.next : (store.pageNumber === lastPage && !adjacent.next))}>
-      <ArrowRight size={13} weight="light" />
+    <button class="nav-btn" onclick={goForward} disabled={loading || (style === "longstrip" ? !adjacent.next : (store.pageNumber === lastPage && !adjacent.next))}>
+      {#if rtl}<ArrowLeft size={13} weight="light" />{:else}<ArrowRight size={13} weight="light" />{/if}
     </button>
   </div>
 
