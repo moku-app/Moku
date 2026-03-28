@@ -562,10 +562,9 @@
 
     try {
       if (IS_WINDOWS) {
-        // Kill Suwayomi before installing — its JRE DLLs will be locked otherwise
+        // Kill Suwayomi before installing — its JRE DLLs will be locked otherwise.
+        // kill_server blocks on the Rust side until java.exe is fully gone.
         try { await invoke("kill_server"); } catch {}
-        // Give the process a moment to fully release file handles
-        await new Promise(res => setTimeout(res, 1500));
         // Windows: Tauri updater downloads + runs passive NSIS installer
         await invoke("download_and_install_update");
         updatePhase = "ready";

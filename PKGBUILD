@@ -1,5 +1,5 @@
 pkgname=moku
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="Native Linux manga reader frontend for Suwayomi-Server"
 arch=('x86_64')

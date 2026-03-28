@@ -121,15 +121,38 @@ fn kill_tachidesk(app: &tauri::AppHandle) {
     }
 
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("taskkill")
-        .args(["/F", "/FI", "IMAGENAME eq java*"])
-        .status();
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/FI", "IMAGENAME eq java.exe"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+
+        // Poll until no java.exe remains (up to ~3 s) so the installer can
+        // overwrite the JRE DLLs without hitting a sharing-violation error.
+        for _ in 0..30 {
+            let still_running = std::process::Command::new("tasklist")
+                .args(["/FI", "IMAGENAME eq java.exe", "/NH"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("java.exe"))
+                .unwrap_or(false);
+
+            if !still_running {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
 
     #[cfg(not(target_os = "windows"))]
     let _ = std::process::Command::new("pkill")
         .args(["-f", "tachidesk"])
         .status();
 }
+
 
 const DEFAULT_SERVER_CONF: &str = r#"server.ip = "127.0.0.1"
 server.port = 4567
