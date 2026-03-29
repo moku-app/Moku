@@ -8,6 +8,25 @@ export type NavPage          = "home" | "library" | "sources" | "explore" | "dow
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
 export type ChapterSortMode  = "source" | "chapterNumber" | "uploadDate";
+
+export type LibrarySortMode =
+  | "az"
+  | "unreadCount"
+  | "totalChapters"
+  | "recentlyAdded"
+  | "recentlyRead"
+  | "latestFetched"
+  | "latestUploaded";
+
+export type LibrarySortDir = "asc" | "desc";
+
+export type LibraryStatusFilter =
+  | "ALL"
+  | "ONGOING"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "HIATUS"
+  | "UNKNOWN";
 export type BuiltinTheme     = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
 export type Theme            = BuiltinTheme | string; // custom themes have string IDs like "custom:abc123"
 
@@ -208,6 +227,9 @@ export interface Settings {
   hiddenCategoryIds:       number[];
   /** Category ID that opens by default when the Library tab is first visited. null = no default (shows Saved). */
   defaultLibraryCategoryId: number | null;
+  /** Per-tab sort/filter state — keyed by libraryFilter value (e.g. "library", "downloaded", "42"). */
+  libraryTabSort:   Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
+  libraryTabStatus: Record<string, LibraryStatusFilter>;
   // Legacy fields kept for migration reads only — never written after v3.
   /** @deprecated use readerZoom */
   maxPageWidth?:           number;
@@ -271,6 +293,8 @@ export const DEFAULT_SETTINGS: Settings = {
   customThemes:           [],
   hiddenCategoryIds:      [],
   defaultLibraryCategoryId: null,
+  libraryTabSort:         {},
+  libraryTabStatus:       {},
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -331,6 +355,8 @@ function mergeSettings(saved: any): Settings {
     mangaLinks:   saved?.settings?.mangaLinks ?? {},
     customThemes: saved?.settings?.customThemes ?? [],
     hiddenCategoryIds: saved?.settings?.hiddenCategoryIds ?? [],
+    libraryTabSort:    saved?.settings?.libraryTabSort    ?? {},
+    libraryTabStatus:  saved?.settings?.libraryTabStatus  ?? {},
   };
 }
 

@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut } from "phosphor-svelte";
+  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut, SortAscending, Funnel, CaretUp, CaretDown } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
   import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings, setCategories } from "../../store/state.svelte";
+  import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter } from "../../store/state.svelte";
   import type { Manga, Category, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
@@ -18,6 +19,85 @@
 
   let activeDragKind: "tab" | null = $state(null);
   let dragInsertIdx:  number       = $state(-1);
+
+  // ── Sort / filter panel ───────────────────────────────────────────────────
+
+  let sortPanelOpen:   boolean = $state(false);
+  let filterPanelOpen: boolean = $state(false);
+
+  function openSortPanel() {
+    sortPanelOpen = !sortPanelOpen;
+    filterPanelOpen = false;
+  }
+
+  function openFilterPanel() {
+    filterPanelOpen = !filterPanelOpen;
+    sortPanelOpen = false;
+  }
+
+  const SORT_LABELS: Record<LibrarySortMode, string> = {
+    az:             "A–Z",
+    unreadCount:    "Unread chapters",
+    totalChapters:  "Total chapters",
+    recentlyAdded:  "Recently added",
+    recentlyRead:   "Recently read",
+    latestFetched:  "Latest fetched chapter",
+    latestUploaded: "Latest uploaded chapter",
+  };
+
+  const STATUS_LABELS: Record<LibraryStatusFilter, string> = {
+    ALL:       "All statuses",
+    ONGOING:   "Ongoing",
+    COMPLETED: "Completed",
+    CANCELLED: "Cancelled",
+    HIATUS:    "Hiatus",
+    UNKNOWN:   "Unknown",
+  };
+
+  const ALL_SORT_MODES: LibrarySortMode[] = [
+    "az", "unreadCount", "totalChapters", "recentlyAdded",
+    "recentlyRead", "latestFetched", "latestUploaded",
+  ];
+
+  const ALL_STATUS_FILTERS: LibraryStatusFilter[] = [
+    "ALL", "ONGOING", "COMPLETED", "CANCELLED", "HIATUS", "UNKNOWN",
+  ];
+
+  // Per-tab reactive state — $derived so Svelte tracks changes to libraryFilter and settings
+  const tabSortMode = $derived(
+    store.settings.libraryTabSort[store.libraryFilter]?.mode ?? "az" as LibrarySortMode
+  );
+  const tabSortDir = $derived(
+    store.settings.libraryTabSort[store.libraryFilter]?.dir ?? "asc" as LibrarySortDir
+  );
+  const tabStatus = $derived(
+    store.settings.libraryTabStatus[store.libraryFilter] ?? "ALL" as LibraryStatusFilter
+  );
+
+  function setTabSort(mode: LibrarySortMode, dir?: LibrarySortDir) {
+    const prev   = store.settings.libraryTabSort[store.libraryFilter];
+    const newDir = dir ?? prev?.dir ?? "asc";
+    updateSettings({
+      libraryTabSort: {
+        ...store.settings.libraryTabSort,
+        [store.libraryFilter]: { mode, dir: newDir },
+      },
+    });
+  }
+
+  function toggleTabSortDir() {
+    setTabSort(tabSortMode, tabSortDir === "asc" ? "desc" : "asc");
+  }
+
+  function setTabStatus(status: LibraryStatusFilter) {
+    updateSettings({
+      libraryTabStatus: {
+        ...store.settings.libraryTabStatus,
+        [store.libraryFilter]: status,
+      },
+    });
+    filterPanelOpen = false;
+  }
 
   let allManga:       Manga[]      = $state([]);
   let loading:        boolean      = $state(true);
@@ -157,7 +237,11 @@
   async function loadData() {
     try {
       const [nodes] = await Promise.all([loadLibrary(), reloadCategories()]);
-      allManga = dedupeMangaByTitle(dedupeMangaById(nodes), store.settings.mangaLinks);
+      const mapped = nodes.map((m: any) => ({
+        ...m,
+        chapterCount: m.chapters?.totalCount ?? m.chapterCount ?? 0,
+      }));
+      allManga = dedupeMangaByTitle(dedupeMangaById(mapped), store.settings.mangaLinks);
       error    = null;
     } catch (e: any) {
       error = e.message;
@@ -220,17 +304,73 @@
   })());
 
   const filtered = $derived((() => {
-    const q = search.trim().toLowerCase();
+    const q      = search.trim().toLowerCase();
+    const mode   = tabSortMode;
+    const dir    = tabSortDir;
+    const status = tabStatus;
+
+    // 1. Pick the right base list for this tab
+    let items: Manga[];
     if (store.libraryFilter === "library") {
-      return q ? allManga.filter(m => m.title.toLowerCase().includes(q)) : allManga;
+      items = allManga;
+    } else if (store.libraryFilter === "downloaded") {
+      items = allManga.filter(m => (m.downloadCount ?? 0) > 0);
+    } else {
+      items = categoryMangaMap.get(Number(store.libraryFilter)) ?? [];
     }
-    if (store.libraryFilter === "downloaded") {
-      const items = allManga.filter(m => (m.downloadCount ?? 0) > 0);
-      return q ? items.filter(m => m.title.toLowerCase().includes(q)) : items;
+
+    // 2. Text search
+    if (q) items = items.filter(m => m.title.toLowerCase().includes(q));
+
+    // 3. Status filter
+    if (status !== "ALL") {
+      items = items.filter(m => {
+        const s = m.status?.toUpperCase().replace(/\s+/g, "_") ?? "UNKNOWN";
+        return s === status;
+      });
     }
-    const id    = Number(store.libraryFilter);
-    const items = categoryMangaMap.get(id) ?? [];
-    return q ? items.filter(m => m.title.toLowerCase().includes(q)) : items;
+
+    // 4. Sort
+    const recentlyReadMap = new Map<number, number>();
+    if (mode === "recentlyRead") {
+      for (const h of store.history) {
+        if (!recentlyReadMap.has(h.mangaId)) recentlyReadMap.set(h.mangaId, h.readAt);
+      }
+    }
+
+    const sorted = [...items].sort((a, b) => {
+      let cmp = 0;
+      switch (mode) {
+        case "az":
+          cmp = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+          break;
+        case "unreadCount":
+          cmp = (a.unreadCount ?? 0) - (b.unreadCount ?? 0);
+          break;
+        case "totalChapters":
+          cmp = (a.chapterCount ?? 0) - (b.chapterCount ?? 0);
+          break;
+        case "recentlyAdded":
+          // id is monotonically increasing on Suwayomi — higher = newer
+          cmp = a.id - b.id;
+          break;
+        case "recentlyRead": {
+          const ra = recentlyReadMap.get(a.id) ?? 0;
+          const rb = recentlyReadMap.get(b.id) ?? 0;
+          cmp = ra - rb;
+          break;
+        }
+        // latestFetched / latestUploaded: no per-manga date available at list level;
+        // fall back to id ordering so the option still does something sensible.
+        case "latestFetched":
+        case "latestUploaded":
+          cmp = a.id - b.id;
+          break;
+      }
+      return dir === "asc" ? cmp : -cmp;
+    });
+
+    return sorted;
   })());
 
   const cols           = $derived(Math.max(1, Math.floor((containerWidth + CARD_GAP) / (CARD_MIN_W + CARD_GAP))));
@@ -440,15 +580,31 @@
 
     // Escape key exits select mode
     function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && (sortPanelOpen || filterPanelOpen)) {
+        sortPanelOpen = false; filterPanelOpen = false; return;
+      }
       if (e.key === "Escape" && selectMode) exitSelectMode();
       if ((e.key === "a" && (e.metaKey || e.ctrlKey)) && selectMode) {
         e.preventDefault();
         selectAll();
       }
     }
-    window.addEventListener("keydown", onKeyDown);
 
-    return () => { ro.disconnect(); unsub(); window.removeEventListener("keydown", onKeyDown); };
+    function onDocMouseDown(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (sortPanelOpen   && !target.closest(".sort-panel-wrap, .sort-panel"))   sortPanelOpen   = false;
+      if (filterPanelOpen && !target.closest(".filter-panel-wrap, .filter-panel")) filterPanelOpen = false;
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onDocMouseDown, true);
+
+    return () => {
+      ro.disconnect();
+      unsub();
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onDocMouseDown, true);
+    };
   });
 </script>
 
@@ -535,9 +691,84 @@
           {/each}
         </div>
       </div>
-      <div class="search-wrap">
-        <MagnifyingGlass size={13} class="search-icon" weight="light" />
-        <input class="search" placeholder="Search" bind:value={search} />
+      <div class="header-right">
+        <div class="search-wrap">
+          <MagnifyingGlass size={13} class="search-icon" weight="light" />
+          <input class="search" placeholder="Search" bind:value={search} />
+        </div>
+
+        <!-- Sort panel -->
+        <div class="sort-panel-wrap">
+          <button
+            class="icon-btn"
+            class:icon-btn-active={tabSortMode !== "az" || tabSortDir !== "asc"}
+            title="Sort"
+            onclick={openSortPanel}
+          >
+            <SortAscending size={15} weight="bold" />
+          </button>
+          {#if sortPanelOpen}
+            <div class="dropdown-panel sort-panel" role="menu">
+              <p class="panel-label">Sort by</p>
+              {#each ALL_SORT_MODES as m}
+                <button
+                  class="panel-item"
+                  class:panel-item-active={tabSortMode === m}
+                  role="menuitem"
+                  onclick={() => { setTabSort(m); sortPanelOpen = false; }}
+                >
+                  {SORT_LABELS[m]}
+                  {#if tabSortMode === m}
+                    {#if tabSortDir === "asc"}
+                      <CaretUp size={11} weight="bold" class="sort-caret" />
+                    {:else}
+                      <CaretDown size={11} weight="bold" class="sort-caret" />
+                    {/if}
+                  {/if}
+                </button>
+              {/each}
+              <button
+                class="panel-item dir-toggle"
+                role="menuitem"
+                onclick={toggleTabSortDir}
+              >
+                {tabSortDir === "asc" ? "Ascending" : "Descending"}
+                {#if tabSortDir === "asc"}
+                  <CaretUp size={11} weight="bold" />
+                {:else}
+                  <CaretDown size={11} weight="bold" />
+                {/if}
+              </button>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Filter panel -->
+        <div class="filter-panel-wrap">
+          <button
+            class="icon-btn"
+            class:icon-btn-active={tabStatus !== "ALL"}
+            title="Filter by status"
+            onclick={openFilterPanel}
+          >
+            <Funnel size={15} weight={tabStatus !== "ALL" ? "fill" : "bold"} />
+          </button>
+          {#if filterPanelOpen}
+            <div class="dropdown-panel filter-panel" role="menu">
+              <p class="panel-label">Filter by status</p>
+              {#each ALL_STATUS_FILTERS as s}
+                <button
+                  class="panel-item"
+                  class:panel-item-active={tabStatus === s}
+                  role="menuitem"
+                  onclick={() => setTabStatus(s)}
+                >
+                  {STATUS_LABELS[s]}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
       </div>
     </div>
 
@@ -659,12 +890,12 @@
 {/if}
 
 <style>
-  .root { position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
+  .root { position: relative; display: flex; flex-direction: column; height: 100%; overflow: visible; animation: fadeIn 0.14s ease both; }
   .content { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6) var(--sp-6); will-change: scroll-position; -webkit-overflow-scrolling: touch; }
   .branches { position: absolute; top: 0; right: 0; width: 400px; height: 600px; pointer-events: none; z-index: 0; }
   .branches :global(.anim-branch) { stroke-dasharray: 60; stroke-dashoffset: 60; animation: branchGrow 2.4s ease forwards; }
   @keyframes branchGrow { to { stroke-dashoffset: 0; } }
-  .header { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); gap: var(--sp-4); flex-wrap: wrap; flex-shrink: 0; }
+  .header { position: relative; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); gap: var(--sp-4); flex-wrap: wrap; flex-shrink: 0; }
   .header-left { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
   .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; }
@@ -681,6 +912,27 @@
   .search { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 10px 5px 28px; color: var(--text-primary); font-size: var(--text-sm); width: 180px; outline: none; transition: border-color var(--t-base); }
   .search::placeholder { color: var(--text-faint); }
   .search:focus { border-color: var(--border-strong); }
+
+  /* ── Header right cluster ───────────────────────────────────────────────── */
+  .header-right { display: flex; align-items: center; gap: var(--sp-2); }
+
+  /* ── Icon buttons (sort / filter triggers) ──────────────────────────────── */
+  .icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .icon-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+  .icon-btn-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+
+  /* ── Dropdown panels (shared) ───────────────────────────────────────────── */
+  .sort-panel-wrap,
+  .filter-panel-wrap { position: relative; }
+  .dropdown-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 9999; min-width: 220px; background: var(--bg-overlay, #1a1a1a); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: 6px; box-shadow: 0 12px 36px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3); animation: fadeIn 0.1s ease both; }
+  .panel-label { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-faint); padding: 4px 8px 8px; }
+  .panel-item { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 7px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); gap: var(--sp-2); }
+  .panel-item:hover { background: var(--bg-subtle, #202020); color: var(--text-primary); }
+  .panel-item-active { color: var(--accent-fg); background: var(--accent-muted); font-weight: var(--weight-medium, 500); }
+  .panel-item-active:hover { background: var(--accent-dim); }
+  .panel-divider { height: 1px; background: var(--border-dim); margin: 4px 2px; }
+  .dir-toggle { color: var(--text-secondary); justify-content: flex-start; gap: var(--sp-2); border-top: 1px solid var(--border-dim); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: 2px; padding-top: 9px; }
+  .sort-caret { flex-shrink: 0; }
 
   /* ── Selection toolbar ──────────────────────────────────────────────────── */
   .select-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-6); background: var(--bg-raised); border-bottom: 1px solid var(--accent-dim); flex-shrink: 0; animation: fadeIn 0.1s ease both; }
@@ -705,15 +957,14 @@
   .bulk-folder-item:hover { background: var(--bg-hover, var(--bg-base)); color: var(--text-primary); }
 
   /* ── Grid & cards ───────────────────────────────────────────────────────── */
-  .grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
+  .grid { position: relative; z-index: 1; isolation: isolate; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
   .card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
   .card:hover .cover { filter: brightness(1.07); }
   .card:hover .title { color: var(--text-primary); }
-  /* In select mode, clicking always means "select", so use a checkbox cursor */
   .card.select-mode { cursor: default; }
   .card.card-selected .cover-wrap { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-md); }
   .card.card-selected .title { color: var(--accent-fg); }
-  .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); }
+  .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); }
   .cover { width: 100%; height: 100%; transition: filter var(--t-base); will-change: filter; }
   .badge-dl { position: absolute; bottom: var(--sp-1); right: var(--sp-1); min-width: 18px; height: 18px; padding: 0 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--accent-dim); color: var(--accent-fg); border-radius: var(--radius-sm); border: 1px solid var(--accent-muted); }
   .badge-unread { position: absolute; top: var(--sp-1); left: var(--sp-1); min-width: 18px; height: 18px; padding: 0 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--bg-void); color: var(--text-primary); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); }
