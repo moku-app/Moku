@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star } from "phosphor-svelte";
+  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
@@ -13,19 +13,11 @@
   const CARD_GAP       = 16;
   const COMPLETED_NAME = "Completed";
 
-  // Drag type discriminators. We keep the custom MIME types for standards
-  // browsers, but also rely on `activeDragKind` as the authoritative signal
-  // because Tauri's WebKit sometimes strips custom MIME types from
-  // dataTransfer.types during dragover/drop events.
-  const DT_TAB   = "application/x-moku-tab";
-  const DT_MANGA = "application/x-moku-manga";
+  // Drag type discriminators (tab reorder only — manga cards no longer use drag).
+  const DT_TAB = "application/x-moku-tab";
 
-  // Set at dragstart, cleared at dragend. This is the authoritative
-  // discriminator — not affected by MIME stripping in any webview.
-  let activeDragKind: "tab" | "manga" | null = $state(null);
-  // Track insert position for the green drop-indicator bar (tab reorder).
-  // -1 = no indicator. Value = index in visibleCategories before which the bar shows.
-  let dragInsertIdx: number = $state(-1);
+  let activeDragKind: "tab" | null = $state(null);
+  let dragInsertIdx:  number       = $state(-1);
 
   let allManga:       Manga[]      = $state([]);
   let loading:        boolean      = $state(true);
@@ -37,6 +29,101 @@
   let containerWidth: number       = $state(800);
   let ctx:     { x: number; y: number; manga: Manga } | null = $state(null);
   let emptyCtx:{ x: number; y: number } | null               = $state(null);
+
+  // ── Multi-select ──────────────────────────────────────────────────────────
+
+  let selectedIds:   Set<number> = $state(new Set());
+  let selectMode:    boolean     = $state(false);
+  let bulkWorking:   boolean     = $state(false);
+  // Which folder-move popup is open (shows inline folder list)
+  let bulkMoveOpen:  boolean     = $state(false);
+
+  function enterSelectMode(id?: number) {
+    selectMode = true;
+    if (id !== undefined) selectedIds = new Set([id]);
+  }
+
+  function exitSelectMode() {
+    selectMode  = false;
+    selectedIds = new Set();
+    bulkMoveOpen = false;
+  }
+
+  function toggleSelect(id: number) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    selectedIds = next;
+    if (next.size === 0) exitSelectMode();
+  }
+
+  function selectAll() {
+    selectedIds = new Set(visibleManga.map(m => m.id));
+  }
+
+  // Long-press to enter select mode on touch devices
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  function onCardPointerDown(e: PointerEvent, m: Manga) {
+    if (e.button !== 0) return; // only primary
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      enterSelectMode(m.id);
+    }, 500);
+  }
+  function onCardPointerUp() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+  }
+  function onCardPointerLeave() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+  }
+
+  function onCardClick(e: MouseEvent, m: Manga) {
+    if (selectMode) {
+      toggleSelect(m.id);
+      return;
+    }
+    // Cmd/Ctrl+click or Shift+click enters select mode
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      e.preventDefault();
+      enterSelectMode(m.id);
+      return;
+    }
+    store.activeManga = m;
+  }
+
+  // ── Bulk mutations ────────────────────────────────────────────────────────
+
+  async function bulkMoveToCategory(cat: Category) {
+    bulkWorking  = true;
+    bulkMoveOpen = false;
+    try {
+      await Promise.all(
+        [...selectedIds].map(id => {
+          const manga = allManga.find(m => m.id === id);
+          if (!manga) return Promise.resolve();
+          return toggleMangaCategory(manga, cat);
+        })
+      );
+    } finally {
+      bulkWorking = false;
+      exitSelectMode();
+    }
+  }
+
+  async function bulkRemoveFromLibrary() {
+    bulkWorking = true;
+    try {
+      await Promise.all(
+        [...selectedIds].map(id => {
+          const manga = allManga.find(m => m.id === id);
+          if (!manga) return Promise.resolve();
+          return removeFromLibrary(manga);
+        })
+      );
+    } finally {
+      bulkWorking = false;
+      exitSelectMode();
+    }
+  }
 
   // ── Completed category auto-create ────────────────────────────────────────
 
@@ -50,7 +137,6 @@
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  /** Fetch categories from server and write to the shared store. */
   async function reloadCategories() {
     try {
       const d = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
@@ -89,8 +175,6 @@
 
   $effect(() => { if (scrollEl) scrollEl.scrollTo({ top: 0 }); });
 
-  // Reset filter to library if the active category tab no longer exists.
-  // Uses untrack on the write side to avoid a read→write→re-run loop.
   $effect(() => {
     const f = store.libraryFilter;
     if (f === "library" || f === "downloaded") return;
@@ -100,7 +184,9 @@
     }
   });
 
-  // Re-fetch library when reader closes
+  // Exit select mode when the filter changes
+  $effect(() => { store.libraryFilter; untrack(() => exitSelectMode()); });
+
   let prevChapterId: number | null = null;
   $effect(() => {
     const wasOpen = prevChapterId !== null;
@@ -118,7 +204,6 @@
     return store.categories
       .filter(c => c.id !== 0 && !(store.settings.hiddenCategoryIds ?? []).includes(c.id))
       .sort((a, b) => {
-        // Starred folder always first
         if (a.id === defaultId) return -1;
         if (b.id === defaultId) return  1;
         return a.order - b.order;
@@ -169,18 +254,12 @@
   function loadMore() { renderVisible += store.settings.renderLimit ?? 48; }
 
   // ── Drag: tab reorder ─────────────────────────────────────────────────────
-  //
-  // Optimistically reorders categories immediately on drop, then syncs to server.
-  // `activeDragKind` is the reliable discriminator — not dataTransfer.types.
 
   let dragTabId:     number | null = $state(null);
   let dragOverTabId: number | null = $state(null);
+  let dropTargetTabId: number | null = $state(null);
 
   function onTabDragStart(e: DragEvent, cat: Category) {
-    // If a manga card drag is already in flight (e.g. dragged over a tab and
-    // WebKit fires dragstart on the underlying draggable tab element), ignore it
-    // so we don't clobber activeDragKind and break the manga drop.
-    if (activeDragKind === "manga") { e.preventDefault(); return; }
     activeDragKind = "tab";
     dragTabId = cat.id;
     e.dataTransfer!.effectAllowed = "move";
@@ -194,13 +273,11 @@
     e.preventDefault();
     e.dataTransfer!.dropEffect = "move";
     dragOverTabId = cat.id;
-    dragInsertIdx = idx; // show green bar before this tab
+    dragInsertIdx = idx;
   }
 
   function onTabDragLeave() {
     dragOverTabId = null;
-    // Don't clear dragInsertIdx on leave — wait for the next dragover or drop
-    // so the bar doesn't flicker as the cursor crosses element boundaries.
   }
 
   async function onTabDrop(e: DragEvent, dropCat: Category) {
@@ -215,7 +292,6 @@
     dragTabId = null;
     activeDragKind = null;
 
-    // Work on `store.categories` sorted by current .order (server-authoritative)
     const sorted = [...store.categories]
       .filter(c => c.id !== 0)
       .sort((a, b) => a.order - b.order);
@@ -224,144 +300,29 @@
     const toIdx   = sorted.findIndex(c => c.id === dropCat.id);
     if (fromIdx < 0 || toIdx < 0) return;
 
-    // Optimistic reorder: splice, reassign .order, merge back into categories
     const reordered = [...sorted];
     const [moved]   = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
     const withNewOrder = reordered.map((c, i) => ({ ...c, order: i + 1 }));
     setCategories(store.categories.map(c => withNewOrder.find(u => u.id === c.id) ?? c));
 
-    // Server sync — position is 1-based index of the drop target in sorted list
     const newPos = toIdx + 1;
     try {
       await gql<{ updateCategoryOrder: { categories: Category[] } }>(
         UPDATE_CATEGORY_ORDER,
         { id: dragId, position: newPos },
       );
-      // Server confirmed — no extra publish needed, store.categories is already correct
     } catch (err) {
       console.error("Tab reorder failed:", err);
-      await reloadCategories(); // revert to server truth on error
+      await reloadCategories();
     }
   }
 
   function onTabDragEnd() {
-    if (activeDragKind !== "tab") return;
     activeDragKind = null;
     dragTabId = null;
     dragOverTabId = null;
     dragInsertIdx = -1;
-  }
-
-  // ── Drag: manga card → folder tab ─────────────────────────────────────────
-  //
-  // `activeDragKind` is set to "manga" at dragstart so every handler knows
-  // what is being dragged without relying on dataTransfer.types.
-
-  let dragMangaId:     number | null = $state(null);
-  let dropTargetTabId: number | null = $state(null);
-
-  // Off-screen container for the custom drag ghost — created once per drag.
-  let dragGhostEl: HTMLDivElement | null = null;
-
-  function onCardDragStart(e: DragEvent, m: Manga) {
-    activeDragKind = "manga";
-    dragMangaId = m.id;
-    e.dataTransfer!.effectAllowed = "copyMove";
-    e.dataTransfer!.setData(DT_MANGA, String(m.id));
-    e.dataTransfer!.setData("text/plain", `manga:${m.id}`);
-
-    // ── Custom drag ghost ──────────────────────────────────────────────────
-    if (dragGhostEl) dragGhostEl.remove();
-    const ghost = document.createElement("div");
-    ghost.style.cssText = [
-      "position:fixed", "top:-9999px", "left:-9999px",
-      "width:72px",
-      "border-radius:10px",
-      "overflow:hidden",
-      "box-shadow:0 8px 24px rgba(0,0,0,0.7)",
-      "border:1.5px solid var(--accent-dim)",
-      "background:var(--bg-raised)",
-      "pointer-events:none",
-      "z-index:99999",
-    ].join(";");
-
-    const img = document.createElement("img");
-    img.src = thumbUrl(m.thumbnailUrl);
-    img.style.cssText = "width:72px;aspect-ratio:2/3;object-fit:cover;display:block;";
-
-    const label = document.createElement("div");
-    label.textContent = m.title;
-    label.style.cssText = [
-      "padding:4px 6px",
-      "font-size:9px",
-      "line-height:1.3",
-      "color:var(--text-secondary)",
-      "background:var(--bg-raised)",
-      "white-space:nowrap",
-      "overflow:hidden",
-      "text-overflow:ellipsis",
-      "font-family:var(--font-ui)",
-      "letter-spacing:var(--tracking-wide)",
-    ].join(";");
-
-    ghost.appendChild(img);
-    ghost.appendChild(label);
-    document.body.appendChild(ghost);
-    dragGhostEl = ghost;
-    e.dataTransfer!.setDragImage(ghost, 36, 40);
-  }
-
-  function onCardDragEnd() {
-    activeDragKind = null;
-    dragMangaId = null;
-    dropTargetTabId = null;
-    if (dragGhostEl) { dragGhostEl.remove(); dragGhostEl = null; }
-  }
-
-  function onFolderTabDragOver(e: DragEvent, cat: Category) {
-    if (activeDragKind !== "manga") return;
-    e.preventDefault();
-    e.dataTransfer!.dropEffect = "copy";
-    dropTargetTabId = cat.id;
-  }
-
-  function onFolderTabDragLeave() {
-    if (activeDragKind !== "manga") return;
-    dropTargetTabId = null;
-  }
-
-  async function onFolderTabDrop(e: DragEvent, cat: Category) {
-    if (activeDragKind !== "manga") return;
-    e.preventDefault();
-    dropTargetTabId = null;
-
-    const mid = dragMangaId;
-    activeDragKind = null;
-    dragMangaId = null;
-    if (mid === null) return;
-
-    const manga = allManga.find(m => m.id === mid);
-    if (!manga) return;
-    await toggleMangaCategory(manga, cat);
-  }
-
-  // ── Unified dispatchers for folder tabs ───────────────────────────────────
-  // `activeDragKind` ensures each handler ignores drags it doesn't own.
-
-  function tabDragOver(e: DragEvent, cat: Category, idx: number) {
-    if      (activeDragKind === "tab")   onTabDragOver(e, cat, idx);
-    else if (activeDragKind === "manga") onFolderTabDragOver(e, cat);
-  }
-
-  function tabDragLeave() {
-    if      (activeDragKind === "tab")   onTabDragLeave();
-    else if (activeDragKind === "manga") onFolderTabDragLeave();
-  }
-
-  function tabDrop(e: DragEvent, cat: Category) {
-    if      (activeDragKind === "tab")   onTabDrop(e, cat);
-    else if (activeDragKind === "manga") onFolderTabDrop(e, cat);
   }
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -386,8 +347,6 @@
 
   async function toggleMangaCategory(manga: Manga, cat: Category) {
     const inCat = (categoryMangaMap.get(cat.id) ?? []).some(m => m.id === manga.id);
-    // Optimistic update: patch store.categories in-place so counts and content
-    // update instantly without waiting for the server round-trip.
     setCategories(store.categories.map(c => {
       if (c.id !== cat.id || !c.mangas) return c;
       const nodes = inCat
@@ -401,11 +360,9 @@
         addTo:      inCat ? [] : [cat.id],
         removeFrom: inCat ? [cat.id] : [],
       });
-      // Reload to get the authoritative state from the server
       await reloadCategories();
     } catch (e) {
       console.error(e);
-      // Revert on failure
       await reloadCategories();
     }
   }
@@ -423,7 +380,11 @@
 
   // ── Context menu ──────────────────────────────────────────────────────────
 
-  function openCtx(e: MouseEvent, m: Manga) { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, manga: m }; }
+  function openCtx(e: MouseEvent, m: Manga) {
+    if (selectMode) { toggleSelect(m.id); return; }
+    e.preventDefault();
+    ctx = { x: e.clientX, y: e.clientY, manga: m };
+  }
 
   function buildCtxItems(m: Manga): MenuEntry[] {
     const catEntries: MenuEntry[] = visibleCategories.map(cat => {
@@ -437,6 +398,8 @@
     return [
       { label: m.inLibrary ? "Remove from library" : "Add to library", icon: Books, onClick: () => m.inLibrary ? removeFromLibrary(m) : gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).then(() => { allManga = allManga.map(x => x.id === m.id ? { ...x, inLibrary: true } : x); cache.clear(CACHE_KEYS.LIBRARY); }).catch(console.error) },
       { label: "Delete all downloads", icon: Trash, danger: true, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => deleteAllDownloads(m) },
+      { separator: true },
+      { label: "Select this manga", icon: CheckSquare, onClick: () => enterSelectMode(m.id) },
       ...(catEntries.length ? [{ separator: true } as MenuEntry, ...catEntries] : []),
       { separator: true },
       { label: "New folder", icon: FolderSimplePlus, onClick: () => createAndAssign(m) },
@@ -470,14 +433,22 @@
     ro.observe(scrollEl);
     const unsub = cache.subscribe(CACHE_KEYS.LIBRARY, () => loadData());
 
-    // One-time: if a default folder is pinned and the user hasn't navigated
-    // to a specific tab yet, jump straight to it.
     const defaultId = store.settings.defaultLibraryCategoryId;
     if (defaultId && store.libraryFilter === "library") {
       store.libraryFilter = String(defaultId);
     }
 
-    return () => { ro.disconnect(); unsub(); };
+    // Escape key exits select mode
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && selectMode) exitSelectMode();
+      if ((e.key === "a" && (e.metaKey || e.ctrlKey)) && selectMode) {
+        e.preventDefault();
+        selectAll();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => { ro.disconnect(); unsub(); window.removeEventListener("keydown", onKeyDown); };
   });
 </script>
 
@@ -545,9 +516,9 @@
               draggable="true"
               onclick={() => store.libraryFilter = String(cat.id)}
               ondragstart={(e) => onTabDragStart(e, cat)}
-              ondragover={(e) => tabDragOver(e, cat, idx)}
-              ondragleave={tabDragLeave}
-              ondrop={(e) => tabDrop(e, cat)}
+              ondragover={(e) => onTabDragOver(e, cat, idx)}
+              ondragleave={onTabDragLeave}
+              ondrop={(e) => onTabDrop(e, cat)}
               ondragend={onTabDragEnd}
             >
               {#if isDefault}
@@ -570,6 +541,53 @@
       </div>
     </div>
 
+    <!-- ── Selection toolbar ───────────────────────────────────────────────── -->
+    {#if selectMode}
+      <div class="select-bar">
+        <div class="select-bar-left">
+          <button class="sel-btn sel-cancel" onclick={exitSelectMode} title="Cancel (Esc)">
+            <X size={13} weight="bold" />
+          </button>
+          <span class="sel-count">{selectedIds.size} selected</span>
+          <button class="sel-btn sel-all" onclick={selectAll} title="Select all (⌘A)">
+            Select all
+          </button>
+        </div>
+        <div class="select-bar-right">
+          {#if visibleCategories.length}
+            <div class="bulk-move-wrap">
+              <button
+                class="sel-btn sel-move"
+                disabled={selectedIds.size === 0 || bulkWorking}
+                onclick={() => bulkMoveOpen = !bulkMoveOpen}
+              >
+                <Folder size={13} weight="bold" />
+                Move to folder
+              </button>
+              {#if bulkMoveOpen}
+                <div class="bulk-folder-list">
+                  {#each visibleCategories as cat}
+                    <button class="bulk-folder-item" onclick={() => bulkMoveToCategory(cat)}>
+                      <Folder size={11} weight="bold" />
+                      {cat.name}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
+          <button
+            class="sel-btn sel-remove"
+            disabled={selectedIds.size === 0 || bulkWorking}
+            onclick={bulkRemoveFromLibrary}
+          >
+            <Trash size={13} weight="bold" />
+            Remove
+          </button>
+        </div>
+      </div>
+    {/if}
+
     <div class="content">
     {#if loading}
       <div class="grid">
@@ -589,19 +607,32 @@
     {:else}
       <div class="grid" style="--cols:{cols}">
         {#each visibleManga as m (m.id)}
+          {@const isSelected = selectedIds.has(m.id)}
           <button
             class="card"
-            class:card-dragging={dragMangaId === m.id}
-            draggable="true"
-            onclick={() => store.activeManga = m}
+            class:card-selected={isSelected}
+            class:select-mode={selectMode}
+            onclick={(e) => onCardClick(e, m)}
             oncontextmenu={(e) => openCtx(e, m)}
-            ondragstart={(e) => onCardDragStart(e, m)}
-            ondragend={onCardDragEnd}
+            onpointerdown={(e) => onCardPointerDown(e, m)}
+            onpointerup={onCardPointerUp}
+            onpointerleave={onCardPointerLeave}
           >
             <div class="cover-wrap">
-              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" loading="lazy" decoding="async" />
+              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" loading="lazy" decoding="async" draggable="false" />
               {#if m.downloadCount}<span class="badge-dl">{m.downloadCount}</span>{/if}
               {#if m.unreadCount}<span class="badge-unread">{m.unreadCount}</span>{/if}
+              {#if selectMode}
+                <div class="select-overlay" aria-hidden="true">
+                  <div class="select-check" class:checked={isSelected}>
+                    {#if isSelected}
+                      <CheckSquare size={20} weight="fill" />
+                    {:else}
+                      <div class="select-check-empty"></div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
             </div>
             <p class="title">{m.title}</p>
           </button>
@@ -650,15 +681,49 @@
   .search { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 10px 5px 28px; color: var(--text-primary); font-size: var(--text-sm); width: 180px; outline: none; transition: border-color var(--t-base); }
   .search::placeholder { color: var(--text-faint); }
   .search:focus { border-color: var(--border-strong); }
+
+  /* ── Selection toolbar ──────────────────────────────────────────────────── */
+  .select-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-6); background: var(--bg-raised); border-bottom: 1px solid var(--accent-dim); flex-shrink: 0; animation: fadeIn 0.1s ease both; }
+  .select-bar-left { display: flex; align-items: center; gap: var(--sp-3); }
+  .select-bar-right { display: flex; align-items: center; gap: var(--sp-2); position: relative; }
+  .sel-count { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); }
+  .sel-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-base); color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); white-space: nowrap; }
+  .sel-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
+  .sel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .sel-cancel { border-color: transparent; background: transparent; }
+  .sel-cancel:hover { background: var(--bg-raised); border-color: var(--border-dim); }
+  .sel-move { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .sel-move:hover:not(:disabled) { background: var(--accent-dim); }
+  .sel-remove { color: var(--color-error, #e05c5c); border-color: color-mix(in srgb, var(--color-error, #e05c5c) 30%, transparent); }
+  .sel-remove:hover:not(:disabled) { background: color-mix(in srgb, var(--color-error, #e05c5c) 12%, transparent); }
+  .sel-all { border-color: transparent; background: transparent; }
+
+  /* Bulk folder dropdown */
+  .bulk-move-wrap { position: relative; }
+  .bulk-folder-list { position: absolute; top: calc(100% + 4px); right: 0; z-index: 200; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 4px; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); animation: fadeIn 0.1s ease both; }
+  .bulk-folder-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); }
+  .bulk-folder-item:hover { background: var(--bg-hover, var(--bg-base)); color: var(--text-primary); }
+
+  /* ── Grid & cards ───────────────────────────────────────────────────────── */
   .grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
   .card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .card-dragging { opacity: 0.4; cursor: grabbing; }
   .card:hover .cover { filter: brightness(1.07); }
   .card:hover .title { color: var(--text-primary); }
+  /* In select mode, clicking always means "select", so use a checkbox cursor */
+  .card.select-mode { cursor: default; }
+  .card.card-selected .cover-wrap { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-md); }
+  .card.card-selected .title { color: var(--accent-fg); }
   .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); }
   .cover { width: 100%; height: 100%; transition: filter var(--t-base); will-change: filter; }
   .badge-dl { position: absolute; bottom: var(--sp-1); right: var(--sp-1); min-width: 18px; height: 18px; padding: 0 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--accent-dim); color: var(--accent-fg); border-radius: var(--radius-sm); border: 1px solid var(--accent-muted); }
   .badge-unread { position: absolute; top: var(--sp-1); left: var(--sp-1); min-width: 18px; height: 18px; padding: 0 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--bg-void); color: var(--text-primary); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); }
+
+  /* Select overlay (checkbox) */
+  .select-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.18); display: flex; align-items: flex-start; justify-content: flex-end; padding: 6px; pointer-events: none; }
+  .select-check { color: var(--text-faint); opacity: 0.7; transition: color var(--t-base), opacity var(--t-base); }
+  .select-check.checked { color: var(--accent-fg); opacity: 1; }
+  .select-check-empty { width: 20px; height: 20px; border-radius: 4px; border: 2px solid var(--text-faint); background: rgba(0,0,0,0.3); }
+
   .title { margin-top: var(--sp-2); font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base); }
   .card-skeleton { padding: 0; }
   .cover-skeleton { aspect-ratio: 2/3; border-radius: var(--radius-md); }
