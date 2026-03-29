@@ -5,7 +5,7 @@
   import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings } from "../../store/state.svelte";
+  import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings, setCategories } from "../../store/state.svelte";
   import type { Manga, Category, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
@@ -28,7 +28,6 @@
   let dragInsertIdx: number = $state(-1);
 
   let allManga:       Manga[]      = $state([]);
-  let categories:     Category[]   = $state([]);
   let loading:        boolean      = $state(true);
   let error:          string|null  = $state(null);
   let retryCount:     number       = $state(0);
@@ -51,21 +50,12 @@
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  // Guard flag: true while Library is publishing to CATEGORIES itself, so the
-  // subscriber below doesn't re-fire reloadCategories in an infinite loop.
-  let suppressCatSubscriber = false;
-
-  /** Fetch and apply categories directly — never cached, always fresh. */
+  /** Fetch categories from server and write to the shared store. */
   async function reloadCategories() {
     try {
       const d = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
       const cats = await ensureCompletedCategory(d.categories.nodes);
-      categories = cats;
-      // Publish full category data (including mangas.nodes) so Settings can
-      // pick up order changes. Guard prevents re-entrancy.
-      suppressCatSubscriber = true;
-      cache.set(CACHE_KEYS.CATEGORIES, cats);
-      suppressCatSubscriber = false;
+      setCategories(cats);
     } catch (e) { console.error(e); }
   }
 
@@ -105,7 +95,7 @@
     const f = store.libraryFilter;
     if (f === "library" || f === "downloaded") return;
     const id = Number(f);
-    if (!categories.some(c => c.id === id)) {
+    if (!store.categories.some(c => c.id === id)) {
       untrack(() => { store.libraryFilter = "library"; });
     }
   });
@@ -125,7 +115,7 @@
 
   const visibleCategories = $derived((() => {
     const defaultId = store.settings.defaultLibraryCategoryId ?? null;
-    return categories
+    return store.categories
       .filter(c => c.id !== 0 && !(store.settings.hiddenCategoryIds ?? []).includes(c.id))
       .sort((a, b) => {
         // Starred folder always first
@@ -137,7 +127,7 @@
 
   const categoryMangaMap = $derived((() => {
     const map = new Map<number, Manga[]>();
-    for (const cat of categories) {
+    for (const cat of store.categories) {
       const nodes = cat.mangas?.nodes ?? [];
       map.set(cat.id, nodes);
     }
@@ -225,8 +215,8 @@
     dragTabId = null;
     activeDragKind = null;
 
-    // Work on `categories` sorted by current .order (server-authoritative)
-    const sorted = [...categories]
+    // Work on `store.categories` sorted by current .order (server-authoritative)
+    const sorted = [...store.categories]
       .filter(c => c.id !== 0)
       .sort((a, b) => a.order - b.order);
 
@@ -239,7 +229,7 @@
     const [moved]   = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
     const withNewOrder = reordered.map((c, i) => ({ ...c, order: i + 1 }));
-    categories = categories.map(c => withNewOrder.find(u => u.id === c.id) ?? c);
+    setCategories(store.categories.map(c => withNewOrder.find(u => u.id === c.id) ?? c));
 
     // Server sync — position is 1-based index of the drop target in sorted list
     const newPos = toIdx + 1;
@@ -248,10 +238,7 @@
         UPDATE_CATEGORY_ORDER,
         { id: dragId, position: newPos },
       );
-      // Publish reordered categories so Settings panel reflects new order.
-      suppressCatSubscriber = true;
-      cache.set(CACHE_KEYS.CATEGORIES, [...categories]);
-      suppressCatSubscriber = false;
+      // Server confirmed — no extra publish needed, store.categories is already correct
     } catch (err) {
       console.error("Tab reorder failed:", err);
       await reloadCategories(); // revert to server truth on error
@@ -259,6 +246,7 @@
   }
 
   function onTabDragEnd() {
+    if (activeDragKind !== "tab") return;
     activeDragKind = null;
     dragTabId = null;
     dragOverTabId = null;
@@ -398,15 +386,15 @@
 
   async function toggleMangaCategory(manga: Manga, cat: Category) {
     const inCat = (categoryMangaMap.get(cat.id) ?? []).some(m => m.id === manga.id);
-    // Optimistic update: patch categories in-place so counts and content
+    // Optimistic update: patch store.categories in-place so counts and content
     // update instantly without waiting for the server round-trip.
-    categories = categories.map(c => {
+    setCategories(store.categories.map(c => {
       if (c.id !== cat.id || !c.mangas) return c;
       const nodes = inCat
         ? c.mangas.nodes.filter(m => m.id !== manga.id)
         : [...c.mangas.nodes, manga];
       return { ...c, mangas: { nodes } };
-    });
+    }));
     try {
       await gql(UPDATE_MANGA_CATEGORIES, {
         mangaId:    manga.id,
@@ -473,7 +461,7 @@
   // ── Completed auto-assign ─────────────────────────────────────────────────
 
   export async function checkAndMarkCompleted(mangaId: number, chaps: Chapter[]) {
-    await storeCheckAndMarkCompleted(mangaId, chaps, categories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
+    await storeCheckAndMarkCompleted(mangaId, chaps, store.categories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
     await reloadCategories();
   }
 
@@ -482,14 +470,6 @@
     ro.observe(scrollEl);
     const unsub = cache.subscribe(CACHE_KEYS.LIBRARY, () => loadData());
 
-    // When Settings reorders folders, re-fetch so we get the correct order
-    // AND keep mangas.nodes intact. Guard prevents re-entrancy when Library
-    // itself publishes to this key.
-    const unsubCats = cache.subscribe(CACHE_KEYS.CATEGORIES, () => {
-      if (suppressCatSubscriber) return;
-      reloadCategories();
-    });
-
     // One-time: if a default folder is pinned and the user hasn't navigated
     // to a specific tab yet, jump straight to it.
     const defaultId = store.settings.defaultLibraryCategoryId;
@@ -497,7 +477,7 @@
       store.libraryFilter = String(defaultId);
     }
 
-    return () => { ro.disconnect(); unsub(); unsubCats(); };
+    return () => { ro.disconnect(); unsub(); };
   });
 </script>
 

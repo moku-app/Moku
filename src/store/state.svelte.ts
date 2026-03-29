@@ -365,6 +365,12 @@ class Store {
   // UI-only: synced from Tauri window events in App.svelte. Not persisted.
   isFullscreen:      boolean          = $state(false);
 
+  // ── Shared category list ──────────────────────────────────────────────────
+  // Single source of truth for the category list, shared between Library and
+  // Settings. Library owns fetching; Settings reads and mutates in-place.
+  // No pub/sub or guard flags needed — both components share this $state ref.
+  categories: Category[] = $state([]);
+
   // ── Discover session cache ────────────────────────────────────────────────
   // Survives navigation within a session but is never persisted to localStorage.
   // Key format: "<sourceId>|<type>|<genre>" or "local|<genre>"
@@ -520,6 +526,7 @@ class Store {
   }
 
   dismissToast(id: string)                      { this.toasts = this.toasts.filter(x => x.id !== id); }
+  setCategories(cats: Category[])              { this.categories       = cats; }
   setActiveDownloads(next: ActiveDownload[])     { this.activeDownloads  = next; }
   setNavPage(next: NavPage)                      { this.navPage          = next; }
   setLibraryFilter(next: LibraryFilter)          { this.libraryFilter    = next; }
@@ -609,6 +616,7 @@ export function getLinkedMangaIds(mangaId: number)                       { retur
 export function setHeroSlot(i: 1|2|3, mangaId: number | null)            { store.setHeroSlot(i, mangaId); }
 export function addToast(toast: Omit<Toast, "id">)                       { store.addToast(toast); }
 export function dismissToast(id: string)                                 { store.dismissToast(id); }
+export function setCategories(cats: Category[])                           { store.setCategories(cats); }
 export function setActiveDownloads(next: ActiveDownload[])               { store.setActiveDownloads(next); }
 export function setNavPage(next: NavPage)                                { store.setNavPage(next); }
 export function setLibraryFilter(next: LibraryFilter)                    { store.setLibraryFilter(next); }

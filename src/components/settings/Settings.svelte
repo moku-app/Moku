@@ -9,8 +9,8 @@
   import { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
   import type { Category } from "../../lib/types";
-  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory } from "../../store/state.svelte";
-  import { cache, CACHE_KEYS } from "../../lib/cache";
+  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories } from "../../store/state.svelte";
+  import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
   import type { Keybinds } from "../../lib/keybinds";
@@ -170,7 +170,8 @@
   }
 
   
-  let categories:     Category[]   = $state([]);
+  // catsLoading / catsError are local UI state only.
+  // The category list itself lives in store.categories (shared with Library).
   let catsLoading:    boolean      = $state(false);
   let catsError:      string|null  = $state(null);
   let newFolderName   = $state("");
@@ -181,9 +182,16 @@
     catsLoading = true; catsError = null;
     try {
       const res = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
-      categories = res.categories.nodes.filter(c => c.id !== 0);
-      // Publish so Library picks up order changes via its subscription
-      cache.set(CACHE_KEYS.CATEGORIES, categories);
+      // Merge server data onto existing store.categories to preserve mangas.nodes
+      // that Library loaded — Settings' GET_CATEGORIES query may not include them.
+      // Also preserve any id=0 (Default) entry that Library manages.
+      const zeroCat = store.categories.filter(c => c.id === 0);
+      const fresh = res.categories.nodes.filter(c => c.id !== 0);
+      const merged = fresh.map(f => {
+        const existing = store.categories.find(c => c.id === f.id);
+        return existing ? { ...existing, ...f } : f;
+      });
+      setCategories([...zeroCat, ...merged]);
     } catch (e: any) {
       catsError = e?.message ?? "Failed to load folders";
     } finally { catsLoading = false; }
@@ -194,9 +202,8 @@
     if (!name) return;
     try {
       const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name });
-      categories = [...categories, res.createCategory.category];
+      setCategories([...store.categories, res.createCategory.category]);
       newFolderName = "";
-      cache.set(CACHE_KEYS.CATEGORIES, categories);
     } catch (e: any) { catsError = e?.message ?? "Failed to create folder"; }
   }
 
@@ -206,8 +213,7 @@
     if (editingId !== null && editingName.trim()) {
       try {
         await gql(UPDATE_CATEGORY, { id: editingId, name: editingName.trim() });
-        categories = categories.map(c => c.id === editingId ? { ...c, name: editingName.trim() } : c);
-        cache.set(CACHE_KEYS.CATEGORIES, categories);
+        setCategories(store.categories.map(c => c.id === editingId ? { ...c, name: editingName.trim() } : c));
       } catch (e: any) { catsError = e?.message ?? "Failed to rename"; }
     }
     editingId = null; editingName = "";
@@ -216,55 +222,51 @@
   async function deleteFolder(id: number) {
     try {
       await gql(DELETE_CATEGORY, { id });
-      categories = categories.filter(c => c.id !== id);
-      cache.set(CACHE_KEYS.CATEGORIES, categories);
+      setCategories(store.categories.filter(c => c.id !== id));
     } catch (e: any) { catsError = e?.message ?? "Failed to delete folder"; }
   }
 
   async function moveCategory(id: number, direction: -1 | 1) {
-    const idx = categories.findIndex(c => c.id === id);
+    // Work only on the non-default (id !== 0) categories, sorted by order,
+    // which is what the Settings list renders and what the server expects.
+    const zeroCat  = store.categories.filter(c => c.id === 0);
+    const sortable = store.categories
+      .filter(c => c.id !== 0)
+      .sort((a, b) => a.order - b.order);
+
+    const idx = sortable.findIndex(c => c.id === id);
     if (idx < 0) return;
-    const newPos = idx + 1 + direction;
-    if (newPos < 1 || newPos > categories.length) return;
-    // Optimistic reorder so the UI moves instantly
-    const reordered = [...categories];
+    const newPos = idx + 1 + direction; // 1-based server position
+    if (newPos < 1 || newPos > sortable.length) return;
+
+    // Optimistic reorder — splice within sortable slice, keep mangas.nodes intact
+    const reordered = [...sortable];
     const [moved] = reordered.splice(idx, 1);
     reordered.splice(idx + direction, 0, moved);
-    categories = reordered.map((c, i) => ({ ...c, order: i + 1 }));
-    // Publish optimistic order immediately — Library re-fetches on this signal
-    cache.set(CACHE_KEYS.CATEGORIES, categories);
+    setCategories([...zeroCat, ...reordered.map((c, i) => ({ ...c, order: i + 1 }))]);
+
     try {
       const res = await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id, position: newPos });
+      // Server returns bare order data — merge to preserve mangas.nodes, keep id=0 entry
       const updated = res.updateCategoryOrder.categories.filter(c => c.id !== 0);
-      categories = updated.sort((a, b) => a.order - b.order);
-      // Publish server-authoritative order
-      cache.set(CACHE_KEYS.CATEGORIES, categories);
+      setCategories([
+        ...zeroCat,
+        ...updated
+          .sort((a, b) => a.order - b.order)
+          .map(fresh => {
+            const existing = store.categories.find(c => c.id === fresh.id);
+            return existing ? { ...existing, ...fresh } : fresh;
+          }),
+      ]);
     } catch (e: any) {
       catsError = e?.message ?? "Failed to reorder";
-      await loadCategories(); // revert — loadCategories also publishes
+      await loadCategories();
     }
   }
 
-  // Subscribe to the shared categories cache so Library-initiated drag reorders
-  // are reflected in the Settings folder list without needing a manual reload.
-  // Library publishes its full category data (with mangas.nodes), so we only
-  // pull the ordering signal — no content is lost here since Settings never
-  // renders mangas.nodes, just names and counts.
-  $effect(() => {
-    const unsub = cache.subscribe(CACHE_KEYS.CATEGORIES, async () => {
-      // Don't clobber an in-progress server fetch
-      if (catsLoading) return;
-      // Re-read directly from the server so we get mangas.nodes counts too.
-      // This is a lightweight call and only fires when Library reorders.
-      try {
-        const res = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
-        categories = res.categories.nodes.filter(c => c.id !== 0);
-      } catch {}
-    });
-    return unsub;
-  });
-
-  $effect(() => { if (tab === "folders" && !categories.length && !catsLoading) loadCategories(); });
+  // Load categories when the folders tab is first opened and the shared store
+  // is empty (e.g. user opened Settings before Library was mounted).
+  $effect(() => { if (tab === "folders" && !store.categories.length && !catsLoading) loadCategories(); });
 
   
   let selectOpen: string | null = $state(null);
@@ -1226,11 +1228,19 @@
               </div>
               {#if catsLoading}
                 <p class="storage-loading">Loading folders…</p>
-              {:else if categories.length === 0}
+              {:else if store.categories.filter(c => c.id !== 0).length === 0}
                 <p class="storage-loading">No folders yet. Create one above.</p>
               {:else}
+                {@const displayCats = store.categories
+                    .filter(c => c.id !== 0)
+                    .sort((a, b) => {
+                      const defaultId = store.settings.defaultLibraryCategoryId ?? null;
+                      if (a.id === defaultId) return -1;
+                      if (b.id === defaultId) return  1;
+                      return a.order - b.order;
+                    })}
                 <div class="folder-list">
-                  {#each categories as cat, i}
+                  {#each displayCats as cat, i}
                     <div class="folder-row">
                       {#if editingId === cat.id}
                         <input class="text-input" bind:value={editingName}
@@ -1254,7 +1264,7 @@
                           title={(store.settings.hiddenCategoryIds ?? []).includes(cat.id) ? "Show in Saved tab" : "Hide from Saved tab"}
                         >{#if (store.settings.hiddenCategoryIds ?? []).includes(cat.id)}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}</button>
                         <button class="kb-reset" onclick={() => moveCategory(cat.id, -1)} disabled={i === 0} title="Move up">↑</button>
-                        <button class="kb-reset" onclick={() => moveCategory(cat.id, 1)} disabled={i === categories.length - 1} title="Move down">↓</button>
+                        <button class="kb-reset" onclick={() => moveCategory(cat.id, 1)} disabled={i === displayCats.length - 1} title="Move down">↓</button>
                         <button class="kb-reset" onclick={() => startEdit(cat.id, cat.name)} title="Rename"><Pencil size={12} weight="light" /></button>
                         <button class="kb-reset folder-delete" onclick={() => deleteFolder(cat.id)} title="Delete"><Trash size={12} weight="light" /></button>
                       {/if}
