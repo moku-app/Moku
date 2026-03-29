@@ -173,7 +173,11 @@
         const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: heroMangaId });
         all = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
       }
-      openReader(chapter, all);
+      if (all.length) {
+        const manga = heroManga ?? { id: heroMangaId, title: heroTitle, thumbnailUrl: heroManga?.thumbnailUrl ?? "" } as any;
+        store.activeManga = manga;
+        openReader(chapter, all);
+      }
     } catch { store.activeManga = { id: heroMangaId, title: heroTitle, thumbnailUrl: heroManga?.thumbnailUrl ?? "" } as any; }
     finally { resuming = false; }
   }
@@ -188,8 +192,10 @@
       const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: heroEntry.mangaId });
       const chapters = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
       const ch = chapters.find(c => c.id === heroEntry!.chapterId) ?? chapters[0];
-      if (ch) openReader(ch, chapters);
-      else store.activeManga = { id: heroEntry.mangaId, title: heroEntry.mangaTitle, thumbnailUrl: heroEntry.thumbnailUrl } as any;
+      if (ch) {
+        store.activeManga = heroManga ?? { id: heroEntry.mangaId, title: heroEntry.mangaTitle, thumbnailUrl: heroEntry.thumbnailUrl } as any;
+        openReader(ch, chapters);
+      }
     } catch { store.activeManga = { id: heroEntry.mangaId, title: heroEntry.mangaTitle, thumbnailUrl: heroEntry.thumbnailUrl } as any; }
     finally { resuming = false; }
   }
@@ -199,8 +205,10 @@
       const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: entry.mangaId });
       const chapters = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
       const ch = chapters.find(c => c.id === entry.chapterId) ?? chapters[0];
-      if (ch) openReader(ch, chapters);
-      else store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any;
+      if (ch) {
+        store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any;
+        openReader(ch, chapters);
+      } else store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any;
     } catch { store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any; }
   }
 

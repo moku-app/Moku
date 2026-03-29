@@ -2225,14 +2225,14 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/iri-string/iri-string-0.7.11.crate",
-        "sha256": "d8e7418f59cc01c88316161279a7f665217ae316b388e58a0d10e29f54f1e5eb",
-        "dest": "cargo/vendor/iri-string-0.7.11"
+        "url": "https://static.crates.io/crates/iri-string/iri-string-0.7.12.crate",
+        "sha256": "25e659a4bb38e810ebc252e53b5814ff908a8c58c2a9ce2fae1bbec24cbf4e20",
+        "dest": "cargo/vendor/iri-string-0.7.12"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"d8e7418f59cc01c88316161279a7f665217ae316b388e58a0d10e29f54f1e5eb\", \"files\": {}}",
-        "dest": "cargo/vendor/iri-string-0.7.11",
+        "contents": "{\"package\": \"25e659a4bb38e810ebc252e53b5814ff908a8c58c2a9ce2fae1bbec24cbf4e20\", \"files\": {}}",
+        "dest": "cargo/vendor/iri-string-0.7.12",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -4201,6 +4201,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/rpcdiscord/rpcdiscord-0.2.6.crate",
+        "sha256": "71aa9a2097dc0176805e24debcb5d3ea5a17b796cd1d28e76b29f78fb49d7d5d",
+        "dest": "cargo/vendor/rpcdiscord-0.2.6"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"71aa9a2097dc0176805e24debcb5d3ea5a17b796cd1d28e76b29f78fb49d7d5d\", \"files\": {}}",
+        "dest": "cargo/vendor/rpcdiscord-0.2.6",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/rustc-hash/rustc-hash-2.1.2.crate",
         "sha256": "94300abf3f1ae2e2b8ffb7b58043de3d399c73fa6f4b73826402a5c457614dbe",
         "dest": "cargo/vendor/rustc-hash-2.1.2"
@@ -5241,6 +5254,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/tauri-plugin-drpc/tauri-plugin-drpc-0.1.6.crate",
+        "sha256": "7b291669b7dbc05471fba380eeecf31e3f733ae6013aaa5216a43ca376027e5a",
+        "dest": "cargo/vendor/tauri-plugin-drpc-0.1.6"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"7b291669b7dbc05471fba380eeecf31e3f733ae6013aaa5216a43ca376027e5a\", \"files\": {}}",
+        "dest": "cargo/vendor/tauri-plugin-drpc-0.1.6",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/tauri-plugin-fs/tauri-plugin-fs-2.4.5.crate",
         "sha256": "ed390cc669f937afeb8b28032ce837bac8ea023d975a2e207375ec05afaf1804",
         "dest": "cargo/vendor/tauri-plugin-fs-2.4.5"
@@ -6016,6 +6042,19 @@
         "type": "inline",
         "contents": "{\"package\": \"b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be\", \"files\": {}}",
         "dest": "cargo/vendor/utf8_iter-1.0.4",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/uuid/uuid-0.8.2.crate",
+        "sha256": "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7",
+        "dest": "cargo/vendor/uuid-0.8.2"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7\", \"files\": {}}",
+        "dest": "cargo/vendor/uuid-0.8.2",
         "dest-filename": ".cargo-checksum.json"
     },
     {
