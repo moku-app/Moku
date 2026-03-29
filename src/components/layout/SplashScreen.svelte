@@ -247,7 +247,7 @@
       const sin = tg.sinA * Math.cos(delta) + tg.cosA * Math.sin(delta);
       ctx.globalAlpha = alpha;
       ctx.setTransform(cos * dpr, sin * dpr, -sin * dpr, cos * dpr, c.cx * dpr, cy * dpr);
-      const sw = stamps[i].width / dpr, sh = stamps[i].height / dpr;
+      const sw = stamps[i].width, sh = stamps[i].height;
       ctx.drawImage(stamps[i], -sw / 2, -sh / 2, sw, sh);
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;

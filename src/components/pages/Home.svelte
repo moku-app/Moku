@@ -4,7 +4,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_LIBRARY, GET_CHAPTERS, GET_MANGA, GET_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { store, openReader, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter } from "../../store/state.svelte";
+  import { store, openReader, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter, setLibraryFilter } from "../../store/state.svelte";
   import type { HistoryEntry } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
 
@@ -219,7 +219,7 @@
 
   const completedIds   = $derived(completedCategory?.mangas?.nodes.map(m => m.id) ?? []);
   const completedPool  = $derived([...libraryManga, ...extraManga.filter(m => !libraryManga.some(l => l.id === m.id))]);
-  const completedManga = $derived(completedIds.length > 0 ? completedPool.filter(m => completedIds.includes(m.id)).slice(0, 20) : []);
+  const completedManga = $derived(completedIds.length > 0 ? completedPool.filter(m => completedIds.includes(m.id)).slice(0, 7) : []);
   const recentHistory  = $derived(store.history.slice(0, 6));
   const stats          = $derived(store.readingStats);
 
@@ -415,7 +415,7 @@
         <div class="bottom-section-hd">
           <span class="section-title"><CheckCircle size={10} weight="bold" /> Completed</span>
           {#if completedManga.length > 0}
-            <button class="see-all" onclick={() => store.navPage = "library"}>View all <ArrowRight size={9} weight="bold" /></button>
+            <button class="see-all" onclick={() => { if (completedCategory) setLibraryFilter(String(completedCategory.id)); store.navPage = "library"; }}>View all <ArrowRight size={9} weight="bold" /></button>
           {/if}
         </div>
         {#if completedManga.length > 0}
@@ -582,9 +582,10 @@
   .bottom-col:last-child  { padding-left:  var(--sp-4); }
   .bottom-section-hd { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--sp-2); }
   .bottom-empty { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-1) 0; }
-  .mini-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--sp-3); }
+  .mini-row { display: flex; flex-direction: row; gap: var(--sp-3); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding-bottom: var(--sp-1); }
+  .mini-row::-webkit-scrollbar { display: none; }
   
-  .mini-card { width: 100%; background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+  .mini-card { flex: 0 0 120px; width: 120px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
   .mini-card:hover .mini-cover { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
   .mini-card:hover { will-change: transform; }
   .mini-cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); box-shadow: 0 2px 12px rgba(0,0,0,0.35); }
