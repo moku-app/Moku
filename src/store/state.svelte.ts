@@ -180,6 +180,7 @@ export interface Settings {
   libraryCropCovers:       boolean;
   libraryPageSize:         number;
   showNsfw:                boolean;
+  discordRpc:              boolean;
   chapterSortDir:          ChapterSortDir;
   chapterSortMode:         ChapterSortMode;
   chapterPageSize:         number;
@@ -252,6 +253,7 @@ export const DEFAULT_SETTINGS: Settings = {
   libraryCropCovers:      true,
   libraryPageSize:        48,
   showNsfw:               false,
+  discordRpc:             false,
   chapterSortDir:         "desc",
   chapterSortMode:        "source",
   chapterPageSize:        25,

@@ -26,6 +26,9 @@ importers:
       svelte-spa-router:
         specifier: ^4.0.1
         version: 4.0.2
+      tauri-plugin-drpc:
+        specifier: ^1.0.3
+        version: 1.0.3(typescript@5.9.3)
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^4.0.4
@@ -744,6 +747,11 @@ packages:
     resolution: {integrity: sha512-TTDxwYnHkova6Wsyj1PGt9TByuWqvMoeY1bQiuAf2DM/JeDSMw7FjRKzk8K/5mJ99vGOKhbCqTDpyAKwjp4igg==}
     engines: {node: '>=18'}
 
+  tauri-plugin-drpc@1.0.3:
+    resolution: {integrity: sha512-vl5dXhjKbl7+Nf9veW12usdmIUtZXwEf91SzxQPZlbRRJ/sjizbbQlnkUTtx6baJuGzz0KXXgP9xUhF39BdiXQ==}
+    peerDependencies:
+      typescript: ^5.0.0
+
   to-regex-range@5.0.1:
     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
     engines: {node: '>=8.0'}
@@ -1363,6 +1371,10 @@ snapshots:
       locate-character: 3.0.0
       magic-string: 0.30.21
       zimmerframe: 1.1.4
+
+  tauri-plugin-drpc@1.0.3(typescript@5.9.3):
+    dependencies:
+      typescript: 5.9.3
 
   to-regex-range@5.0.1:
     dependencies:

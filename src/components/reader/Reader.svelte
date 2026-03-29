@@ -5,6 +5,7 @@
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
+  import { setReading } from "../../lib/discord";
   import type { FitMode } from "../../store/state.svelte";
 
   // ─── Constants ────────────────────────────────────────────────────────────────
@@ -189,6 +190,19 @@
       ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
       : store.activeChapter
   );
+
+  // ─── Discord RPC ──────────────────────────────────────────────────────────────
+  // displayChapter already handles both single/double (store.activeChapter) and
+  // longstrip auto-next (visibleChapterId) — so reacting to it here means RPC
+  // updates on every chapter transition regardless of reading mode.
+
+  $effect(() => {
+    const chapter = displayChapter;
+    const manga   = store.activeManga;
+    if (store.settings.discordRpc && chapter && manga) {
+      setReading(manga, chapter);
+    }
+  });
 
   const adjacent = $derived.by(() => {
     const ref = displayChapter ?? store.activeChapter;

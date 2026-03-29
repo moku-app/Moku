@@ -7,6 +7,7 @@
   import { gql } from "./lib/client";
   import { GET_DOWNLOAD_STATUS } from "./lib/queries";
   import { store, addToast, setActiveDownloads, setSettingsOpen } from "./store/state.svelte";
+  import { initRpc, setIdle, clearReading, destroyRpc } from "./lib/discord";
   import type { DownloadStatus, DownloadQueueItem } from "./lib/types";
   import Layout       from "./components/layout/Layout.svelte";
   import Reader       from "./components/reader/Reader.svelte";
@@ -263,6 +264,7 @@
       cancelProbe = true;
       unlistenResize();
       unlistenScale();
+      destroyRpc();
       if (store.settings.autoStartServer) invoke("kill_server").catch(() => {});
       if (idleTimer) clearTimeout(idleTimer);
       if (pollInterval) clearInterval(pollInterval);
@@ -275,6 +277,23 @@
     if (!appReady) return;
     const timer = setTimeout(checkForUpdateSilently, 5_000);
     return () => clearTimeout(timer);
+  });
+
+  $effect(() => {
+    if (store.settings.discordRpc) {
+      initRpc();
+    } else {
+      clearReading();
+      destroyRpc();
+    }
+  });
+
+
+  // When the reader closes, show idle presence.
+  $effect(() => {
+    if (!store.activeChapter) {
+      if (store.settings.discordRpc) setIdle();
+    }
   });
 
   function handleRetry() {

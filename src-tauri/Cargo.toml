@@ -26,6 +26,7 @@ walkdir = "2"
 sysinfo = "0.32"
 dirs = "5"
 tauri-plugin-os = "2.3.2"
+tauri-plugin-drpc = "0.1.6"
 
 [profile.release]
 codegen-units = 1

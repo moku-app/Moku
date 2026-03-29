@@ -775,6 +775,13 @@
                 </div>
               </div>
             </div>
+            <div class="section">
+              <p class="section-title">Integrations</p>
+              <label class="toggle-row">
+                <div class="toggle-info"><span class="toggle-label">Discord Rich Presence</span><span class="toggle-desc">Show what you're reading in your Discord status</span></div>
+                <button role="switch" aria-checked={store.settings.discordRpc} aria-label="Discord Rich Presence" class="toggle" class:on={store.settings.discordRpc} onclick={() => updateSettings({ discordRpc: !store.settings.discordRpc })}><span class="toggle-thumb"></span></button>
+              </label>
+            </div>
           </div>
 
         
@@ -1778,7 +1785,7 @@
               <p class="section-title">Links</p>
               <div class="about-block">
                 <a href="https://github.com/Youwes09/Moku" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
-                <a href="https://discord.gg/cfncTbJ2" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none;margin-top:var(--sp-1)">Discord →</a>
+                <a href="https://discord.gg/Jq3pwuNqPp" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none;margin-top:var(--sp-1)">Discord →</a>
               </div>
             </div>
 

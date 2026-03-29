@@ -32,6 +32,12 @@
     "process:default",
     "process:allow-restart",
     "http:default",
-    "http:allow-fetch"
+    "http:allow-fetch",
+    "drpc:default",
+    "drpc:allow-is-running",
+    "drpc:allow-spawn-thread",
+    "drpc:allow-destroy-thread",
+    "drpc:allow-set-activity",
+    "drpc:allow-clear-activity"
   ]
 }
