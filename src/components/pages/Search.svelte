@@ -1113,7 +1113,7 @@
     padding: 4px 10px;
     border-radius: var(--radius-sm);
     background: none;
-    border: none;
+    border: 1px solid transparent;
     color: var(--text-faint);
     cursor: pointer;
     transition: background var(--t-base), color var(--t-base);
