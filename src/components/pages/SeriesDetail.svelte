@@ -87,6 +87,15 @@
     }
     return sortDir === "desc" ? base.reverse() : base;
   });
+
+  /**
+   * Chapter list in canonical reading order (ch1 -> ch2 -> ch3).
+   * Always passed to openReader so the Reader's idx-based prev/next
+   * navigation is direction-independent of the user's display sort.
+   */
+  const chaptersAsc = $derived(
+    [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder)
+  );
   const totalPages     = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
   const pageChapters   = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
   const readCount      = $derived(chapters.filter(c => c.isRead).length);
@@ -444,7 +453,7 @@
     <!-- Zone 3: Primary CTA + library action -->
     <div class="cta-section">
       {#if continueChapter}
-        <button class="read-btn" onclick={() => openReader(continueChapter!.chapter, sortedChapters)}>
+        <button class="read-btn" onclick={() => openReader(continueChapter!.chapter, chaptersAsc)}>
           <Play size={12} weight="fill" />
           {continueChapter.type === "continue"
             ? `Continue · Ch.${continueChapter.chapter.chapterNumber}${(continueChapter.chapter.lastPageRead ?? 0) > 0 ? ` p.${continueChapter.chapter.lastPageRead}` : ""}`
@@ -665,7 +674,7 @@
         {#each sortedChapters as ch, i}
           {@const inProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
           <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress}
-            onclick={() => openReader(ch, sortedChapters)}
+            onclick={() => openReader(ch, chaptersAsc)}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: i }; }}
             title={ch.name}>
             <span class="grid-cell-num">{ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber}</span>
@@ -677,8 +686,8 @@
         {#each pageChapters as ch}
           {@const idxInSorted = sortedChapters.indexOf(ch)}
           <div role="button" tabindex="0" class="ch-row" class:read={ch.isRead}
-            onclick={() => openReader(ch, sortedChapters)}
-            onkeydown={(e) => e.key === "Enter" && openReader(ch, sortedChapters)}
+            onclick={() => openReader(ch, chaptersAsc)}
+            onkeydown={(e) => e.key === "Enter" && openReader(ch, chaptersAsc)}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: idxInSorted }; }}>
             <div class="ch-left">
               <span class="ch-name">{ch.name}</span>

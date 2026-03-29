@@ -3,7 +3,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
+  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle, isNsfwManga } from "../../lib/util";
   import { store, setSearchPrefill, setPreviewManga } from "../../store/state.svelte";
   import type { Manga, Source } from "../../lib/types";
 
@@ -146,8 +146,11 @@
           FETCH_SOURCE_MANGA, { source: src.id, type: "SEARCH", page: 1, query: trimmed }, ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
+        const mangas = store.settings.showNsfw
+          ? d.fetchSourceManga.mangas
+          : d.fetchSourceManga.mangas.filter((m) => !isNsfwManga(m));
         kw_results = kw_results.map((r) =>
-          r.source.id === src.id ? { ...r, mangas: d.fetchSourceManga.mangas, loading: false } : r,
+          r.source.id === src.id ? { ...r, mangas, loading: false } : r,
         );
       } catch (e: any) {
         if (ctrl.signal.aborted || e?.name === "AbortError") return;
@@ -243,7 +246,8 @@
       ctrl.signal,
     ).then((d) => {
       if (ctrl.signal.aborted) return;
-      tag_localResults  = d.mangas.nodes;
+      const nsfwFilter = (m: Manga) => store.settings.showNsfw || !isNsfwManga(m);
+      tag_localResults  = d.mangas.nodes.filter(nsfwFilter);
       tag_totalCount    = d.mangas.totalCount;
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
       tag_localOffset   = (store.settings.renderLimit ?? 48);
@@ -279,9 +283,10 @@
       ps.add(1);
       tag_srcNextPage.set(src.id, result.hasNextPage ? 2 : -1);
       tag_srcNextPage = new Map(tag_srcNextPage);
-      const matching = activeTags.length > 1
+      const matching = (activeTags.length > 1
         ? result.mangas.filter((m) => matchesAllTags(m, activeTags))
-        : result.mangas;
+        : result.mangas
+      ).filter((m) => store.settings.showNsfw || !isNsfwManga(m));
       if (matching.length > 0) {
         tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         tag_loadingSourceSearch = false;
@@ -304,7 +309,8 @@
         ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
-      tag_localResults  = [...tag_localResults, ...d.mangas.nodes];
+      const nsfwFilter = (m: Manga) => store.settings.showNsfw || !isNsfwManga(m);
+      tag_localResults  = [...tag_localResults, ...d.mangas.nodes.filter(nsfwFilter)];
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
       tag_localOffset  += (store.settings.renderLimit ?? 48);
     } catch (e: any) {
@@ -340,9 +346,10 @@
         ps.add(page);
         tag_srcNextPage.set(src.id, result.hasNextPage ? page + 1 : -1);
         tag_srcNextPage = new Map(tag_srcNextPage);
-        const matching = tag_activeTags.length > 1
+        const matching = (tag_activeTags.length > 1
           ? result.mangas.filter((m) => matchesAllTags(m, tag_activeTags))
-          : result.mangas;
+          : result.mangas
+        ).filter((m) => store.settings.showNsfw || !isNsfwManga(m));
         if (matching.length > 0) {
           tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         }
@@ -422,7 +429,10 @@
         FETCH_SOURCE_MANGA, { source: src.id, type, page, query: q ?? null }, ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
-      src_browseResults = page === 1 ? d.fetchSourceManga.mangas : [...src_browseResults, ...d.fetchSourceManga.mangas];
+      const incoming = store.settings.showNsfw
+        ? d.fetchSourceManga.mangas
+        : d.fetchSourceManga.mangas.filter((m) => !isNsfwManga(m));
+      src_browseResults = page === 1 ? incoming : [...src_browseResults, ...incoming];
       src_hasNextPage = d.fetchSourceManga.hasNextPage;
       src_currentPage = page;
     } catch (e: any) {

@@ -5,6 +5,34 @@ export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
 }
 
+// ── NSFW genre filtering ──────────────────────────────────────────────────────
+
+/**
+ * Genre tags that indicate adult/mature content.
+ * Checked case-insensitively against each manga's genre array.
+ * Extend this set if additional tags need to be covered.
+ */
+const NSFW_GENRE_TAGS = new Set([
+  "adult",
+  "mature",
+  "hentai",
+  "ecchi",
+  "erotica",
+  "pornographic",
+  "18+",
+  "smut",
+  "lemon",
+  "explicit",
+]);
+
+/**
+ * Returns true if the manga carries at least one genre tag that is considered
+ * adult/mature. Used to enforce the `showNsfw` setting across all views.
+ */
+export function isNsfwManga(manga: { genre?: string[] | null }): boolean {
+  return (manga.genre ?? []).some((g) => NSFW_GENRE_TAGS.has(g.toLowerCase().trim()));
+}
+
 // ── Source deduplication ──────────────────────────────────────────────────────
 
 export function dedupeSources(sources: Source[], preferredLang: string): Source[] {
