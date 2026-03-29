@@ -717,28 +717,30 @@
             <div class="section">
               <p class="section-title">Interface Scale</p>
               <div class="scale-row">
-                <input type="range" min={50} max={200} step={5} value={store.settings.uiScale}
-                  oninput={(e) => updateSettings({ uiScale: Number(e.currentTarget.value) })} class="scale-slider" />
+                <input type="range" min={50} max={200} step={5}
+                  value={Math.round((store.settings.uiZoom ?? 1.5) * 100)}
+                  oninput={(e) => updateSettings({ uiZoom: Number(e.currentTarget.value) / 100 })}
+                  class="scale-slider" />
                 <input
                   type="number" min={50} max={200} step={1}
                   class="scale-val-input"
-                  value={store.settings.uiScale}
+                  value={Math.round((store.settings.uiZoom ?? 1.5) * 100)}
                   oninput={(e) => {
                     const n = parseInt(e.currentTarget.value, 10);
-                    if (!isNaN(n) && n >= 50 && n <= 200) updateSettings({ uiScale: n });
+                    if (!isNaN(n) && n >= 50 && n <= 200) updateSettings({ uiZoom: n / 100 });
                   }}
                   onblur={(e) => {
                     const n = parseInt(e.currentTarget.value, 10);
-                    if (isNaN(n) || n < 50) { updateSettings({ uiScale: 50 }); e.currentTarget.value = "50"; }
-                    else if (n > 200) { updateSettings({ uiScale: 200 }); e.currentTarget.value = "200"; }
+                    if (isNaN(n) || n < 50) { updateSettings({ uiZoom: 0.5 }); e.currentTarget.value = "50"; }
+                    else if (n > 200) { updateSettings({ uiZoom: 2.0 }); e.currentTarget.value = "200"; }
                   }}
                 />
                 <span class="scale-pct">%</span>
-                <button class="step-btn" onclick={() => updateSettings({ uiScale: 100 })} disabled={store.settings.uiScale === 100} title="Reset">↺</button>
+                <button class="step-btn" onclick={() => updateSettings({ uiZoom: 1.5 })} disabled={(store.settings.uiZoom ?? 1.5) === 1.5} title="Reset">↺</button>
               </div>
               <p class="scale-hint">
                 {#each [50,60,70,80,90,100,110,125,150,175,200] as v}
-                  <button class="scale-preset" class:active={store.settings.uiScale === v} onclick={() => updateSettings({ uiScale: v })}>{v}%</button>
+                  <button class="scale-preset" class:active={Math.round((store.settings.uiZoom ?? 1.5) * 100) === v} onclick={() => updateSettings({ uiZoom: v / 100 })}>{v}%</button>
                 {/each}
               </p>
             </div>
@@ -931,13 +933,40 @@
                 </div>
               </div>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Max page width</span><span class="toggle-desc">Pixel cap for fit-width mode.</span></div>
-                <div class="step-controls">
-                  <button class="step-btn" onclick={() => updateSettings({ maxPageWidth: Math.max(200, (store.settings.maxPageWidth ?? 900) - 100) })}>−</button>
-                  <span class="step-val">{store.settings.maxPageWidth ?? 900}px</span>
-                  <button class="step-btn" onclick={() => updateSettings({ maxPageWidth: Math.min(2400, (store.settings.maxPageWidth ?? 900) + 100) })}>+</button>
+                <div class="toggle-info">
+                  <span class="toggle-label">Default zoom</span>
+                  <span class="toggle-desc">Starting zoom when opening a chapter. 100% = fills the reader.</span>
+                </div>
+                <div class="scale-row">
+                  <input type="range" min={10} max={400} step={5}
+                    value={Math.round((store.settings.readerZoom ?? 0.5) * 100)}
+                    oninput={(e) => updateSettings({ readerZoom: Number(e.currentTarget.value) / 100 })}
+                    class="scale-slider" />
+                  <input
+                    type="number" min={10} max={400} step={5}
+                    class="scale-val-input"
+                    value={Math.round((store.settings.readerZoom ?? 0.5) * 100)}
+                    oninput={(e) => {
+                      const n = parseInt(e.currentTarget.value, 10);
+                      if (!isNaN(n) && n >= 10 && n <= 400) updateSettings({ readerZoom: n / 100 });
+                    }}
+                    onblur={(e) => {
+                      const n = parseInt(e.currentTarget.value, 10);
+                      if (isNaN(n) || n < 10) { updateSettings({ readerZoom: 0.1 }); e.currentTarget.value = "10"; }
+                      else if (n > 400) { updateSettings({ readerZoom: 4.0 }); e.currentTarget.value = "400"; }
+                    }}
+                  />
+                  <span class="scale-pct">%</span>
+                  <button class="step-btn" onclick={() => updateSettings({ readerZoom: 0.5 })} disabled={(store.settings.readerZoom ?? 0.5) === 0.5} title="Reset to 100%">↺</button>
                 </div>
               </div>
+              <p class="scale-hint">
+                {#each [50, 75, 100, 125, 150, 200] as v}
+                  <button class="scale-preset"
+                    class:active={Math.round((store.settings.readerZoom ?? 0.5) * 100) === v}
+                    onclick={() => updateSettings({ readerZoom: v / 100 })}>{v}%</button>
+                {/each}
+              </p>
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Optimize contrast</span><span class="toggle-desc">Use webkit-optimize-contrast rendering</span></div>
                 <button role="switch" aria-checked={store.settings.optimizeContrast} aria-label="Optimize contrast" class="toggle" class:on={store.settings.optimizeContrast} onclick={() => updateSettings({ optimizeContrast: !store.settings.optimizeContrast })}><span class="toggle-thumb"></span></button>

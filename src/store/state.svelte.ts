@@ -146,7 +146,12 @@ export interface Settings {
   pageStyle:               PageStyle;
   readingDirection:        ReadingDirection;
   fitMode:                 FitMode;
-  maxPageWidth:            number;
+  /**
+   * Reader zoom level — unitless float multiplier relative to the viewer
+   * container width. 1.0 = image fills the viewer, 1.5 = 150%, 0.8 = 80%.
+   * Replaces the old `maxPageWidth` pixel value.
+   */
+  readerZoom:              number;
   pageGap:                 boolean;
   optimizeContrast:        boolean;
   offsetDoubleSpreads:     boolean;
@@ -159,7 +164,12 @@ export interface Settings {
   chapterSortDir:          ChapterSortDir;
   chapterSortMode:         ChapterSortMode;
   chapterPageSize:         number;
-  uiScale:                 number;
+  /**
+   * UI zoom level — unitless float multiplier applied on top of the
+   * platform scale factor from the OS/monitor. 1.0 = no user adjustment.
+   * Replaces the old `uiScale` percentage integer.
+   */
+  uiZoom:                  number;
   compactSidebar:          boolean;
   gpuAcceleration:         boolean;
   serverUrl:               string;
@@ -198,6 +208,11 @@ export interface Settings {
   hiddenCategoryIds:       number[];
   /** Category ID that opens by default when the Library tab is first visited. null = no default (shows Saved). */
   defaultLibraryCategoryId: number | null;
+  // Legacy fields kept for migration reads only — never written after v3.
+  /** @deprecated use readerZoom */
+  maxPageWidth?:           number;
+  /** @deprecated use uiZoom */
+  uiScale?:                number;
 }
 
 
@@ -205,7 +220,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pageStyle:              "longstrip",
   readingDirection:       "ltr",
   fitMode:                "width",
-  maxPageWidth:           900,
+  readerZoom:             1.0,
   pageGap:                true,
   optimizeContrast:       false,
   offsetDoubleSpreads:    false,
@@ -218,7 +233,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chapterSortDir:         "desc",
   chapterSortMode:        "source",
   chapterPageSize:        25,
-  uiScale:                100,
+  uiZoom:                 1.0,
   compactSidebar:         false,
   gpuAcceleration:        true,
   serverUrl:              "http://localhost:4567",
@@ -260,12 +275,14 @@ export const DEFAULT_SETTINGS: Settings = {
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 
 // Fields reset to their DEFAULT_SETTINGS value on each version bump.
 // Add a key here whenever its default changes meaning between releases.
 const RESET_ON_UPGRADE: (keyof Settings)[] = [
   "serverBinary",
+  "readerZoom",
+  "uiZoom",
 ];
 
 function loadPersisted(): any {

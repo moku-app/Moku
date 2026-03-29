@@ -104,14 +104,14 @@ fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
     })
 }
 
+/// Returns the OS/monitor DPI scale factor for the window's current monitor.
+/// This is the real hardware scale — 1.0 on standard displays, 2.0 on HiDPI/4K,
+/// 1.25–1.5 on Windows displays with OS-level scaling applied.
+/// The frontend multiplies this by the user's uiZoom preference to get the
+/// final effective zoom applied to document.documentElement.
 #[tauri::command]
-fn get_platform_ui_scale() -> f64 {
-    #[cfg(target_os = "windows")]
-    return 1.0;
-    #[cfg(target_os = "macos")]
-    return 1.0;
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    return 1.5;
+fn get_platform_ui_scale(window: tauri::Window) -> f64 {
+    window.scale_factor().unwrap_or(1.0)
 }
 
 fn kill_tachidesk(app: &tauri::AppHandle) {
@@ -248,22 +248,7 @@ struct ServerInvocation {
     working_dir: Option<PathBuf>,
 }
 
-#[cfg(not(target_os = "macos"))]
-fn find_java_in_bundle(bundle_dir: &PathBuf, log: &mut Option<std::fs::File>) -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    let java = bundle_dir.join("jre").join("bin").join("java.exe");
-
-    #[cfg(not(target_os = "windows"))]
-    let java = bundle_dir.join("jre").join("bin").join("java");
-
-    do_log(log, &format!("[find_java] checking path: {:?}", java));
-    do_log(log, &format!("[find_java] exists: {}", java.exists()));
-
-    if java.exists() { Some(java) } else { None }
-}
-
 fn do_log(log: &mut Option<std::fs::File>, msg: &str) {
-    eprintln!("{}", msg);
     if let Some(f) = log {
         let _ = writeln!(f, "{}", msg);
     }
@@ -276,81 +261,50 @@ fn resolve_server_binary(
 ) -> Result<ServerInvocation, SpawnError> {
     do_log(log, &format!("[resolve] binary arg = {:?}", binary));
 
+    // 1. User-specified binary path
     if !binary.trim().is_empty() {
-        do_log(log, "[resolve] using user-supplied binary path");
-        return Ok(ServerInvocation {
-            bin:         binary.to_string(),
-            args:        vec![],
-            working_dir: None,
-        });
+        let path = strip_unc(PathBuf::from(binary.trim()));
+        do_log(log, &format!("[resolve] user path: {:?} exists={}", path, path.exists()));
+        if path.exists() {
+            return Ok(ServerInvocation {
+                bin:         path.to_string_lossy().into_owned(),
+                args:        vec![],
+                working_dir: path.parent().map(|p| p.to_path_buf()),
+            });
+        }
+        return Err(SpawnError::NotConfigured(
+            format!("Configured binary not found: {}", path.display()),
+        ));
     }
 
-    let resource_dir = match app.path().resource_dir() {
-        Ok(p) => {
-            let stripped = strip_unc(p);
-            do_log(log, &format!("[resolve] resource_dir (stripped) = {:?}", stripped));
-            stripped
-        }
-        Err(e) => {
-            let msg = format!("resource_dir error: {e}");
-            do_log(log, &format!("[resolve] ERROR: {}", msg));
-            return Err(SpawnError::SpawnFailed(msg));
-        }
-    };
-
+    // 2. Bundled sidecar (Windows / Linux AppImage)
     #[cfg(not(target_os = "macos"))]
     {
-        let bundle_dir = resource_dir.join("binaries").join("suwayomi-bundle");
-        let jar        = bundle_dir.join("bin").join("Suwayomi-Server.jar");
-
-        do_log(log, &format!("[resolve] bundle_dir = {:?}", bundle_dir));
-        do_log(log, &format!("[resolve] bundle_dir exists: {}", bundle_dir.exists()));
-        do_log(log, &format!("[resolve] jar = {:?}", jar));
-        do_log(log, &format!("[resolve] jar exists: {}", jar.exists()));
-
-        match find_java_in_bundle(&bundle_dir, log) {
-            Some(java) => {
-                do_log(log, &format!("[resolve] java found: {:?}", java));
-                if jar.exists() {
-                    do_log(log, "[resolve] both java and jar found — using bundled JRE");
-                    return Ok(ServerInvocation {
-                        bin: java.to_string_lossy().into_owned(),
-                        args: vec![
-                            "-jar".to_string(),
-                            jar.to_string_lossy().into_owned(),
-                        ],
-                        working_dir: Some(bundle_dir),
-                    });
-                } else {
-                    do_log(log, "[resolve] java found but jar MISSING — skipping bundled path");
-                }
-            }
-            None => {
-                do_log(log, "[resolve] java NOT found in bundle — skipping bundled path");
+        let resource_dir = app.path().resource_dir().unwrap_or_default();
+        let candidates = ["suwayomi-launcher", "suwayomi-launcher.sh", "tachidesk-server"];
+        for name in &candidates {
+            let p = resource_dir.join(name);
+            do_log(log, &format!("[resolve] sidecar candidate: {:?} exists={}", p, p.exists()));
+            if p.exists() {
+                do_log(log, &format!("[resolve] using sidecar: {:?}", p));
+                return Ok(ServerInvocation {
+                    bin:         p.to_string_lossy().into_owned(),
+                    args:        vec![],
+                    working_dir: Some(resource_dir),
+                });
             }
         }
     }
 
+    // 3. macOS app bundle — look in MacOS/ and Resources/
     #[cfg(target_os = "macos")]
     {
-        // Tauri places externalBin sidecars next to the main binary in
-        // Contents/MacOS/, not in Contents/Resources/.  Derive that path
-        // from resource_dir (Contents/Resources → Contents/MacOS).
-        let macos_dir = resource_dir.join("../MacOS")
-            .canonicalize()
-            .unwrap_or_else(|_| resource_dir.join("../MacOS"));
+        let resource_dir = app.path().resource_dir().unwrap_or_default();
+        let macos_dir    = resource_dir.parent()
+            .map(|p| p.join("MacOS"))
+            .unwrap_or_default();
 
-        do_log(log, &format!("[resolve] macOS macos_dir = {:?}", macos_dir));
-
-        // Tauri strips the target triple when installing externalBin sidecars
-        // into Contents/MacOS/, so the binary is always just "suwayomi-server"
-        // at runtime. The triple-suffixed names are only needed on disk at
-        // build time for Tauri to pick the right arch during bundling.
-        let candidates = [
-            "suwayomi-server",
-            "suwayomi-server-aarch64-apple-darwin",
-            "suwayomi-server-x86_64-apple-darwin",
-        ];
+        let candidates = ["suwayomi-launcher", "suwayomi-launcher.sh", "tachidesk-server"];
 
         // Search MacOS/ first (correct location), then Resources/ as fallback
         // for flat dev layouts where the script sits next to resources.

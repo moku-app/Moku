@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch } from "phosphor-svelte";
+  import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen } from "../../store/state.svelte";
@@ -12,6 +12,10 @@
   const AVG_MIN_PER_PAGE = 0.33;
   const MAX_CACHED       = 10;
   const READ_LINE_PCT    = 0.20;
+  // Zoom step per Ctrl+Wheel tick or keyboard shortcut (5% of viewer width)
+  const ZOOM_STEP        = 0.05;
+  const ZOOM_MIN         = 0.1;
+  const ZOOM_MAX         = 4.0;
 
   // ─── Page cache ───────────────────────────────────────────────────────────────
 
@@ -93,6 +97,47 @@
 
   let containerEl: HTMLDivElement;
 
+  // ─── Container width (for resolution-based zoom) ──────────────────────────────
+  // Tracked via ResizeObserver so 100% zoom always means "fills the viewer",
+  // regardless of screen resolution or window size.
+
+  let containerWidth = $state(0);
+
+  // ─── Zoom anchor (longstrip) ──────────────────────────────────────────────────
+  // Before zoom changes the layout we snapshot which image is at the top of the
+  // viewport and how far it is from the top edge.  After the DOM re-renders at
+  // the new zoom we scroll back so that same image is at the same visual offset,
+  // preventing the "random page teleport" that occurs when scrollHeight changes.
+
+  let zoomAnchorEl:     HTMLElement | null = null;
+  let zoomAnchorOffset: number             = 0;
+
+  function captureZoomAnchor() {
+    if (!containerEl || style !== "longstrip") return;
+    const imgs = containerEl.querySelectorAll<HTMLElement>("img[data-local-page]");
+    const containerTop = containerEl.getBoundingClientRect().top;
+    for (const img of imgs) {
+      const rect = img.getBoundingClientRect();
+      if (rect.bottom > containerTop) {
+        zoomAnchorEl     = img;
+        zoomAnchorOffset = rect.top - containerTop;
+        return;
+      }
+    }
+  }
+
+  function restoreZoomAnchor() {
+    if (!zoomAnchorEl || !containerEl) return;
+    const el = zoomAnchorEl;
+    zoomAnchorEl = null;
+    // Use rAF to wait for the DOM to finish re-laying out after the zoom change.
+    requestAnimationFrame(() => {
+      const containerTop = containerEl.getBoundingClientRect().top;
+      const newRect      = el.getBoundingClientRect();
+      containerEl.scrollTop += (newRect.top - containerTop) - zoomAnchorOffset;
+    });
+  }
+
   // ─── UI state ─────────────────────────────────────────────────────────────────
 
   let loading          = $state(true);
@@ -121,14 +166,23 @@
 
   // ─── Derived ──────────────────────────────────────────────────────────────────
 
-  const rtl        = $derived(store.settings.readingDirection === "rtl");
-  const fit        = $derived((store.settings.fitMode ?? "width") as FitMode);
-  const style      = $derived(store.settings.pageStyle ?? "single");
-  const maxW       = $derived(store.settings.maxPageWidth ?? 900);
-  const autoNext   = $derived(store.settings.autoNextChapter ?? false);
-  const markOnNext = $derived(store.settings.markReadOnNext ?? true);
+  const rtl         = $derived(store.settings.readingDirection === "rtl");
+  const fit         = $derived((store.settings.fitMode ?? "width") as FitMode);
+  const style       = $derived(store.settings.pageStyle ?? "single");
+  const zoom        = $derived(store.settings.readerZoom ?? 1.0);
+  const autoNext    = $derived(store.settings.autoNextChapter ?? false);
+  const markOnNext  = $derived(store.settings.markReadOnNext ?? true);
   const overlayBars = $derived(store.settings.overlayBars ?? false);
-  const lastPage   = $derived(store.pageUrls.length);
+  const lastPage    = $derived(store.pageUrls.length);
+
+  // effectiveWidth: how wide the image should be, in pixels.
+  // = container width × zoom multiplier. Applied as max-width on the viewer
+  // so fit modes (height, screen) can still further constrain the image.
+  const effectiveWidth = $derived(
+    containerWidth > 0 ? Math.round(containerWidth * zoom) : undefined
+  );
+
+  const zoomPct = $derived(Math.round(zoom * 100));
 
   const displayChapter = $derived(
     style === "longstrip" && autoNext && visibleChapterId
@@ -216,9 +270,6 @@
   }
 
   // ─── Strip initialisation ─────────────────────────────────────────────────────
-  // Runs when a chapter finishes loading in longstrip mode.
-  // Starts the strip with just the current chapter; appendNextChapter adds more
-  // as the user scrolls. Nothing is ever removed from the DOM mid-read.
 
   $effect(() => {
     if (style === "longstrip" && store.pageUrls.length && store.activeChapter) {
@@ -239,8 +290,6 @@
   $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
 
   // ─── Forward append only ──────────────────────────────────────────────────────
-  // Appends the next chapter to the bottom when the user scrolls past 80%.
-  // No eviction, no prepend, no sliding window — chapters accumulate forward.
 
   function appendNextChapter() {
     if (appending || !stripChapters.length) return;
@@ -398,17 +447,8 @@
   });
 
   // ─── Progress / history tracking ─────────────────────────────────────────────
-  // Only records history after the user has genuinely navigated (pageNumber > 1,
-  // or scrolled past page 1 in longstrip). This prevents the chapter-open event
-  // from writing "page 1" as the last-read position, which caused the history to
-  // always show the chapter you started on rather than where you left off.
 
   $effect(() => {
-    // Use displayChapter, not store.activeChapter — in longstrip with autoNext,
-    // store.activeChapter stays as the chapter you *opened* (e.g. ch61) while
-    // displayChapter tracks visibleChapterId (the chapter actually on screen).
-    // Using store.activeChapter here caused every history write to stamp ch61
-    // even when the user had scrolled all the way to ch72.
     const ch = displayChapter ?? store.activeChapter;
     if (ch && lastPage && store.activeManga) {
       const chapterId   = ch.id;
@@ -419,11 +459,9 @@
       const pageNum     = store.pageNumber;
       const atLast      = store.pageNumber === lastPage;
 
-      // Mark that the user has moved past the initial load.
       if (pageNum > 1) hasNavigated = true;
 
       untrack(() => {
-        // Skip the very first page-1 write that fires on chapter load.
         if (!hasNavigated) return;
         addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
         if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
@@ -507,6 +545,24 @@
   const goNext = $derived(rtl ? goBack    : goForward);
   const goPrev = $derived(rtl ? goForward : goBack);
 
+  // ─── Zoom helpers ─────────────────────────────────────────────────────────────
+
+  function clampZoom(z: number): number {
+    return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) * 1000) / 1000;
+  }
+
+  function adjustZoom(delta: number) {
+    captureZoomAnchor();
+    updateSettings({ readerZoom: clampZoom(zoom + delta) });
+    restoreZoomAnchor();
+  }
+
+  function resetZoom() {
+    captureZoomAnchor();
+    updateSettings({ readerZoom: 1.0 });
+    restoreZoomAnchor();
+  }
+
   // ─── Settings toggles ─────────────────────────────────────────────────────────
 
   function cycleStyle() {
@@ -531,13 +587,13 @@
   function onWheel(e: WheelEvent) {
     if (!e.ctrlKey) return;
     e.preventDefault();
-    updateSettings({ maxPageWidth: Math.min(2400, Math.max(200, maxW + (e.deltaY < 0 ? 50 : -50))) });
+    // Each wheel tick adjusts by ZOOM_STEP (5%). Larger deltaY = bigger scroll = same step.
+    adjustZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
   }
 
   function onKey(e: KeyboardEvent) {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
     const kb = store.settings.keybinds ?? DEFAULT_KEYBINDS;
-    const mW = store.settings.maxPageWidth ?? 900;
     const r  = store.settings.readingDirection === "rtl";
     if (e.key === "Escape") {
       e.preventDefault();
@@ -545,9 +601,9 @@
       if (dlOpen)   { dlOpen   = false; return; }
       closeReader(); return;
     }
-    if (e.ctrlKey && (e.key === "=" || e.key === "+")) { e.preventDefault(); updateSettings({ maxPageWidth: Math.min(2400, mW + 100) }); return; }
-    if (e.ctrlKey && e.key === "-")                    { e.preventDefault(); updateSettings({ maxPageWidth: Math.max(200,  mW - 100) }); return; }
-    if (e.ctrlKey && e.key === "0")                    { e.preventDefault(); updateSettings({ maxPageWidth: 900 }); return; }
+    if (e.ctrlKey && (e.key === "=" || e.key === "+")) { e.preventDefault(); adjustZoom(ZOOM_STEP * 2); return; }
+    if (e.ctrlKey && e.key === "-")                    { e.preventDefault(); adjustZoom(-ZOOM_STEP * 2); return; }
+    if (e.ctrlKey && e.key === "0")                    { e.preventDefault(); resetZoom(); return; }
     if      (matchesKeybind(e, kb.exitReader))             { e.preventDefault(); closeReader(); }
     else if (matchesKeybind(e, kb.pageRight))              { e.preventDefault(); goForward(); }
     else if (matchesKeybind(e, kb.pageLeft))               { e.preventDefault(); goBack(); }
@@ -591,12 +647,20 @@
     window.addEventListener("keydown", onKey);
     window.addEventListener("wheel", onWheel, { passive: false });
     containerEl?.focus({ preventScroll: true });
+
+    // Track the viewer's actual paint width so zoom is always relative to it.
+    const ro = new ResizeObserver(entries => {
+      containerWidth = entries[0].contentRect.width;
+    });
+    ro.observe(containerEl);
+
     return () => {
       abortCtrl?.abort();
       if (hideTimer) clearTimeout(hideTimer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("wheel", onWheel);
       cleanupScroll();
+      ro.disconnect();
     };
   });
 </script>
@@ -625,16 +689,37 @@
       {:else}<ArrowsOut size={14} weight="light" />{/if}
       <span class="mode-label">{fitLabel}</span>
     </button>
+
+    <!-- ── Zoom controls ────────────────────────────────────────────────────── -->
     <div class="zoom-wrap">
-      <button class="zoom-btn" onclick={() => zoomOpen = !zoomOpen}>{Math.round((maxW / 900) * 100)}%</button>
+      <div class="zoom-inline">
+        <button class="zoom-step-btn" onclick={() => adjustZoom(-ZOOM_STEP)} title="Zoom out" disabled={zoom <= ZOOM_MIN}>
+          <MagnifyingGlassMinus size={13} weight="light" />
+        </button>
+        <button class="zoom-pct-btn" onclick={() => zoomOpen = !zoomOpen} title="Click to adjust zoom">
+          {zoomPct}%
+        </button>
+        <button class="zoom-step-btn" onclick={() => adjustZoom(ZOOM_STEP)} title="Zoom in" disabled={zoom >= ZOOM_MAX}>
+          <MagnifyingGlassPlus size={13} weight="light" />
+        </button>
+      </div>
       {#if zoomOpen}
         <div class="zoom-popover">
-          <input type="range" class="zoom-slider" min={200} max={2400} step={50} value={maxW}
-            oninput={(e) => updateSettings({ maxPageWidth: Number(e.currentTarget.value) })} />
-          <button class="zoom-reset" onclick={() => updateSettings({ maxPageWidth: 900 })}>{Math.round((maxW / 900) * 100)}%</button>
+          <div class="zoom-slider-row">
+            <input type="range" class="zoom-slider" min={10} max={400} step={5} value={zoomPct}
+              oninput={(e) => { captureZoomAnchor(); updateSettings({ readerZoom: clampZoom(Number(e.currentTarget.value) / 100) }); restoreZoomAnchor(); }} />
+          </div>
+          <div class="zoom-presets">
+            {#each [50, 75, 100, 125, 150, 200] as pct}
+              <button class="zoom-preset" class:active={zoomPct === pct}
+                onclick={() => { captureZoomAnchor(); updateSettings({ readerZoom: pct / 100 }); restoreZoomAnchor(); }}>{pct}%</button>
+            {/each}
+          </div>
+          <button class="zoom-reset" onclick={resetZoom} disabled={zoom === 1.0}>Reset</button>
         </div>
       {/if}
     </div>
+
     <button class="mode-btn" class:active={rtl} onclick={() => updateSettings({ readingDirection: rtl ? "ltr" : "rtl" })}>
       <ArrowsLeftRight size={14} weight="light" /><span class="mode-label">{rtl ? "RTL" : "LTR"}</span>
     </button>
@@ -666,7 +751,7 @@
     bind:this={containerEl}
     class="viewer"
     class:strip={style === "longstrip"}
-    style="--max-page-width:{maxW}px"
+    style={effectiveWidth != null ? `--effective-width:${effectiveWidth}px` : ""}
     role="presentation"
     tabindex="-1"
     onclick={handleTap}
@@ -770,25 +855,51 @@
   .mode-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
   .mode-btn.active { color: var(--accent-fg); background: var(--accent-muted); }
   .mode-label { text-transform: capitalize; }
+
+  /* ── Zoom controls ───────────────────────────────────────────────────────── */
   .zoom-wrap { position: relative; flex-shrink: 0; }
-  .zoom-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); padding: 4px var(--sp-2); border-radius: var(--radius-sm); min-width: 36px; text-align: center; transition: color var(--t-base), background var(--t-base); }
-  .zoom-btn:hover { color: var(--text-secondary); background: var(--bg-raised); }
-  .zoom-popover { position: absolute; top: calc(100% + 6px); left: 50%; translate: -50% 0; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-3) var(--sp-2); display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; min-width: 160px; animation: scaleIn 0.1s ease both; transform-origin: top center; }
-  .zoom-slider { width: 140px; height: 3px; appearance: none; -webkit-appearance: none; background: var(--border-strong); border-radius: 2px; outline: none; cursor: pointer; }
+  .zoom-inline { display: flex; align-items: center; gap: 1px; background: var(--bg-overlay); border: 1px solid var(--border-base); border-radius: var(--radius-sm); overflow: hidden; }
+  .zoom-step-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
+  .zoom-step-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
+  .zoom-step-btn:disabled { opacity: 0.25; cursor: default; }
+  .zoom-pct-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-secondary); padding: 0 var(--sp-2); height: 24px; min-width: 38px; text-align: center; transition: color var(--t-base), background var(--t-base); border-left: 1px solid var(--border-dim); border-right: 1px solid var(--border-dim); }
+  .zoom-pct-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
+  .zoom-popover { position: absolute; top: calc(100% + 6px); left: 50%; translate: -50% 0; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; min-width: 180px; animation: scaleIn 0.1s ease both; transform-origin: top center; }
+  .zoom-slider-row { display: flex; align-items: center; gap: var(--sp-2); }
+  .zoom-slider { flex: 1; height: 3px; appearance: none; -webkit-appearance: none; background: var(--border-strong); border-radius: 2px; outline: none; cursor: pointer; }
   .zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent-fg); cursor: pointer; }
-  .zoom-reset { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 2px var(--sp-2); border-radius: var(--radius-sm); transition: color var(--t-base), background var(--t-base); }
-  .zoom-reset:hover { color: var(--text-primary); background: var(--bg-overlay); }
+  .zoom-presets { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+  .zoom-preset { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-muted); padding: 3px 6px; border-radius: var(--radius-sm); transition: color var(--t-base), background var(--t-base); }
+  .zoom-preset:hover { color: var(--text-primary); background: var(--bg-overlay); }
+  .zoom-preset.active { color: var(--accent-fg); background: var(--accent-muted); }
+  .zoom-reset { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 3px var(--sp-2); border-radius: var(--radius-sm); border: 1px solid var(--border-dim); transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
+  .zoom-reset:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-overlay); border-color: var(--border-strong); }
+  .zoom-reset:disabled { opacity: 0.3; cursor: default; }
+
+  /* ── Viewer ──────────────────────────────────────────────────────────────── */
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
   .img { display: block; user-select: none; image-rendering: auto; }
   .img.optimize-contrast { image-rendering: -webkit-optimize-contrast; }
-  .fit-width    { max-width: var(--max-page-width); width: 100%; height: auto; }
-  .fit-height   { max-height: calc(100vh - 80px); width: auto; max-width: 100%; height: auto; }
-  .fit-screen   { max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain; height: auto; }
+
+  /*
+   * Fit modes — all constrain within --effective-width (the zoom-adjusted
+   * container width). effectiveWidth is set as a CSS variable on .viewer
+   * so every fit class automatically respects the current zoom level.
+   *
+   * fit-width  : fills up to effectiveWidth, never wider
+   * fit-height : constrained to viewport height; never taller, never wider than effectiveWidth
+   * fit-screen : fits within both axes (contain); never wider than effectiveWidth
+   * fit-original : natural image size, no constraint
+   */
+  .fit-width    { max-width: var(--effective-width, 100%); width: 100%; height: auto; }
+  .fit-height   { max-height: calc(100vh - 80px); width: auto; max-width: var(--effective-width, 100%); height: auto; }
+  .fit-screen   { max-width: var(--effective-width, 100%); max-height: calc(100vh - 80px); object-fit: contain; height: auto; }
   .fit-original { max-width: none; width: auto; height: auto; }
+
   .strip-gap { margin-bottom: 8px; }
-  .double-wrap { display: flex; align-items: flex-start; justify-content: center; max-width: calc(var(--max-page-width) * 2); width: 100%; }
+  .double-wrap { display: flex; align-items: flex-start; justify-content: center; max-width: calc(var(--effective-width, 100%) * 2); width: 100%; }
   .page-half { flex: 1; min-width: 0; object-fit: contain; }
   .gap-left  { margin-right: 2px; }
   .gap-right { margin-left: 2px; }
