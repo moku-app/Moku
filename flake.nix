@@ -18,7 +18,7 @@
 
       perSystem = { system, lib, ... }:
         let
-          version = "0.5.0";
+          version = "0.5.1";
 
           pkgs = import inputs.nixpkgs {
             inherit system;
@@ -149,7 +149,7 @@ EOF
 
           bumpScript = pkgs.writeShellApplication {
             name = "moku-bump";
-            runtimeInputs = with pkgs; [ gnused coreutils git ];
+            runtimeInputs = with pkgs; [ gnused coreutils git rustToolchain ];
             text = ''
               [[ $# -lt 1 ]] && { echo "Usage: nix run .#bump -- <version>"; exit 1; }
               VERSION="$1"
@@ -160,6 +160,7 @@ EOF
                 "$REPO/src-tauri/Cargo.toml"
               sed -i "s/version = \"[^\"]*\";/version = \"$VERSION\";/g" \
                 "$REPO/flake.nix"
+              (cd "$REPO/src-tauri" && cargo generate-lockfile)
               echo "Bumped to $VERSION"
             '';
           };
