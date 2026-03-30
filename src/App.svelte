@@ -79,7 +79,7 @@
   let platformScale = $state(1.0);
 
   function applyZoom() {
-    const uiZoom     = store.settings.uiZoom ?? 1.5;
+    const uiZoom     = store.settings.uiZoom ?? 1.0;
     const effective  = platformScale * uiZoom;
     const pct        = effective * 100;
     document.documentElement.style.zoom = `${pct}%`;
@@ -280,6 +280,25 @@
     if (!store.activeChapter) {
       if (store.settings.discordRpc) setIdle();
     }
+  });
+
+  function handleZoomKey(e: KeyboardEvent) {
+    if (!e.ctrlKey) return;
+    if (e.key === "=" || e.key === "+") {
+      e.preventDefault();
+      store.settings.uiZoom = Math.min(2.0, Math.round(((store.settings.uiZoom ?? 1.0) + 0.1) * 10) / 10);
+    } else if (e.key === "-") {
+      e.preventDefault();
+      store.settings.uiZoom = Math.max(0.5, Math.round(((store.settings.uiZoom ?? 1.0) - 0.1) * 10) / 10);
+    } else if (e.key === "0") {
+      e.preventDefault();
+      store.settings.uiZoom = 1.0;
+    }
+  }
+
+  $effect(() => {
+    window.addEventListener("keydown", handleZoomKey);
+    return () => window.removeEventListener("keydown", handleZoomKey);
   });
 
   function handleRetry() {

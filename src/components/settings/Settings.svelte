@@ -660,13 +660,13 @@
               <p class="section-title">Interface Scale</p>
               <div class="scale-row">
                 <input type="range" min={50} max={200} step={5}
-                  value={Math.round((store.settings.uiZoom ?? 1.5) * 100)}
+                  value={Math.round((store.settings.uiZoom ?? 0) * 100)}
                   oninput={(e) => updateSettings({ uiZoom: Number(e.currentTarget.value) / 100 })}
                   class="scale-slider" />
                 <input
                   type="number" min={50} max={200} step={1}
                   class="scale-val-input"
-                  value={Math.round((store.settings.uiZoom ?? 1.5) * 100)}
+                  value={Math.round((store.settings.uiZoom ?? 1.0) * 100)}
                   oninput={(e) => {
                     const n = parseInt(e.currentTarget.value, 10);
                     if (!isNaN(n) && n >= 50 && n <= 200) updateSettings({ uiZoom: n / 100 });
