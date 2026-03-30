@@ -108,6 +108,18 @@ export interface HistoryEntry {
   readAt:       number;
 }
 
+export interface BookmarkEntry {
+  mangaId:      number;
+  mangaTitle:   string;
+  thumbnailUrl: string;
+  chapterId:    number;
+  chapterName:  string;
+  pageNumber:   number;
+  savedAt:      number;
+  /** Optional user label, e.g. "before the fight scene" */
+  label?:       string;
+}
+
 /**
  * ReadLogEntry — append-only record of every chapter-completion event.
  * Unlike HistoryEntry (which dedupes per chapter for the "continue" UI),
@@ -228,6 +240,15 @@ export interface Settings {
   hiddenCategoryIds:       number[];
   /** Category ID that opens by default when the Library tab is first visited. null = no default (shows Saved). */
   defaultLibraryCategoryId: number | null;
+  /**
+   * Content filtering — managed via the Content tab in Settings.
+   * nsfwFilteredTags:      substrings matched against genre tags (case-insensitive).
+   * nsfwAllowedSourceIds:  sources explicitly permitted even though isNsfw = true.
+   * nsfwBlockedSourceIds:  sources always blocked regardless of tag content.
+   */
+  nsfwFilteredTags:      string[];
+  nsfwAllowedSourceIds:  string[];
+  nsfwBlockedSourceIds:  string[];
   /** Per-tab sort/filter state — keyed by libraryFilter value (e.g. "library", "downloaded", "42"). */
   libraryTabSort:   Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
   libraryTabStatus: Record<string, LibraryStatusFilter>;
@@ -295,6 +316,9 @@ export const DEFAULT_SETTINGS: Settings = {
   customThemes:           [],
   hiddenCategoryIds:      [],
   defaultLibraryCategoryId: null,
+  nsfwFilteredTags:      ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
+  nsfwAllowedSourceIds:  [],
+  nsfwBlockedSourceIds:  [],
   libraryTabSort:         {},
   libraryTabStatus:       {},
 };
@@ -359,6 +383,9 @@ function mergeSettings(saved: any): Settings {
     hiddenCategoryIds: saved?.settings?.hiddenCategoryIds ?? [],
     libraryTabSort:    saved?.settings?.libraryTabSort    ?? {},
     libraryTabStatus:  saved?.settings?.libraryTabStatus  ?? {},
+    nsfwFilteredTags:     saved?.settings?.nsfwFilteredTags     ?? ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
+    nsfwAllowedSourceIds: saved?.settings?.nsfwAllowedSourceIds ?? [],
+    nsfwBlockedSourceIds: saved?.settings?.nsfwBlockedSourceIds ?? [],
   };
 }
 
@@ -385,6 +412,11 @@ class Store {
    * Capped at 5 000 entries; oldest are trimmed first.
    */
   readLog:           ReadLogEntry[]   = $state(saved?.readLog       ?? []);
+  /**
+   * bookmarks — user-placed markers at a specific page in a chapter.
+   * Capped at 200 entries; oldest are trimmed first when the cap is hit.
+   */
+  bookmarks:         BookmarkEntry[]  = $state(saved?.bookmarks     ?? []);
   readingStats:      ReadingStats     = $state(mergeStats(saved));
   settings:          Settings         = $state(mergeSettings(saved));
 
@@ -430,16 +462,26 @@ class Store {
       $effect(() => { persist({ libraryFilter: this.libraryFilter }); });
       $effect(() => { persist({ history:       this.history       }); });
       $effect(() => { persist({ readLog:       this.readLog       }); });
+      $effect(() => { persist({ bookmarks:     this.bookmarks     }); });
       $effect(() => { persist({ readingStats:  this.readingStats  }); });
       $effect(() => { persist({ settings:      this.settings      }); });
     });
   }
 
-  openReader(chapter: Chapter, chapterList: Chapter[]) {
+  openReader(chapter: Chapter, chapterList: Chapter[], manga?: Manga | null) {
+    // Always set activeManga when provided so the Reader has full manga
+    // context for Discord RPC (setReading) and any other manga-aware logic.
+    // Callers that already set store.activeManga directly may omit this arg.
+    if (manga) this.activeManga = manga;
     this.activeChapter     = chapter;
     this.activeChapterList = chapterList;
     this.pageUrls          = [];
-    this.pageNumber        = 1;
+    // Resume from the last saved position if history has one for this chapter.
+    // history[n].pageNumber is kept up-to-date by the progress $effect in
+    // Reader.svelte as the user pages through, so this is always the last page
+    // they were on — not just the page they started from.
+    const saved = this.history.find(h => h.chapterId === chapter.id);
+    this.pageNumber = (saved && saved.pageNumber > 1) ? saved.pageNumber : 1;
   }
 
   closeReader() {
@@ -517,7 +559,38 @@ class Store {
     };
   }
 
+  /**
+   * Add or update a bookmark for the given chapter/page. Only one bookmark
+   * per chapter is kept — adding a second one replaces the first.
+   */
+  addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) {
+    const bookmark: BookmarkEntry = { ...entry, savedAt: Date.now(), label };
+    this.bookmarks = [
+      bookmark,
+      ...this.bookmarks.filter(b => b.chapterId !== entry.chapterId),
+    ].slice(0, 200);
+  }
+
+  removeBookmark(chapterId: number) {
+    this.bookmarks = this.bookmarks.filter(b => b.chapterId !== chapterId);
+  }
+
+  getBookmark(chapterId: number): BookmarkEntry | undefined {
+    return this.bookmarks.find(b => b.chapterId === chapterId);
+  }
+
   clearHistory()                        { this.history = []; this.readLog = []; }
+  /**
+   * Reset the resume position for a chapter back to page 1.
+   * Called when the user scrolls past a chapter boundary in longstrip — the
+   * chapter still appears in history (for the continue-reading UI), but
+   * reopening it will start from page 1 instead of resuming mid-chapter.
+   */
+  resetChapterProgress(chapterId: number) {
+    this.history = this.history.map(h =>
+      h.chapterId === chapterId ? { ...h, pageNumber: 1 } : h
+    );
+  }
   clearHistoryForManga(mangaId: number) {
     this.history = this.history.filter(x => x.mangaId !== mangaId);
     this.readLog  = this.readLog.filter(x => x.mangaId !== mangaId);
@@ -649,10 +722,11 @@ export const store = new Store();
 
 // ── Function re-exports — zero call-site changes for actions ──────────────────
 
-export function openReader(chapter: Chapter, chapterList: Chapter[])    { store.openReader(chapter, chapterList); }
+export function openReader(chapter: Chapter, chapterList: Chapter[], manga?: Manga | null) { store.openReader(chapter, chapterList, manga); }
 export function closeReader()                                            { store.closeReader(); }
 export function addHistory(entry: HistoryEntry, completed?: boolean, minutes?: number) { store.addHistory(entry, completed, minutes); }
 export function clearHistory()                                           { store.clearHistory(); }
+export function resetChapterProgress(chapterId: number)                  { store.resetChapterProgress(chapterId); }
 export function clearHistoryForManga(mangaId: number)                    { store.clearHistoryForManga(mangaId); }
 export function wipeAllData()                                            { store.wipeAllData(); }
 export function linkManga(idA: number, idB: number)                      { store.linkManga(idA, idB); }
@@ -677,6 +751,9 @@ export function setSettingsOpen(next: boolean)                           { store
 export function updateSettings(patch: Partial<Settings>)                 { store.updateSettings(patch); }
 export function resetKeybinds()                                          { store.resetKeybinds(); }
 export function clearDiscoverCache()                                       { store.clearDiscoverCache(); }
+export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) { store.addBookmark(entry, label); }
+export function removeBookmark(chapterId: number)                            { store.removeBookmark(chapterId); }
+export function getBookmark(chapterId: number)                               { return store.getBookmark(chapterId); }
 export function toggleHiddenCategory(id: number)                           { store.toggleHiddenCategory(id); }
 export function saveCustomTheme(theme: CustomTheme)                        { store.saveCustomTheme(theme); }
 export function deleteCustomTheme(id: string)                              { store.deleteCustomTheme(id); }

@@ -248,7 +248,28 @@ struct ServerInvocation {
     working_dir: Option<PathBuf>,
 }
 
+/// Locate the `java` / `java.exe` binary inside a bundled JRE directory.
+///
+/// Expected layout (Windows and Linux):
+///   <bundle_dir>/jre/bin/java[.exe]
+///
+/// On Windows `strip_unc` is applied so Java doesn't choke on `\\?\` prefixes.
+#[cfg(not(target_os = "macos"))]
+fn find_java_in_bundle(bundle_dir: &PathBuf, log: &mut Option<std::fs::File>) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let java = strip_unc(bundle_dir.join("jre").join("bin").join("java.exe"));
+
+    #[cfg(not(target_os = "windows"))]
+    let java = bundle_dir.join("jre").join("bin").join("java");
+
+    do_log(log, &format!("[find_java] checking path: {:?}", java));
+    do_log(log, &format!("[find_java] exists: {}", java.exists()));
+
+    if java.exists() { Some(java) } else { None }
+}
+
 fn do_log(log: &mut Option<std::fs::File>, msg: &str) {
+    eprintln!("{}", msg);
     if let Some(f) = log {
         let _ = writeln!(f, "{}", msg);
     }
@@ -261,7 +282,10 @@ fn resolve_server_binary(
 ) -> Result<ServerInvocation, SpawnError> {
     do_log(log, &format!("[resolve] binary arg = {:?}", binary));
 
-    // 1. User-specified binary path
+    // ── 1. User-specified binary path ─────────────────────────────────────────
+    // Primary: honour the path as-is (doc-2 behaviour — trust the user).
+    // Fallback: if the path doesn't exist after stripping UNC, log a warning
+    // and continue so the bundled detection still has a chance.
     if !binary.trim().is_empty() {
         let path = strip_unc(PathBuf::from(binary.trim()));
         do_log(log, &format!("[resolve] user path: {:?} exists={}", path, path.exists()));
@@ -272,17 +296,58 @@ fn resolve_server_binary(
                 working_dir: path.parent().map(|p| p.to_path_buf()),
             });
         }
-        return Err(SpawnError::NotConfigured(
-            format!("Configured binary not found: {}", path.display()),
-        ));
+        // Fallback: path was set but file is missing — warn and keep trying.
+        do_log(log, "[resolve] WARNING: user-supplied path not found, falling through to bundled detection");
     }
 
-    // 2. Bundled sidecar (Windows / Linux AppImage)
+    // Resolve and UNC-strip resource_dir once; used by all non-macOS branches.
+    #[cfg(not(target_os = "macos"))]
+    let resource_dir = {
+        let raw = app.path().resource_dir().unwrap_or_default();
+        let stripped = strip_unc(raw);
+        do_log(log, &format!("[resolve] resource_dir (stripped) = {:?}", stripped));
+        stripped
+    };
+
+    // ── 2. Bundled JRE + JAR (Windows / Linux — specific layout) ─────────────
+    // Primary path from doc-2: binaries/suwayomi-bundle/bin/Suwayomi-Server.jar
     #[cfg(not(target_os = "macos"))]
     {
-        let resource_dir = app.path().resource_dir().unwrap_or_default();
-        let candidates = ["suwayomi-launcher", "suwayomi-launcher.sh", "tachidesk-server"];
-        for name in &candidates {
+        let bundle_dir = resource_dir.join("binaries").join("suwayomi-bundle");
+        let jar        = bundle_dir.join("bin").join("Suwayomi-Server.jar");
+
+        do_log(log, &format!("[resolve] bundle_dir = {:?}", bundle_dir));
+        do_log(log, &format!("[resolve] bundle_dir exists: {}", bundle_dir.exists()));
+        do_log(log, &format!("[resolve] jar = {:?}", jar));
+        do_log(log, &format!("[resolve] jar exists: {}", jar.exists()));
+
+        match find_java_in_bundle(&bundle_dir, log) {
+            Some(java) => {
+                do_log(log, &format!("[resolve] java found: {:?}", java));
+                if jar.exists() {
+                    do_log(log, "[resolve] both java and jar found — using bundled JRE");
+                    return Ok(ServerInvocation {
+                        bin:  java.to_string_lossy().into_owned(),
+                        args: vec!["-jar".to_string(), jar.to_string_lossy().into_owned()],
+                        working_dir: Some(bundle_dir),
+                    });
+                }
+                do_log(log, "[resolve] java found but jar MISSING — falling through");
+            }
+            None => {
+                do_log(log, "[resolve] java NOT found in bundle — falling through");
+            }
+        }
+    }
+
+    // ── 2b. Bundled launcher scripts / native sidecars (Windows / Linux) ──────
+    // Fallback for older bundle layouts that ship a wrapper script instead of a
+    // bare JRE + JAR.  Also scans for any *.jar in resource_dir as a last resort.
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Named launcher scripts.
+        let script_candidates = ["suwayomi-launcher", "suwayomi-launcher.sh", "tachidesk-server"];
+        for name in &script_candidates {
             let p = resource_dir.join(name);
             do_log(log, &format!("[resolve] sidecar candidate: {:?} exists={}", p, p.exists()));
             if p.exists() {
@@ -290,24 +355,64 @@ fn resolve_server_binary(
                 return Ok(ServerInvocation {
                     bin:         p.to_string_lossy().into_owned(),
                     args:        vec![],
-                    working_dir: Some(resource_dir),
+                    working_dir: Some(resource_dir.clone()),
                 });
             }
         }
+
+        // Generic JRE at resource_dir root + any *.jar alongside it.
+        do_log(log, "[resolve] no named sidecar found, trying generic JRE + any jar in resource_dir");
+        if let Some(java) = find_java_in_bundle(&resource_dir, log) {
+            let jar = std::fs::read_dir(&resource_dir)
+                .ok()
+                .and_then(|mut rd| {
+                    rd.find(|e| {
+                        e.as_ref()
+                            .map(|e| e.file_name().to_string_lossy().ends_with(".jar"))
+                            .unwrap_or(false)
+                    })
+                    .and_then(|e| e.ok())
+                    .map(|e| e.path())
+                });
+
+            do_log(log, &format!("[resolve] generic jar candidate: {:?}", jar));
+
+            if let Some(jar_path) = jar {
+                do_log(log, &format!("[resolve] using generic JRE java={:?} jar={:?}", java, jar_path));
+                return Ok(ServerInvocation {
+                    bin:  java.to_string_lossy().into_owned(),
+                    args: vec!["-jar".to_string(), jar_path.to_string_lossy().into_owned()],
+                    working_dir: Some(resource_dir),
+                });
+            }
+            do_log(log, "[resolve] generic JRE found but no .jar — falling through");
+        }
     }
 
-    // 3. macOS app bundle — look in MacOS/ and Resources/
+    // ── 3. macOS app bundle — MacOS/ then Resources/ ──────────────────────────
     #[cfg(target_os = "macos")]
     {
         let resource_dir = app.path().resource_dir().unwrap_or_default();
-        let macos_dir    = resource_dir.parent()
+        let macos_dir    = resource_dir
+            .parent()
             .map(|p| p.join("MacOS"))
             .unwrap_or_default();
 
-        let candidates = ["suwayomi-launcher", "suwayomi-launcher.sh", "tachidesk-server"];
+        do_log(log, &format!("[resolve] macOS macos_dir = {:?}", macos_dir));
 
-        // Search MacOS/ first (correct location), then Resources/ as fallback
-        // for flat dev layouts where the script sits next to resources.
+        // Tauri strips the target triple when installing externalBin sidecars into
+        // Contents/MacOS/, so the binary is "suwayomi-server" at runtime.
+        // Triple-suffixed names are kept as a belt-and-suspenders fallback for
+        // dev / flat layouts.
+        let candidates = [
+            "suwayomi-server",
+            "suwayomi-server-aarch64-apple-darwin",
+            "suwayomi-server-x86_64-apple-darwin",
+            "suwayomi-launcher",
+            "suwayomi-launcher.sh",
+            "tachidesk-server",
+        ];
+
         for search_dir in &[&macos_dir, &resource_dir] {
             for name in &candidates {
                 let p = search_dir.join(name);
@@ -324,8 +429,18 @@ fn resolve_server_binary(
         }
     }
 
+    // ── 4. PATH fallback ──────────────────────────────────────────────────────
+    // Use `where` on Windows, `which` everywhere else.
     do_log(log, "[resolve] trying PATH fallback");
     for name in &["suwayomi-server", "tachidesk-server"] {
+        #[cfg(target_os = "windows")]
+        let found = std::process::Command::new("where")
+            .arg(name)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        #[cfg(not(target_os = "windows"))]
         let found = std::process::Command::new("which")
             .arg(name)
             .output()

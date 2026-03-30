@@ -1,28 +1,25 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks, Lock, Eye, EyeSlash, Star } from "phosphor-svelte";
+  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks, Lock, Eye, EyeSlash, Star, ShieldCheck, Tag } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { open as openUrl } from "@tauri-apps/plugin-shell";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
+  import { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER, GET_SOURCES } from "../../lib/queries";
   import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
-  import type { Category } from "../../lib/types";
+  import type { Category, Source } from "../../lib/types";
   import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories } from "../../store/state.svelte";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
   import type { Keybinds } from "../../lib/keybinds";
   import type { Tracker } from "../../lib/types";
-
   interface Props {
     onOpenThemeEditor?: (id?: string | null) => void;
   }
   let { onOpenThemeEditor }: Props = $props();
-
-  type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "tracking" | "security" | "about" | "devtools";
-
+  type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "tracking" | "security" | "content" | "about" | "devtools";
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: "general",    label: "General",     icon: Gear       },
     { id: "appearance", label: "Appearance",  icon: PaintBrush },
@@ -34,10 +31,10 @@
     { id: "folders",    label: "Folders",     icon: FolderSimple },
     { id: "tracking",   label: "Tracking",    icon: ListChecks },
     { id: "security",   label: "Security",    icon: Lock       },
+    { id: "content",    label: "Content",     icon: ShieldCheck },
     { id: "about",      label: "About",       icon: Info       },
     { id: "devtools",   label: "Dev Tools",   icon: Wrench     },
   ];
-
   const THEMES: { id: Theme; label: string; description: string; swatches: string[] }[] = [
     { id: "dark",           label: "Dark",           description: "Default near-black",            swatches: ["#101010","#151515","#a8c4a8","#f0efec"] },
     { id: "high-contrast",  label: "High Contrast",  description: "Darker base, sharper text",     swatches: ["#080808","#111111","#bcd8bc","#ffffff"] },
@@ -46,26 +43,19 @@
     { id: "midnight",       label: "Midnight",       description: "Deep blue-black tint",          swatches: ["#0c1020","#101428","#a8b4e8","#eeeef8"] },
     { id: "warm",           label: "Warm",           description: "Amber and sepia tones",         swatches: ["#16130c","#1c1810","#e0b860","#f5f0e0"] },
   ];
-
   let tab: Tab          = $state("general");
   let contentBodyEl: HTMLDivElement;
   $effect(() => { tab; tick().then(() => contentBodyEl?.scrollTo({ top: 0 })); });
-
   function close() { setSettingsOpen(false); }
-
   function onKey(e: KeyboardEvent) { if (e.key === "Escape" && !listeningKey) close(); }
   $effect(() => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
-
-  
   let listeningKey: keyof Keybinds | null = $state(null);
-
   function startListen(key: keyof Keybinds) {
     listeningKey = listeningKey === key ? null : key;
   }
-
   function onKeyCapture(e: KeyboardEvent) {
     if (!listeningKey) return;
     e.preventDefault(); e.stopPropagation();
@@ -74,22 +64,18 @@
     updateSettings({ keybinds: { ...store.settings.keybinds, [listeningKey]: bind } });
     listeningKey = null;
   }
-
   $effect(() => {
     if (listeningKey) {
       window.addEventListener("keydown", onKeyCapture, true);
       return () => window.removeEventListener("keydown", onKeyCapture, true);
     }
   });
-
-  
   interface StorageInfo { manga_bytes: number; total_bytes: number; free_bytes: number; path: string; }
   let storageInfo: StorageInfo | null = $state(null);
   let storageLoading = $state(false);
   let storageError: string | null = $state(null);
   let clearing = $state(false);
   let cleared  = $state(false);
-
   async function fetchStorage() {
     storageLoading = true; storageError = null;
     try {
@@ -99,37 +85,30 @@
     finally { storageLoading = false; }
   }
   $effect(() => { if (tab === "storage" && !storageInfo && !storageLoading) fetchStorage(); });
-
   function handleClearCache() {
     clearing = true;
     caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n)))).catch(() => {})
       .finally(() => { clearing = false; cleared = true; setTimeout(() => cleared = false, 2500); fetchStorage(); });
   }
-
   function fmtBytes(bytes: number): string {
     if (bytes === 0) return "0 B";
     const units = ["B","KB","MB","GB","TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
   }
-
-  // ── Performance metrics ───────────────────────────────────────────────────────
   interface PerfSnapshot {
     cacheEntries: number;
     cacheKeys:    string[];
     oldestEntryMs: number | null;
     newestEntryMs: number | null;
   }
-
   let perfSnapshot: PerfSnapshot | null = $state(null);
-
   function refreshPerfMetrics() {
     const knownPrefixes = ["library", "sources", "popular", "genre:", "manga:", "chapters:", "page:", "pages:"];
     let entries = 0;
     let oldest: number | null = null;
     let newest: number | null = null;
     const foundKeys: string[] = [];
-
     const checkKey = (k: string) => {
       const age = cache.ageOf(k);
       if (age !== undefined) {
@@ -140,16 +119,13 @@
         if (newest === null || ts > newest) newest = ts;
       }
     };
-
     ["library", "sources", "popular"].forEach(checkKey);
     ["Action","Romance","Fantasy","Comedy","Drama","Horror","Sci-Fi","Adventure","Thriller",
      "Isekai","Supernatural","Historical","Psychological","Sports","Mystery","Mecha",
      "Slice of Life","School Life","Martial Arts","Magic","Military"].forEach(g => checkKey(`genre:${g}`));
-
     perfSnapshot = { cacheEntries: entries, cacheKeys: foundKeys, oldestEntryMs: oldest, newestEntryMs: newest };
   }
   $effect(() => { if (tab === "performance") refreshPerfMetrics(); });
-
   function fmtAge(ts: number | null): string {
     if (ts === null) return "—";
     const secs = Math.floor((Date.now() - ts) / 1000);
@@ -158,33 +134,22 @@
     if (mins < 60) return `${mins}m ago`;
     return `${Math.floor(mins / 60)}h ago`;
   }
-
-  // Storage limit input state
   let storageLimitInput = $state(String(store.settings.storageLimitGb ?? ""));
-
   function applyStorageLimit() {
     const v = storageLimitInput.trim();
     if (v === "" || v === "0") { updateSettings({ storageLimitGb: null }); return; }
     const n = parseFloat(v);
     if (!isNaN(n) && n > 0) updateSettings({ storageLimitGb: n });
   }
-
-  
-  // catsLoading / catsError are local UI state only.
-  // The category list itself lives in store.categories (shared with Library).
   let catsLoading:    boolean      = $state(false);
   let catsError:      string|null  = $state(null);
   let newFolderName   = $state("");
   let editingId: number | null     = $state(null);
   let editingName     = $state("");
-
   async function loadCategories() {
     catsLoading = true; catsError = null;
     try {
       const res = await gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES);
-      // Merge server data onto existing store.categories to preserve mangas.nodes
-      // that Library loaded — Settings' GET_CATEGORIES query may not include them.
-      // Also preserve any id=0 (Default) entry that Library manages.
       const zeroCat = store.categories.filter(c => c.id === 0);
       const fresh = res.categories.nodes.filter(c => c.id !== 0);
       const merged = fresh.map(f => {
@@ -196,7 +161,6 @@
       catsError = e?.message ?? "Failed to load folders";
     } finally { catsLoading = false; }
   }
-
   async function createFolder() {
     const name = newFolderName.trim();
     if (!name) return;
@@ -206,9 +170,7 @@
       newFolderName = "";
     } catch (e: any) { catsError = e?.message ?? "Failed to create folder"; }
   }
-
   function startEdit(id: number, name: string) { editingId = id; editingName = name; }
-
   async function commitEdit() {
     if (editingId !== null && editingName.trim()) {
       try {
@@ -218,36 +180,27 @@
     }
     editingId = null; editingName = "";
   }
-
   async function deleteFolder(id: number) {
     try {
       await gql(DELETE_CATEGORY, { id });
       setCategories(store.categories.filter(c => c.id !== id));
     } catch (e: any) { catsError = e?.message ?? "Failed to delete folder"; }
   }
-
   async function moveCategory(id: number, direction: -1 | 1) {
-    // Work only on the non-default (id !== 0) categories, sorted by order,
-    // which is what the Settings list renders and what the server expects.
     const zeroCat  = store.categories.filter(c => c.id === 0);
     const sortable = store.categories
       .filter(c => c.id !== 0)
       .sort((a, b) => a.order - b.order);
-
     const idx = sortable.findIndex(c => c.id === id);
     if (idx < 0) return;
     const newPos = idx + 1 + direction; // 1-based server position
     if (newPos < 1 || newPos > sortable.length) return;
-
-    // Optimistic reorder — splice within sortable slice, keep mangas.nodes intact
     const reordered = [...sortable];
     const [moved] = reordered.splice(idx, 1);
     reordered.splice(idx + direction, 0, moved);
     setCategories([...zeroCat, ...reordered.map((c, i) => ({ ...c, order: i + 1 }))]);
-
     try {
       const res = await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id, position: newPos });
-      // Server returns bare order data — merge to preserve mangas.nodes, keep id=0 entry
       const updated = res.updateCategoryOrder.categories.filter(c => c.id !== 0);
       setCategories([
         ...zeroCat,
@@ -263,28 +216,17 @@
       await loadCategories();
     }
   }
-
-  // Load categories when the folders tab is first opened and the shared store
-  // is empty (e.g. user opened Settings before Library was mounted).
   $effect(() => { if (tab === "folders" && !store.categories.length && !catsLoading) loadCategories(); });
-
-  
   let selectOpen: string | null = $state(null);
-
   function toggleSelect(id: string) { selectOpen = selectOpen === id ? null : id; }
-
   function onSelectOutside(e: MouseEvent) {
     if (selectOpen && !(e.target as HTMLElement).closest(".select-wrap")) selectOpen = null;
   }
-
   $effect(() => {
     document.addEventListener("mousedown", onSelectOutside);
     return () => document.removeEventListener("mousedown", onSelectOutside);
   });
-
-  
   let splashTriggered = $state(false);
-
   let showAuthPass     = $state(false);
   let showSocksPass    = $state(false);
   let pinInput         = $state(store.settings.appLockPin ?? "");
@@ -292,29 +234,25 @@
   let secLoading       = $state(false);
   let secError         = $state<string | null>(null);
   let secSaved         = $state<string | null>(null);
-
   let authUsername     = $state(store.settings.serverAuthUser ?? "");
   let authPassword     = $state(store.settings.serverAuthPass ?? "");
-
   let socksEnabled     = $state(store.settings.socksProxyEnabled ?? false);
   let socksHost        = $state(store.settings.socksProxyHost ?? "");
   let socksPort        = $state(store.settings.socksProxyPort ?? "1080");
   let socksVersion     = $state(store.settings.socksProxyVersion ?? 5);
   let socksUsername    = $state(store.settings.socksProxyUsername ?? "");
   let socksPassword    = $state(store.settings.socksProxyPassword ?? "");
-
   let flareEnabled     = $state(store.settings.flareSolverrEnabled ?? false);
   let flareUrl         = $state(store.settings.flareSolverrUrl ?? "http://localhost:8191");
   let flareTimeout     = $state(store.settings.flareSolverrTimeout ?? 60);
   let flareSession     = $state(store.settings.flareSolverrSessionName ?? "moku");
   let flareTtl         = $state(store.settings.flareSolverrSessionTtl ?? 15);
   let flareFallback    = $state(store.settings.flareSolverrFallback ?? false);
-
   function showSaved(key: string) {
     secSaved = key; secError = null;
     setTimeout(() => { if (secSaved === key) secSaved = null; }, 2000);
   }
-
+  let secLoaded        = $state(false);
   async function loadServerSecurity() {
     try {
       const res = await gql<{ settings: {
@@ -342,11 +280,10 @@
         flareSolverrTimeout: flareTimeout, flareSolverrSessionName: flareSession,
         flareSolverrSessionTtl: flareTtl, flareSolverrFallback: flareFallback,
       });
+      secLoaded = true;
     } catch {}
   }
-
-  $effect(() => { if (tab === "security") loadServerSecurity(); });
-
+  $effect(() => { if (tab === "security" && !secLoaded) loadServerSecurity(); });
   async function enableAuth() {
     if (!authUsername.trim() || !authPassword.trim()) {
       secError = "Username and password are required"; return;
@@ -361,7 +298,6 @@
       secError = e?.message ?? "Failed to enable authentication";
     } finally { secLoading = false; }
   }
-
   async function disableAuth() {
     secLoading = true; secError = null;
     try {
@@ -373,7 +309,6 @@
       secError = e?.message ?? "Failed to disable authentication";
     } finally { secLoading = false; }
   }
-
   async function saveSocksProxy() {
     secLoading = true; secError = null;
     try {
@@ -392,7 +327,6 @@
       secError = e?.message ?? "Failed to save SOCKS proxy";
     } finally { secLoading = false; }
   }
-
   async function saveFlareSolverr() {
     secLoading = true; secError = null;
     try {
@@ -411,7 +345,6 @@
       secError = e?.message ?? "Failed to save FlareSolverr";
     } finally { secLoading = false; }
   }
-
   function commitPin() {
     const cleaned = pinInput.replace(/\D/g, "").slice(0, 8);
     pinInput = cleaned;
@@ -423,27 +356,17 @@
       updateSettings({ appLockPin: "" }); pinError = "";
     }
   }
-
-  // ── Tracker state ─────────────────────────────────────────────────────────────
-
   let trackers:        Tracker[]    = $state([]);
   let trackersLoading: boolean      = $state(false);
   let trackersError:   string|null  = $state(null);
-
-  // OAuth flow state
   let oauthTrackerId:  number|null  = $state(null);
   let oauthCallbackInput: string    = $state("");
   let oauthSubmitting: boolean      = $state(false);
-
-  // Credentials flow state
   let credsTrackerId:  number|null  = $state(null);
   let credsUsername:   string       = $state("");
   let credsPassword:   string       = $state("");
   let credsSubmitting: boolean      = $state(false);
-
-  // Logout state
   let loggingOut:      number|null  = $state(null); // trackerId being logged out
-
   async function loadTrackers() {
     trackersLoading = true; trackersError = null;
     try {
@@ -455,20 +378,13 @@
       trackersLoading = false;
     }
   }
-
   $effect(() => { if (tab === "tracking" && trackers.length === 0 && !trackersLoading) loadTrackers(); });
-
-  // OAuth: trackers with an authUrl use a browser redirect flow.
-  // User clicks "Connect", we open the auth URL in their browser.
-  // Suwayomi's redirect lands at suwayomi.org/tracker-oauth which shows
-  // the full callback URL. User pastes it back here.
   async function startOAuth(tracker: Tracker) {
     if (!tracker.authUrl) return;
     oauthTrackerId     = tracker.id;
     oauthCallbackInput = "";
     await openUrl(tracker.authUrl);
   }
-
   async function submitOAuth() {
     if (!oauthTrackerId || !oauthCallbackInput.trim()) return;
     oauthSubmitting = true;
@@ -486,16 +402,12 @@
       oauthSubmitting = false;
     }
   }
-
   function cancelOAuth() { oauthTrackerId = null; oauthCallbackInput = ""; }
-
-  // Credentials flow (Kitsu, MangaUpdates)
   function startCredentials(tracker: Tracker) {
     credsTrackerId = tracker.id;
     credsUsername  = "";
     credsPassword  = "";
   }
-
   async function submitCredentials() {
     if (!credsTrackerId || !credsUsername.trim() || !credsPassword.trim()) return;
     credsSubmitting = true;
@@ -515,9 +427,7 @@
       credsSubmitting = false;
     }
   }
-
   function cancelCredentials() { credsTrackerId = null; credsUsername = ""; credsPassword = ""; }
-
   async function logoutTracker(trackerId: number) {
     loggingOut = trackerId;
     try {
@@ -529,12 +439,7 @@
       loggingOut = null;
     }
   }
-
-  // A tracker uses OAuth if it has an authUrl; otherwise credentials.
   function usesOAuth(t: Tracker): boolean { return !!t.authUrl; }
-
-  // ── About / Updater state ─────────────────────────────────────────────────────
-
   interface ReleaseInfo {
     tag_name:     string;
     name:         string;
@@ -542,36 +447,28 @@
     published_at: string;
     html_url:     string;
   }
-
   type UpdatePhase =
     | "idle"
     | "downloading"
     | "ready"      // downloaded, awaiting restart
     | "error";
-
   const IS_WINDOWS = navigator.userAgent.includes("Windows");
-
   let appVersion      = $state("…");
   let releases        = $state<ReleaseInfo[]>([]);
   let releasesLoading = $state(false);
   let releasesError   = $state<string | null>(null);
   let expandedTag     = $state<string | null>(null);
-
-  // update install state
   let updatePhase     = $state<UpdatePhase>("idle");
   let updateError     = $state<string | null>(null);
   let dlBytes         = $state(0);
   let dlTotal         = $state<number | null>(null);
   let targetTag       = $state<string | null>(null); // tag being installed
-
   let releasesLoaded = false; // plain var — not $state, so effect doesn't re-run on change
-
   $effect(() => {
     if (tab !== "about") return;
     getVersion().then(v => appVersion = v).catch(() => appVersion = "unknown");
     if (!releasesLoaded) { releasesLoaded = true; loadReleases(); }
   });
-
   async function loadReleases() {
     releasesLoading = true; releasesError = null;
     try {
@@ -582,7 +479,6 @@
         invoke<ReleaseInfo[]>("list_releases"),
         timeout,
       ]);
-      // Filter out drafts / incomplete entries with no tag_name
       releases = all.filter(r => typeof r.tag_name === "string" && r.tag_name.trim());
     } catch (e: any) {
       releasesError = e instanceof Error ? e.message : String(e);
@@ -590,16 +486,11 @@
       releasesLoading = false;
     }
   }
-
-  // Normalise "v0.4.0" → "0.4.0" for comparison
   function stripV(v: string) { return v.replace(/^v/, ""); }
-
   function isCurrentVersion(tag: string) { return stripV(tag) === appVersion; }
-
   function parseSemver(v: string): number[] {
     return stripV(v).split(".").map(Number);
   }
-
   function compareSemver(a: string, b: string): number {
     const pa = parseSemver(a), pb = parseSemver(b);
     for (let i = 0; i < 3; i++) {
@@ -607,25 +498,17 @@
     }
     return 0;
   }
-
-  // True when releases are loaded and installed version is >= highest published tag
   let onLatestVersion = $derived((() => {
     if (releasesLoading || releases.length === 0 || !appVersion || appVersion === "…") return false;
     const sorted = releases.slice().sort((a, b) => compareSemver(a.tag_name, b.tag_name));
     return compareSemver(appVersion, sorted[0].tag_name) >= 0;
   })());
-
   function fmtDate(iso: string): string {
     if (!iso) return "";
     const d = new Date(iso);
     return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
-
-  // ── Download & install ────────────────────────────────────────────────────────
-
-  // Listen to progress events from Rust while this component is alive.
   let unlistenProgress: (() => void) | undefined;
-
   $effect(() => {
     listen<{ downloaded: number; total: number | null }>("update-progress", (e) => {
       dlBytes = e.payload.downloaded;
@@ -633,26 +516,19 @@
     }).then(fn => { unlistenProgress = fn; });
     return () => unlistenProgress?.();
   });
-
   async function installUpdate(release: ReleaseInfo) {
     if (updatePhase === "downloading") return;
-
     targetTag   = release.tag_name;
     updatePhase = "downloading";
     updateError = null;
     dlBytes     = 0;
     dlTotal     = null;
-
     try {
       if (IS_WINDOWS) {
-        // Kill Suwayomi before installing — its JRE DLLs will be locked otherwise.
-        // kill_server blocks on the Rust side until java.exe is fully gone.
         try { await invoke("kill_server"); } catch {}
-        // Windows: Tauri updater downloads + runs passive NSIS installer
         await invoke("download_and_install_update");
         updatePhase = "ready";
       } else {
-        // Linux / macOS: open GitHub release page
         await openUrl(release.html_url);
         updatePhase = "idle";
         targetTag   = null;
@@ -662,11 +538,9 @@
       updatePhase = "error";
     }
   }
-
   async function restartNow() {
     await invoke("restart_app");
   }
-
   function cancelUpdate() {
     updatePhase = "idle";
     updateError = null;
@@ -674,21 +548,93 @@
     dlBytes     = 0;
     dlTotal     = null;
   }
-
   function fmtProgress(): string {
     if (dlTotal) {
       return `${fmtBytes(dlBytes)} / ${fmtBytes(dlTotal)} (${Math.round((dlBytes / dlTotal) * 100)}%)`;
     }
     return fmtBytes(dlBytes);
   }
-
   function triggerSplash() {
     splashTriggered = true;
     setTimeout(() => splashTriggered = false, 200);
     (window as any).__mokuShowSplash?.();
   }
+  let contentSources:        Source[] = $state([]);
+  let contentSourcesLoading: boolean  = $state(false);
+  let newTagInput:           string   = $state("");
+  let sourceSearch:          string   = $state("");
+  $effect(() => {
+    if (tab === "content" && contentSources.length === 0 && !contentSourcesLoading) {
+      loadContentSources();
+    }
+  });
+  async function loadContentSources() {
+    contentSourcesLoading = true;
+    try {
+      const d = await gql<{ sources: { nodes: Source[] } }>(GET_SOURCES);
+      contentSources = d.sources.nodes.filter(s => s.id !== "0");
+    } catch (e) { console.error(e); }
+    finally { contentSourcesLoading = false; }
+  }
+  function addTag() {
+    const t = newTagInput.trim().toLowerCase();
+    if (!t) return;
+    const tags = store.settings.nsfwFilteredTags ?? [];
+    if (!tags.includes(t)) updateSettings({ nsfwFilteredTags: [...tags, t] });
+    newTagInput = "";
+  }
+  function removeTag(tag: string) {
+    updateSettings({ nsfwFilteredTags: (store.settings.nsfwFilteredTags ?? []).filter(t => t !== tag) });
+  }
+  function resetTags() {
+    updateSettings({ nsfwFilteredTags: ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"] });
+  }
+  function toggleSourceAllowed(ids: string[]) {
+    const allowed = store.settings.nsfwAllowedSourceIds ?? [];
+    const blocked = store.settings.nsfwBlockedSourceIds ?? [];
+    const allAllowed = ids.every(id => allowed.includes(id));
+    if (allAllowed) {
+      updateSettings({ nsfwAllowedSourceIds: allowed.filter(x => !ids.includes(x)) });
+    } else {
+      updateSettings({
+        nsfwAllowedSourceIds: [...allowed.filter(x => !ids.includes(x)), ...ids],
+        nsfwBlockedSourceIds: blocked.filter(x => !ids.includes(x)),
+      });
+    }
+  }
+  function toggleSourceBlocked(ids: string[]) {
+    const allowed = store.settings.nsfwAllowedSourceIds ?? [];
+    const blocked = store.settings.nsfwBlockedSourceIds ?? [];
+    const allBlocked = ids.every(id => blocked.includes(id));
+    if (allBlocked) {
+      updateSettings({ nsfwBlockedSourceIds: blocked.filter(x => !ids.includes(x)) });
+    } else {
+      updateSettings({
+        nsfwBlockedSourceIds: [...blocked.filter(x => !ids.includes(x)), ...ids],
+        nsfwAllowedSourceIds: allowed.filter(x => !ids.includes(x)),
+      });
+    }
+  }
+  interface ContentSourceGroup {
+    name:    string;
+    iconUrl: string;
+    isNsfw:  boolean;
+    sources: Source[];
+  }
+  const contentSourcesFiltered = $derived.by(() => {
+    const q = sourceSearch.trim().toLowerCase();
+    const filtered = q
+      ? contentSources.filter(s => s.displayName.toLowerCase().includes(q) || s.lang.toLowerCase().includes(q))
+      : contentSources;
+    const map = new Map<string, ContentSourceGroup>();
+    for (const s of filtered) {
+      const key = s.name;
+      if (!map.has(key)) map.set(key, { name: s.name, iconUrl: s.iconUrl, isNsfw: s.isNsfw, sources: [] });
+      map.get(key)!.sources.push(s);
+    }
+    return Array.from(map.values());
+  });
 </script>
-
 <div class="backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) close(); }} onkeydown={(e) => { if (e.key === "Escape") close(); }}>
   <div class="modal" role="dialog" aria-label="Settings">
     <div class="sidebar">
@@ -702,16 +648,12 @@
         {/each}
       </nav>
     </div>
-
     <div class="content">
       <div class="content-header">
         <p class="content-title">{TABS.find((t) => t.id === tab)?.label}</p>
         <button class="close-btn" aria-label="Close settings" onclick={close}><X size={15} weight="light" /></button>
       </div>
-
       <div class="content-body" bind:this={contentBodyEl}>
-
-        
         {#if tab === "general"}
           <div class="panel">
             <div class="section">
@@ -750,7 +692,6 @@
                 <div class="toggle-info"><span class="toggle-label">Server URL</span><span class="toggle-desc">Base URL of your Suwayomi instance</span></div>
                 <input class="text-input" value={store.settings.serverUrl ?? "http://localhost:4567"} oninput={(e) => updateSettings({ serverUrl: e.currentTarget.value })} placeholder="http://localhost:4567" spellcheck="false" />
               </div>
-
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Auto-start server</span><span class="toggle-desc">Launch tachidesk-server when Moku opens</span></div>
                 <button role="switch" aria-checked={store.settings.autoStartServer} aria-label="Auto-start server" class="toggle" class:on={store.settings.autoStartServer} onclick={() => updateSettings({ autoStartServer: !store.settings.autoStartServer })}><span class="toggle-thumb"></span></button>
@@ -782,9 +723,24 @@
                 <button role="switch" aria-checked={store.settings.discordRpc} aria-label="Discord Rich Presence" class="toggle" class:on={store.settings.discordRpc} onclick={() => updateSettings({ discordRpc: !store.settings.discordRpc })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
+            <div class="section">
+              <p class="section-title">Language</p>
+              <div class="step-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Preferred source language</span>
+                  <span class="toggle-desc">Used to pre-select languages in Search and deduplicate sources</span>
+                </div>
+                <input
+                  class="text-input"
+                  value={store.settings.preferredExtensionLang ?? ""}
+                  oninput={(e) => updateSettings({ preferredExtensionLang: e.currentTarget.value.trim().toLowerCase() })}
+                  placeholder="e.g. en"
+                  spellcheck="false"
+                  style="width:72px;text-align:center;text-transform:uppercase"
+                />
+              </div>
+            </div>
           </div>
-
-        
         {:else if tab === "appearance"}
           <div class="panel">
             <div class="section">
@@ -810,8 +766,6 @@
                     {#if active}<span class="theme-card-check">✓</span>{/if}
                   </button>
                 {/each}
-
-                <!-- Custom theme cards -->
                 {#each store.settings.customThemes ?? [] as custom}
                   {@const active = store.settings.theme === custom.id}
                   <div class="theme-card custom-theme-card" class:active>
@@ -856,8 +810,6 @@
                     {#if active}<span class="theme-card-check">✓</span>{/if}
                   </div>
                 {/each}
-
-                <!-- New Theme button -->
                 <button
                   class="theme-card new-theme-card"
                   onclick={() => onOpenThemeEditor?.(null)}
@@ -874,8 +826,6 @@
               </div>
             </div>
           </div>
-
-        
         {:else if tab === "reader"}
           <div class="panel">
             <div class="section">
@@ -1005,8 +955,6 @@
               </div>
             </div>
           </div>
-
-        
         {:else if tab === "library"}
           <div class="panel">
             <div class="section">
@@ -1014,10 +962,6 @@
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Crop cover images</span><span class="toggle-desc">Fill grid cells — may crop cover edges</span></div>
                 <button role="switch" aria-checked={store.settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={store.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !store.settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
-              </label>
-              <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Show NSFW sources</span><span class="toggle-desc">Display adult content sources in the sources list</span></div>
-                <button role="switch" aria-checked={store.settings.showNsfw} aria-label="Show NSFW sources" class="toggle" class:on={store.settings.showNsfw} onclick={() => updateSettings({ showNsfw: !store.settings.showNsfw })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -1042,23 +986,20 @@
             <div class="section">
               <p class="section-title">History</p>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Reading store.history</span><span class="toggle-desc">{store.history.length} entries stored</span></div>
+                <div class="toggle-info"><span class="toggle-label">Reading history</span><span class="toggle-desc">{store.history.length} entries stored</span></div>
                 <button class="danger-btn" onclick={clearHistory} disabled={store.history.length === 0}>Clear activity</button>
               </div>
               <div class="step-row">
                 <div class="toggle-info">
                   <span class="toggle-label">Full data cleanse</span>
-                  <span class="toggle-desc">Removes store.history, stats, completed list, hero pins, and manga links</span>
+                  <span class="toggle-desc">Removes history, stats, completed list, hero pins, and manga links</span>
                 </div>
                 <button class="danger-btn" onclick={wipeAllData}>Wipe all data</button>
               </div>
             </div>
           </div>
-
-        
         {:else if tab === "performance"}
           <div class="panel">
-
             <div class="section">
               <p class="section-title">Render Limit</p>
               <div class="step-row">
@@ -1078,7 +1019,6 @@
                 {/each}
               </p>
             </div>
-
             <div class="section">
               <p class="section-title">Rendering</p>
               <label class="toggle-row">
@@ -1086,7 +1026,6 @@
                 <button role="switch" aria-checked={store.settings.gpuAcceleration} aria-label="GPU acceleration" class="toggle" class:on={store.settings.gpuAcceleration} onclick={() => updateSettings({ gpuAcceleration: !store.settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
-
             <div class="section">
               <p class="section-title">Idle / Splash Screen</p>
               <label class="toggle-row">
@@ -1094,7 +1033,6 @@
                 <button role="switch" aria-checked={store.settings.splashCards ?? true} aria-label="Animated card background" class="toggle" class:on={store.settings.splashCards ?? true} onclick={() => updateSettings({ splashCards: !(store.settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
-
             <div class="section">
               <p class="section-title">Interface</p>
               <label class="toggle-row">
@@ -1102,7 +1040,6 @@
                 <button role="switch" aria-checked={store.settings.compactSidebar} aria-label="Compact sidebar" class="toggle" class:on={store.settings.compactSidebar} onclick={() => updateSettings({ compactSidebar: !store.settings.compactSidebar })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
-
             <div class="section">
               <p class="section-title">Session Cache</p>
               <div class="step-row">
@@ -1132,10 +1069,7 @@
                 </div>
               {/if}
             </div>
-
           </div>
-
-        
         {:else if tab === "keybinds"}
           <div class="panel">
             <div class="section">
@@ -1162,8 +1096,6 @@
               </div>
             </div>
           </div>
-
-        
         {:else if tab === "storage"}
           <div class="panel">
             <div class="section">
@@ -1245,8 +1177,6 @@
               </div>
             </div>
           </div>
-
-        
         {:else if tab === "folders"}
           <div class="panel">
             <div class="section">
@@ -1310,30 +1240,23 @@
               {/if}
             </div>
           </div>
-
-        
         {:else if tab === "tracking"}
           <div class="panel">
-
             <div class="section">
               <p class="section-title">Connected Trackers</p>
               <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-2)">
                 Log in to sync your reading progress with external tracking services.
                 After connecting, use the Tracking panel inside any manga's detail page.
               </p>
-
               {#if trackersError}
                 <div class="tracker-error">{trackersError}</div>
               {/if}
-
               {#if trackersLoading}
                 <p class="storage-loading">Loading trackers…</p>
               {:else}
                 <div class="tracker-list">
                   {#each trackers as tracker}
                     <div class="tracker-row" class:tracker-row-active={tracker.isLoggedIn}>
-
-                      <!-- Icon + name -->
                       <div class="tracker-identity">
                         <img src={thumbUrl(tracker.icon)} alt={tracker.name} class="tracker-logo" />
                         <div class="tracker-name-block">
@@ -1343,8 +1266,6 @@
                           </span>
                         </div>
                       </div>
-
-                      <!-- Action area -->
                       <div class="tracker-action">
                         {#if tracker.isLoggedIn}
                           <div class="tracker-connected-btns">
@@ -1356,7 +1277,6 @@
                               {loggingOut === tracker.id ? "Disconnecting…" : "Disconnect"}
                             </button>
                           </div>
-
                         {:else if oauthTrackerId === tracker.id}
                           <div class="oauth-flow">
                             <p class="oauth-hint">
@@ -1378,7 +1298,6 @@
                               <button class="kb-reset" onclick={cancelOAuth}>Cancel</button>
                             </div>
                           </div>
-
                         {:else if credsTrackerId === tracker.id}
                           <div class="oauth-flow">
                             <input
@@ -1402,7 +1321,6 @@
                               <button class="kb-reset" onclick={cancelCredentials}>Cancel</button>
                             </div>
                           </div>
-
                         {:else}
                           <button
                             class="step-btn"
@@ -1413,22 +1331,17 @@
                           </button>
                         {/if}
                       </div>
-
                     </div>
                   {/each}
                 </div>
               {/if}
             </div>
-
           </div>
-
         {:else if tab === "security"}
           <div class="panel">
-
             {#if secError}
               <div class="sec-banner sec-banner-error">{secError}</div>
             {/if}
-
             <div class="section">
               <div class="section-title-row">
                 <p class="section-title">Server Authentication</p>
@@ -1471,7 +1384,6 @@
                 </div>
               </div>
             </div>
-
             <div class="section">
               <div class="section-title-row">
                 <p class="section-title">App Lock</p>
@@ -1505,7 +1417,6 @@
                 </div>
               {/if}
             </div>
-
             <div class="section">
               <div class="section-title-row">
                 <p class="section-title">SOCKS Proxy</p>
@@ -1515,7 +1426,7 @@
                   <span class="toggle-label">Enable SOCKS proxy</span>
                   <span class="toggle-desc">Route Suwayomi traffic through a SOCKS4/5 proxy</span>
                 </div>
-                <button role="switch" aria-checked={socksEnabled} aria-label="Enable SOCKS proxy" class="toggle" class:on={socksEnabled} onclick={() => socksEnabled = !socksEnabled}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={socksEnabled} aria-label="Enable SOCKS proxy" class="toggle" class:on={socksEnabled} onclick={() => { socksEnabled = !socksEnabled; saveSocksProxy(); }}><span class="toggle-thumb"></span></button>
               </label>
               {#if socksEnabled}
                 <div class="step-row">
@@ -1579,7 +1490,6 @@
                 </div>
               {/if}
             </div>
-
             <div class="section">
               <div class="section-title-row">
                 <p class="section-title">FlareSolverr</p>
@@ -1589,7 +1499,7 @@
                   <span class="toggle-label">Enable FlareSolverr</span>
                   <span class="toggle-desc">Bypass Cloudflare challenges for sources that require it</span>
                 </div>
-                <button role="switch" aria-checked={flareEnabled} aria-label="Enable FlareSolverr" class="toggle" class:on={flareEnabled} onclick={() => flareEnabled = !flareEnabled}><span class="toggle-thumb"></span></button>
+                <button role="switch" aria-checked={flareEnabled} aria-label="Enable FlareSolverr" class="toggle" class:on={flareEnabled} onclick={() => { flareEnabled = !flareEnabled; saveFlareSolverr(); }}><span class="toggle-thumb"></span></button>
               </label>
               {#if flareEnabled}
                 <div class="step-row">
@@ -1643,13 +1553,92 @@
                 </div>
               {/if}
             </div>
-
           </div>
-
+        {:else if tab === "content"}
+          <div class="panel">
+            <div class="section">
+              <p class="section-title">Content Filter</p>
+              <label class="toggle-row">
+                <div class="toggle-info"><span class="toggle-label">Show adult content</span><span class="toggle-desc">When off, sources and manga matching blocked tags are hidden across all views</span></div>
+                <button role="switch" aria-checked={store.settings.showNsfw} aria-label="Show adult content" class="toggle" class:on={store.settings.showNsfw} onclick={() => updateSettings({ showNsfw: !store.settings.showNsfw })}><span class="toggle-thumb"></span></button>
+              </label>
+            </div>
+            <div class="section">
+              <p class="section-title">Blocked Genre Tags</p>
+              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-3);display:block">
+                Manga whose genres contain any of these substrings are filtered out. Matching is case-insensitive and partial — "erotic" catches "Erotica", "Erotic Content", etc.
+              </p>
+              <div class="content-tag-grid">
+                {#each (store.settings.nsfwFilteredTags ?? []) as tag}
+                  <span class="content-tag">
+                    <Tag size={10} weight="light" />
+                    {tag}
+                    <button class="content-tag-remove" onclick={() => removeTag(tag)} title="Remove tag">×</button>
+                  </span>
+                {/each}
+              </div>
+              <div class="content-tag-add">
+                <input
+                  class="text-input"
+                  placeholder="Add tag substring…"
+                  bind:value={newTagInput}
+                  onkeydown={(e) => { if (e.key === "Enter") addTag(); }}
+                  style="flex:1;width:auto"
+                />
+                <button class="folder-create-btn" onclick={addTag} disabled={!newTagInput.trim()}>
+                  <Plus size={13} weight="bold" /> Add
+                </button>
+                <button class="kb-reset" onclick={resetTags} title="Reset to defaults" style="padding:0 var(--sp-3);font-size:var(--text-xs);color:var(--text-faint)">Reset</button>
+              </div>
+            </div>
+            <div class="section">
+              <p class="section-title">Source Overrides</p>
+              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-3);display:block">
+                <strong>Allow</strong> lets a source through even if it's flagged NSFW (genre tags still apply). <strong>Block</strong> always hides a source regardless of the global setting.
+              </p>
+              <div class="content-source-search-wrap">
+                <input class="text-input" placeholder="Filter sources…" bind:value={sourceSearch} style="width:100%" />
+              </div>
+              {#if contentSourcesLoading}
+                <p class="storage-loading">Loading sources…</p>
+              {:else if contentSources.length === 0}
+                <p class="storage-loading">No sources found — check your server connection.</p>
+              {:else}
+                <div class="content-source-list">
+                  {#each contentSourcesFiltered as group (group.name)}
+                    {@const ids = group.sources.map(s => s.id)}
+                    {@const allowed = store.settings.nsfwAllowedSourceIds ?? []}
+                    {@const blocked = store.settings.nsfwBlockedSourceIds ?? []}
+                    {@const isAllowed = ids.every(id => allowed.includes(id))}
+                    {@const isBlocked = ids.every(id => blocked.includes(id))}
+                    <div class="content-source-row" class:content-source-allowed={isAllowed} class:content-source-blocked={isBlocked}>
+                      <img src={thumbUrl(group.iconUrl)} alt="" class="content-source-icon" loading="lazy" decoding="async" />
+                      <div class="content-source-info">
+                        <span class="content-source-name">{group.name}</span>
+                        <span class="content-source-lang">{group.sources[0].isNsfw ? "NSFW · " : ""}{group.sources.length > 1 ? `${group.sources.length} languages` : group.sources[0].lang.toUpperCase()}</span>
+                      </div>
+                      <div class="content-source-actions">
+                        <button
+                          class="content-action-btn"
+                          class:content-action-active-allow={isAllowed}
+                          onclick={() => toggleSourceAllowed(ids)}
+                          title={isAllowed ? "Remove allow override" : "Allow this source through regardless of NSFW flag"}
+                        >Allow</button>
+                        <button
+                          class="content-action-btn"
+                          class:content-action-active-block={isBlocked}
+                          onclick={() => toggleSourceBlocked(ids)}
+                          title={isBlocked ? "Remove block override" : "Always block this source"}
+                        >Block</button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </div>
         {:else if tab === "about"}
           <div class="panel">
-
-            <!-- ── App identity ──────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Moku</p>
               <div class="about-block">
@@ -1657,8 +1646,6 @@
                 <p class="about-line" style="color:var(--text-faint);margin-top:var(--sp-2)">Built with Tauri + Svelte.</p>
               </div>
             </div>
-
-            <!-- ── Current version + in-progress update bar ──────────── -->
             <div class="section">
               <p class="section-title">Version</p>
               <div class="step-row">
@@ -1676,8 +1663,6 @@
                   <span class="toggle-desc" style="padding:0 var(--sp-3);color:var(--accent-fg)">✓ You're on the latest version.</span>
                 </div>
               {/if}
-
-              <!-- active download progress -->
               {#if updatePhase === "downloading" && IS_WINDOWS}
                 <div class="update-progress-wrap">
                   <div class="update-progress-bar">
@@ -1690,8 +1675,6 @@
                   </div>
                 </div>
               {/if}
-
-              <!-- ready to restart -->
               {#if updatePhase === "ready"}
                 <div class="update-ready-row">
                   <span class="update-ready-label">
@@ -1701,8 +1684,6 @@
                   <button class="kb-reset" onclick={cancelUpdate} title="Dismiss">✕</button>
                 </div>
               {/if}
-
-              <!-- error -->
               {#if updatePhase === "error"}
                 <div class="update-error-row">
                   <span style="color:var(--color-error);font-family:var(--font-ui);font-size:var(--text-xs)">{updateError}</span>
@@ -1710,11 +1691,8 @@
                 </div>
               {/if}
             </div>
-
-            <!-- ── Release list ───────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Releases</p>
-
               {#if releasesError}
                 <p class="storage-loading" style="color:var(--color-error)">{releasesError}</p>
               {:else if releasesLoading}
@@ -1728,9 +1706,7 @@
                     {@const isExpanded  = expandedTag === release.tag_name}
                     {@const isTarget    = targetTag === release.tag_name}
                     {@const isInstalling = isTarget && updatePhase === "downloading"}
-
                     <div class="release-row" class:current={isCurrent}>
-                      <!-- header: tag + date + action -->
                       <div class="release-header">
                         <div class="release-meta">
                           <span class="release-tag">{release.tag_name}</span>
@@ -1742,14 +1718,12 @@
                           {/if}
                         </div>
                         <div class="release-actions">
-                          <!-- changelog toggle -->
                           {#if release.body.trim()}
                             <button class="release-changelog-btn"
                               onclick={() => expandedTag = isExpanded ? null : release.tag_name}>
                               {isExpanded ? "Hide" : "Changelog"}
                             </button>
                           {/if}
-                          <!-- install / open -->
                           {#if !isCurrent}
                             {#if IS_WINDOWS}
                               <button class="update-action-btn"
@@ -1767,8 +1741,6 @@
                           {/if}
                         </div>
                       </div>
-
-                      <!-- expandable changelog -->
                       {#if isExpanded && release.body.trim()}
                         <div class="release-body">
                           <pre class="release-body-pre">{release.body.trim()}</pre>
@@ -1779,8 +1751,6 @@
                 </div>
               {/if}
             </div>
-
-            <!-- ── Links ─────────────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Links</p>
               <div class="about-block">
@@ -1788,10 +1758,7 @@
                 <a href="https://discord.gg/Jq3pwuNqPp" target="_blank" class="about-line" style="color:var(--accent-fg);text-decoration:none;margin-top:var(--sp-1)">Discord →</a>
               </div>
             </div>
-
           </div>
-
-        
         {:else if tab === "devtools"}
           <div class="panel">
             <div class="section">
@@ -1812,17 +1779,14 @@
             </div>
           </div>
         {/if}
-
       </div>
     </div>
   </div>
 </div>
-
 <script module>
   function focusInput(node: HTMLElement) { node.focus(); }
   function focusEl(node: HTMLElement) { setTimeout(() => node.focus(), 0); }
 </script>
-
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.1s ease both; backdrop-filter: blur(4px); }
   .modal { width: min(720px, calc(100vw - 48px)); height: min(600px, calc(100vh - 80px)); display: flex; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; animation: scaleIn 0.15s ease both; box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
@@ -1838,12 +1802,10 @@
   .close-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; transition: color var(--t-base), background var(--t-base); }
   .close-btn:hover { color: var(--text-muted); background: var(--bg-raised); }
   .content-body { flex: 1; overflow-y: auto; }
-
   .panel { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-4) var(--sp-6); }
   .section { display: flex; flex-direction: column; gap: 1px; border-bottom: 1px solid var(--border-dim); padding-bottom: var(--sp-4); margin-bottom: var(--sp-2); }
   .section:last-child { border-bottom: none; }
   .section-title { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
-
   .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3); border-radius: var(--radius-md); cursor: default; transition: background var(--t-fast); }
   .toggle-row:hover { background: var(--bg-raised); }
   .toggle-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; margin-right: var(--sp-4); }
@@ -1853,7 +1815,6 @@
   .toggle.on { background: var(--accent); border-color: var(--accent); }
   .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-faint); transition: transform var(--t-base), background var(--t-base); }
   .toggle.on .toggle-thumb { transform: translateX(14px); background: var(--bg-void); }
-
   .step-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3); border-radius: var(--radius-md); transition: background var(--t-fast); gap: var(--sp-3); }
   .step-row:hover { background: var(--bg-raised); }
   .step-controls { display: flex; align-items: center; gap: var(--sp-1); flex-shrink: 0; }
@@ -1861,7 +1822,6 @@
   .step-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
   .step-btn:disabled { opacity: 0.3; cursor: default; }
   .step-val { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); min-width: 40px; text-align: center; }
-
   .select-wrap { position: relative; flex-shrink: 0; }
   .select-btn { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--text-secondary); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 10px; cursor: pointer; min-width: 130px; transition: border-color var(--t-base); }
   .select-btn:hover { border-color: var(--border-strong); }
@@ -1871,14 +1831,11 @@
   .select-option { display: block; width: 100%; padding: 6px var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--text-secondary); background: none; border: none; cursor: pointer; text-align: left; transition: background var(--t-fast), color var(--t-fast); }
   .select-option:hover { background: var(--bg-overlay); color: var(--text-primary); }
   .select-option.active { color: var(--accent-fg); background: var(--accent-muted); }
-
   .text-input { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 10px; color: var(--text-primary); font-size: var(--text-sm); outline: none; width: 200px; transition: border-color var(--t-base); flex-shrink: 0; }
   .text-input:focus { border-color: var(--border-strong); }
-
   .danger-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 12px; border-radius: var(--radius-md); border: 1px solid var(--color-error); background: none; color: var(--color-error); cursor: pointer; flex-shrink: 0; transition: background var(--t-base); }
   .danger-btn:hover:not(:disabled) { background: var(--color-error-bg); }
   .danger-btn:disabled { opacity: 0.3; cursor: default; }
-
   .scale-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); }
   .scale-slider { flex: 1; }
   .scale-val-input {
@@ -1897,8 +1854,6 @@
   .scale-preset { font-family: var(--font-ui); font-size: var(--text-2xs); padding: 2px 7px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .scale-preset:hover { color: var(--text-muted); border-color: var(--border-strong); }
   .scale-preset.active { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
-
-  /* Theme */
   .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); }
   .theme-card { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; text-align: left; transition: border-color var(--t-base), box-shadow var(--t-base); position: relative; }
   .theme-card:hover { border-color: var(--border-strong); }
@@ -1913,8 +1868,6 @@
   .theme-card-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); }
   .theme-card-desc { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .theme-card-check { position: absolute; top: 6px; right: 6px; font-size: 10px; color: var(--accent-fg); background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 1px 4px; }
-
-  /* Keybinds */
   .kb-hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: 0 var(--sp-3) var(--sp-3); }
   .kb-list { display: flex; flex-direction: column; gap: 1px; }
   .kb-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); transition: background var(--t-fast); }
@@ -1928,8 +1881,6 @@
   .kb-reset { font-size: var(--text-sm); color: var(--text-faint); padding: 3px 6px; border-radius: var(--radius-sm); border: 1px solid transparent; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .kb-reset:hover:not(:disabled) { color: var(--text-muted); border-color: var(--border-dim); background: var(--bg-overlay); }
   .kb-reset:disabled { opacity: 0.3; cursor: default; }
-
-  /* Storage */
   .storage-loading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-3); }
   .storage-bar-wrap { padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
   .storage-bar { height: 6px; background: var(--bg-overlay); border-radius: var(--radius-full); overflow: hidden; }
@@ -1947,8 +1898,6 @@
   .storage-legend-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); flex: 1; }
   .storage-legend-val   { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); }
   .storage-path-note { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-3) 0; word-break: break-all; }
-
-  /* Folders */
   .folder-create-row { display: flex; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
   .folder-create-btn { display: flex; align-items: center; gap: var(--sp-1); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 12px; border-radius: var(--radius-md); background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); cursor: pointer; flex-shrink: 0; transition: filter var(--t-base); }
   .folder-create-btn:hover:not(:disabled) { filter: brightness(1.1); }
@@ -1964,16 +1913,10 @@
   .folder-delete:hover:not(:disabled) { color: var(--color-error) !important; }
   .folder-hidden { opacity: 0.35; }
   .folder-default-active { color: var(--accent-fg) !important; }
-
-  /* About */
   .about-block { padding: 0 var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
   .about-line { font-size: var(--text-sm); color: var(--text-muted); line-height: var(--leading-base); }
-
-  /* Perf metrics */
   .perf-stat-group { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
   .perf-stat { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
-
-  /* Storage limit */
   .storage-limit-input {
     width: 64px; text-align: center;
     background: var(--bg-raised); border: 1px solid var(--border-dim);
@@ -1986,10 +1929,7 @@
   .storage-limit-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .storage-limit-input:focus { border-color: var(--border-strong); }
   .storage-limit-unit { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
-
-  /* ── Release list ─────────────────────────────────────────────── */
   .release-list { display: flex; flex-direction: column; gap: 1px; padding: 0 var(--sp-1); }
-
   .release-row {
     border-radius: var(--radius-md);
     border: 1px solid transparent;
@@ -2001,7 +1941,6 @@
     border-color: var(--accent-dim);
     background: var(--accent-muted);
   }
-
   .release-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: var(--sp-2) var(--sp-3); gap: var(--sp-3);
@@ -2011,9 +1950,7 @@
   .release-badge { font-family: var(--font-ui); font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
   .current-badge { background: var(--accent-muted); border: 1px solid var(--accent-dim); color: var(--accent-fg); }
   .release-date { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
-
   .release-actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
-
   .release-changelog-btn {
     font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide);
     padding: 2px 8px; border-radius: var(--radius-sm);
@@ -2021,7 +1958,6 @@
     cursor: pointer; transition: color var(--t-base), border-color var(--t-base);
   }
   .release-changelog-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
-
   .update-action-btn {
     font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide);
     padding: 3px 10px; border-radius: var(--radius-sm);
@@ -2033,7 +1969,6 @@
   .update-action-btn.primary { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
   .update-action-btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
   .update-action-btn:disabled { opacity: 0.4; cursor: default; }
-
   .release-body { padding: 0 var(--sp-3) var(--sp-3); }
   .release-body-pre {
     font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted);
@@ -2041,16 +1976,12 @@
     white-space: pre-wrap; word-break: break-word; margin: 0;
     max-height: 220px; overflow-y: auto;
   }
-
-  /* ── Download progress bar ────────────────────────────────────── */
   .update-progress-wrap { padding: var(--sp-1) var(--sp-3) var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1); }
   .update-progress-bar { height: 4px; background: var(--bg-overlay); border-radius: var(--radius-full); overflow: hidden; }
   .update-progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
   .update-progress-row { display: flex; justify-content: space-between; align-items: center; }
   .update-progress-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .update-progress-val   { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); }
-
-  /* ── Ready-to-restart bar ─────────────────────────────────────── */
   .update-ready-row {
     display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
     padding: var(--sp-2) var(--sp-3);
@@ -2059,8 +1990,6 @@
   }
   .update-ready-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); flex: 1; }
   .update-error-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); }
-
-  /* ── Tracker styles ──────────────────────────────────────────────────────── */
   .tracker-list { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-3); }
   .tracker-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-4); border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); transition: border-color var(--t-base); }
   .tracker-row-active { border-color: var(--accent-dim); background: var(--accent-muted); }
@@ -2080,21 +2009,16 @@
   .oauth-input { width: 100%; background: var(--bg-overlay); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); outline: none; transition: border-color var(--t-base); }
   .oauth-input:focus { border-color: var(--border-focus); }
   .oauth-btns { display: flex; align-items: center; gap: var(--sp-2); }
-
-  /* ── Security tab ───────────────────────────────────────────────────── */
   .sec-banner { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-2); border-radius: var(--radius-sm); }
   .sec-banner-error { color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); }
-
   .section-title-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
   .section-title-row .section-title { padding: 0; }
   .sec-status-pill { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: var(--bg-overlay); flex-shrink: 0; cursor: default; }
   .sec-pill-on { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
-
   .sec-field-wrap { position: relative; flex-shrink: 0; }
   .sec-field-wrap .text-input { padding-right: 34px; }
   .sec-eye-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base); }
   .sec-eye-btn:hover { color: var(--text-muted); }
-
   .sec-btn-row { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
   .sec-action-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .sec-action-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
@@ -2103,17 +2027,13 @@
   .sec-action-primary:hover:not(:disabled) { filter: brightness(1.1); }
   .sec-action-danger { border-color: var(--color-error); color: var(--color-error); }
   .sec-action-danger:hover:not(:disabled) { background: var(--color-error-bg); }
-
   .sec-pin-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
   .sec-pin-wrap .sec-pin-row { display: flex; align-items: center; gap: var(--sp-2); }
   .sec-pin-input { width: 96px; text-align: center; letter-spacing: 0.25em; }
   .sec-port-input { width: 88px; }
   .sec-pin-error { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--color-error); letter-spacing: var(--tracking-wide); }
-
   @keyframes fadeIn  { from { opacity: 0 }           to { opacity: 1 } }
   @keyframes scaleIn { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }
-
-  /* ── Custom theme cards ─────────────────────────────────────────────── */
   .custom-theme-card {
     position: relative;
     display: flex; flex-direction: column;
@@ -2135,7 +2055,6 @@
     z-index: 1;
   }
   .custom-theme-card:hover .custom-theme-actions { display: flex; }
-
   .custom-theme-edit-btn,
   .custom-theme-delete-btn {
     display: flex; align-items: center; justify-content: center;
@@ -2149,8 +2068,6 @@
   .custom-theme-edit-btn:hover { color: var(--accent-fg); background: var(--accent-muted); border-color: var(--accent-dim); }
   .custom-theme-delete-btn { color: var(--text-faint); }
   .custom-theme-delete-btn:hover { color: var(--color-error); background: var(--color-error-bg); border-color: var(--color-error); }
-
-  /* ── New theme button ───────────────────────────────────────────────── */
   .new-theme-card {
     display: flex; flex-direction: column;
     border-style: dashed !important;
@@ -2168,4 +2085,24 @@
     transition: color var(--t-base);
   }
   .new-theme-card:hover .new-theme-icon { color: var(--accent-fg); }
+  .content-tag-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
+  .content-tag { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 8px 4px 7px; border-radius: var(--radius-full); border: 1px solid var(--border-base); background: var(--bg-raised); color: var(--text-secondary); }
+  .content-tag-remove { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; border: none; background: none; color: var(--text-faint); cursor: pointer; font-size: 14px; line-height: 1; padding: 0; margin-left: 1px; transition: color var(--t-fast), background var(--t-fast); }
+  .content-tag-remove:hover { color: var(--color-error); background: var(--color-error-bg); }
+  .content-tag-add { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-3); }
+  .content-source-search-wrap { padding: 0 var(--sp-3) var(--sp-3); }
+  .content-source-list { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--sp-2); }
+  .content-source-row { display: flex; align-items: center; gap: var(--sp-3); padding: 8px var(--sp-3); border-radius: var(--radius-md); border: 1px solid transparent; transition: background var(--t-fast), border-color var(--t-fast); }
+  .content-source-row:hover { background: var(--bg-raised); }
+  .content-source-allowed { background: color-mix(in srgb, var(--color-success) 6%, transparent); border-color: color-mix(in srgb, var(--color-success) 25%, transparent) !important; }
+  .content-source-blocked  { background: color-mix(in srgb, var(--color-error)   6%, transparent); border-color: color-mix(in srgb, var(--color-error)   25%, transparent) !important; }
+  .content-source-icon { width: 28px; height: 28px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); background: var(--bg-overlay); }
+  .content-source-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .content-source-name { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .content-source-lang { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .content-source-actions { display: flex; gap: var(--sp-1); flex-shrink: 0; }
+  .content-action-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .content-action-btn:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-overlay); }
+  .content-action-active-allow { color: var(--color-success) !important; border-color: color-mix(in srgb, var(--color-success) 40%, transparent) !important; background: color-mix(in srgb, var(--color-success) 10%, transparent) !important; }
+  .content-action-active-block  { color: var(--color-error)   !important; border-color: color-mix(in srgb, var(--color-error)   40%, transparent) !important; background: color-mix(in srgb, var(--color-error)   10%, transparent) !important; }
 </style>

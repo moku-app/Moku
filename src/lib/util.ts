@@ -8,29 +8,77 @@ export function cn(...inputs: ClassValue[]) {
 // ── NSFW genre filtering ──────────────────────────────────────────────────────
 
 /**
- * Genre tags that indicate adult/mature content.
- * Checked case-insensitively against each manga's genre array.
- * Extend this set if additional tags need to be covered.
+ * Default substrings used when no user-configured list is available.
+ * The Settings > Content tab lets users add/remove entries from this list,
+ * which is stored as settings.nsfwFilteredTags.
  */
-const NSFW_GENRE_TAGS = new Set([
+export const DEFAULT_NSFW_TAGS = [
   "adult",
   "mature",
   "hentai",
   "ecchi",
-  "erotica",
-  "pornographic",
+  "erotic",       // catches "erotica", "erotic content", "erotic manga"
+  "pornograph",   // catches "pornographic", "pornography"
   "18+",
   "smut",
   "lemon",
   "explicit",
-]);
+  "sexual violence",
+];
 
 /**
- * Returns true if the manga carries at least one genre tag that is considered
- * adult/mature. Used to enforce the `showNsfw` setting across all views.
+ * Returns true if the manga carries at least one genre tag matching any of
+ * the provided substrings (case-insensitive). Pass settings.nsfwFilteredTags
+ * as the tag list; falls back to DEFAULT_NSFW_TAGS if omitted.
  */
-export function isNsfwManga(manga: { genre?: string[] | null }): boolean {
-  return (manga.genre ?? []).some((g) => NSFW_GENRE_TAGS.has(g.toLowerCase().trim()));
+export function isNsfwManga(
+  manga: { genre?: string[] | null },
+  tags: string[] = DEFAULT_NSFW_TAGS,
+): boolean {
+  return (manga.genre ?? []).some((g) => {
+    const normalized = g.toLowerCase().trim();
+    return tags.some((sub) => normalized.includes(sub));
+  });
+}
+
+/**
+ * Single authoritative NSFW gate used by all views.
+ *
+ * Returns true when the manga should be HIDDEN. Checks in order:
+ *   1. showNsfw disabled globally → skip everything, hide by source flag or genre match.
+ *   2. Source is in blockedSourceIds → always hide regardless of showNsfw.
+ *   3. Source is in allowedSourceIds → always show (bypasses isNsfw flag only, genre tags still apply).
+ *   4. Source isNsfw flag → hide unless source is allowed.
+ *   5. Genre tag match → hide.
+ *
+ * Usage:  items.filter(m => !shouldHideNsfw(m, settings))
+ */
+export function shouldHideNsfw(
+  manga: {
+    genre?: string[] | null;
+    source?: { id?: string; isNsfw?: boolean } | null;
+  },
+  settings: {
+    showNsfw:            boolean;
+    nsfwFilteredTags:    string[];
+    nsfwAllowedSourceIds: string[];
+    nsfwBlockedSourceIds: string[];
+  },
+): boolean {
+  const srcId = manga.source?.id;
+
+  // Explicit block always wins, even when showNsfw is on
+  if (srcId && settings.nsfwBlockedSourceIds.includes(srcId)) return true;
+
+  // If NSFW is globally allowed, only explicit blocks apply
+  if (settings.showNsfw) return false;
+
+  // Source is explicitly allowed — skip the isNsfw flag check, but still filter genres
+  const sourceAllowed = !!(srcId && settings.nsfwAllowedSourceIds.includes(srcId));
+
+  if (!sourceAllowed && manga.source?.isNsfw) return true;
+
+  return isNsfwManga(manga, settings.nsfwFilteredTags);
 }
 
 // ── Source deduplication ──────────────────────────────────────────────────────

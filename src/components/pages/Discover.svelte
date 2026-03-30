@@ -4,7 +4,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaByTitle, dedupeMangaById, isNsfwManga } from "../../lib/util";
+  import { dedupeSources, dedupeMangaByTitle, dedupeMangaById, shouldHideNsfw } from "../../lib/util";
   import { store, setPreviewManga, clearDiscoverCache } from "../../store/state.svelte";
   import type { Manga, Source, Category } from "../../lib/types";
   import ContextMenu from "../shared/ContextMenu.svelte";
@@ -62,7 +62,7 @@
   function filterOut(mangas: Manga[]): Manga[] {
     return dedup(mangas.filter(m => {
       if (m.inLibrary || store.discoverLibraryIds.has(m.id)) return false;
-      if (!store.settings.showNsfw && isNsfwManga(m)) return false;
+      if (shouldHideNsfw(m, store.settings)) return false;
       return true;
     }));
   }
@@ -188,7 +188,7 @@
       if (ctrl.signal.aborted) return;
 
       const local = dedup(
-        d.mangas.nodes.filter(m => store.settings.showNsfw || !isNsfwManga(m))
+        d.mangas.nodes.filter(m => !shouldHideNsfw(m, store.settings))
       );
       store.discoverCache.set(localKey, local);
       genreResults.set(genre, local.slice(0, GRID_LIMIT));

@@ -5,7 +5,7 @@ import type { Manga, Chapter }                       from "./types";
 const APP_ID         = "1487894643613106298";
 const FALLBACK_IMAGE = "moku_logo";
 
-let sessionStart: number | null = null; // ← captured once on init
+let sessionStart: number | null = null;
 
 function isPublicUrl(url: string | null | undefined): boolean {
   return typeof url === "string" && url.startsWith("https://");
@@ -34,10 +34,8 @@ const BUTTONS = [
 ];
 
 export async function initRpc(): Promise<void> {
-  sessionStart = Date.now(); // ← set once here
-  await start(APP_ID)
-    .then(() => console.log("[discord] RPC started"))
-    .catch((e) => console.error("[discord] initRpc failed:", e));
+  sessionStart = Date.now();
+  await start(APP_ID).catch(() => {});
 }
 
 export async function setReading(manga: Manga, chapter: Chapter): Promise<void> {
@@ -51,12 +49,10 @@ export async function setReading(manga: Manga, chapter: Chapter): Promise<void> 
     .setDetails(trunc(manga.title))
     .setState(`${formatChapter(chapter)}  ·  Reading`)
     .setAssets(assets)
-    .setTimestamps(getTimestamps()); // ← reuses session start
+    .setTimestamps(getTimestamps());
   activity.setButton(BUTTONS);
 
-  await setActivity(activity)
-    .then(() => console.log("[discord] reading →", manga.title, formatChapter(chapter)))
-    .catch((e) => console.error("[discord] setActivity failed:", e));
+  await setActivity(activity).catch(() => {});
 }
 
 export async function setIdle(): Promise<void> {
@@ -67,23 +63,17 @@ export async function setIdle(): Promise<void> {
   const activity = new Activity()
     .setDetails("Browsing")
     .setAssets(assets)
-    .setTimestamps(getTimestamps()); // ← reuses session start
+    .setTimestamps(getTimestamps());
   activity.setButton(BUTTONS);
 
-  await setActivity(activity)
-    .then(() => console.log("[discord] idle"))
-    .catch((e) => console.error("[discord] setActivity failed (idle):", e));
+  await setActivity(activity).catch(() => {});
 }
 
 export async function clearReading(): Promise<void> {
-  await clearActivity()
-    .then(() => console.log("[discord] activity cleared"))
-    .catch((e) => console.error("[discord] clearActivity failed:", e));
+  await clearActivity().catch(() => {});
 }
 
 export async function destroyRpc(): Promise<void> {
-  sessionStart = null; // ← clean up on stop
-  await stop()
-    .then(() => console.log("[discord] RPC stopped"))
-    .catch((e) => console.error("[discord] destroyRpc failed:", e));
+  sessionStart = null;
+  await stop().catch(() => {});
 }

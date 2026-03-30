@@ -4,7 +4,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
-  import { dedupeMangaById, dedupeMangaByTitle, isNsfwManga } from "../../lib/util";
+  import { dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw } from "../../lib/util";
   import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings, setCategories } from "../../store/state.svelte";
   import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter } from "../../store/state.svelte";
   import type { Manga, Category, Chapter } from "../../lib/types";
@@ -320,9 +320,7 @@
     }
 
     // 2. NSFW filter — always applied before text search or sort
-    if (!store.settings.showNsfw) {
-      items = items.filter(m => !isNsfwManga(m));
-    }
+    items = items.filter(m => !shouldHideNsfw(m, store.settings));
 
     // 3. Text search
     if (q) items = items.filter(m => m.title.toLowerCase().includes(q));

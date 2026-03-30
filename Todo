@@ -1,21 +1,18 @@
 Major Revisions:
- - Moku + Crossplatform Support (MacOS Remaining)
  - Contemplate Anime Support, Add Novel Support (Consumet API)
- - Enable Cloudflare Bypass (Suwayomi Config)
  - Moku-Share to Easily Migrate/Share Manga (Investigate Usecase/Feasibility)
- - Adjustment in Settings for Theme Editor:
-   - Allow User to Edit/Create Themes
-   - Allow For Command-Line IPC for Temporary (Apply Once) & Permanent Themes OR External Methodology for Matugen Colors
 
 Minor Revisions:
  - Improve Deduplication Algorithm with Advanced Option Settings (Implement Chapter & Author-based Comparisons, Resource Intensive)
  - Integrate Download Directory Changes (Settings)
  - Investigate feasibility of Multi-Page Screenshot (Reader)
  - Add Hover Info on Library (Make sure doesn't conflict with additional clicks)
+ - Revise Migration (https://github.com/Suwayomi/Suwayomi-WebUI/pull/1073)
+ - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
 
 Priority Bugs:
  - Cache ALL Cover Pictures & Details for Manga in Library
- - MacOS Full-Screen & UI Compatability (TitleBar)
+ - Investigate Zoom (Reader), Appears to have Cutoff, etc.
 
 General/Misc Bugs:
  - Fix Highlightable Elements
@@ -25,9 +22,12 @@ General/Misc Bugs:
  - Investigate Prod vs. Dev Directory Change/Data Load (Caused by Library Algorithm Revision?)
 
 In-Progress:`
- - Fix Reader Chapter Shifts (Glitched Sentinel)
-   - Still Shifts Down after reading ~8+ Chapters?
-   - Identify When Chapters are Unloaded, How to Preserve Structure
+ - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
+ - Fix NSFW Parsing (Appears to not Work???)
+
+ - Adjustment in Settings for Theme Editor:
+   - Patch Color-Picker to Work Properly
+
 
 
 Important Commands:

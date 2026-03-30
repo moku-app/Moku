@@ -356,7 +356,7 @@
               <div class="progress-track"><div class="progress-fill" style="width:{(readCount / totalCount) * 100}%"></div></div>
             {/if}
             {#if continueChapter}
-              <button class="read-btn" onclick={() => { openReader(continueChapter!.ch, chapters); close(); }}>
+              <button class="read-btn" onclick={() => { openReader(continueChapter!.ch, chapters, displayManga); close(); }}>
                 <Play size={12} weight="fill" />{continueChapter.label}
               </button>
             {/if}

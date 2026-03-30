@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { MagnifyingGlass, CircleNotch, CaretDown, CaretRight } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES } from "../../lib/queries";
@@ -11,7 +12,7 @@
   let search               = $state("");
   let expanded             = $state(new Set<string>());
 
-  $effect(() => {
+  onMount(() => {
     gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
       .then((d) => { sources = d.sources.nodes; })
       .catch(console.error)

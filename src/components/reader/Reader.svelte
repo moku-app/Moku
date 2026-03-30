@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
-  import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus } from "phosphor-svelte";
+  import { onMount, untrack, tick } from "svelte";
+  import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus, BookmarkSimple } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
-  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen } from "../../store/state.svelte";
+  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, resetChapterProgress } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import { setReading } from "../../lib/discord";
   import type { FitMode } from "../../store/state.svelte";
@@ -185,8 +185,36 @@
 
   const zoomPct = $derived(Math.round(zoom * 100));
 
+  // ─── Resume / bookmark ────────────────────────────────────────────────────────
+  // resumePage: fixed at component init from history. Never changes after mount.
+  // We read from history directly (not store.pageNumber) because loadChapter
+  // temporarily resets store.pageNumber to 1 during the fetch.
+  const _resumeHistoryPage = store.activeChapter
+    ? (store.history.find(h => h.chapterId === store.activeChapter!.id)?.pageNumber ?? 1)
+    : 1;
+  let resumePage        = $state(_resumeHistoryPage > 1 ? _resumeHistoryPage : 0);
+  let resumeDismissed   = $state(false);
+  // stripResumeReady: flipped to true once the longstrip scroll-to-resume fires.
+  // In single/double mode store.pageNumber drives the banner; in longstrip we
+  // use this flag because store.pageNumber is scroll-observer-driven and may
+  // never exactly equal resumePage after layout shifts from image loading.
+  let stripResumeReady  = $state(false);
+  const showResumeBanner = $derived(
+    resumePage > 1 && !resumeDismissed &&
+    (style === "longstrip" ? stripResumeReady : store.pageNumber === resumePage)
+  );
+
+  const currentBookmark = $derived(
+    store.activeChapter ? store.bookmarks.find(b => b.chapterId === store.activeChapter!.id) : undefined
+  );
+  const isBookmarked = $derived(!!currentBookmark);
+
+  // In longstrip, always track the visually active chapter for history/RPC —
+  // autoNext only controls nav-button behavior, not which chapter we attribute
+  // progress to. Without this, scrolling into ch48 while ch47 is activeChapter
+  // would record page 28 of ch48 as page 28 of ch47.
   const displayChapter = $derived(
-    style === "longstrip" && autoNext && visibleChapterId
+    style === "longstrip" && visibleChapterId
       ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
       : store.activeChapter
   );
@@ -216,7 +244,7 @@
   });
 
   const visibleChunkLastPage = $derived.by(() => {
-    if (style !== "longstrip" || !autoNext) return lastPage;
+    if (style !== "longstrip") return lastPage;
     const chId  = visibleChapterId ?? store.activeChapter?.id;
     const chunk = stripChapters.find(c => c.chapterId === chId);
     return chunk?.urls.length ?? lastPage;
@@ -235,7 +263,7 @@
 
   const stripToRender = $derived(
     style === "longstrip"
-      ? (autoNext && stripChapters.length > 0
+      ? (stripChapters.length > 0
           ? stripChapters
           : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }])
       : []
@@ -269,11 +297,18 @@
     pageReady  = false;
     stripChapters = [];
     store.pageUrls   = [];
+    // Snapshot the resume page BEFORE resetting — openReader already set
+    // store.pageNumber to the saved position, but we must not clobber it here.
+    // We reset to 1 as a safe interim value while pages load, then restore
+    // after the fetch completes so the viewer jumps to the right page.
+    const resumeTo = store.pageNumber > 1 ? store.pageNumber : 1;
     store.pageNumber = 1;
     try {
       const urls = await fetchPages(id, ctrl.signal);
       if (ctrl.signal.aborted) return;
       store.pageUrls = urls;
+      // Clamp the resume page to actual page count (in case history is stale).
+      if (resumeTo > 1) store.pageNumber = Math.min(resumeTo, urls.length || resumeTo);
       pageReady      = true;
       loading        = false;
     } catch (e: any) {
@@ -284,20 +319,53 @@
   }
 
   // ─── Strip initialisation ─────────────────────────────────────────────────────
+  // IMPORTANT: do NOT read store.pageNumber here — it's updated by the scroll
+  // observer on every scroll event, which would re-run this effect continuously
+  // and reset stripChapters/scroll on every pixel scrolled (the "snap" bug).
+  // Resume page is read from the fixed `resumePage` $state instead, which is
+  // captured once at component init from history and never changes.
 
   $effect(() => {
     if (style === "longstrip" && store.pageUrls.length && store.activeChapter) {
-      const ch   = store.activeChapter;
-      const urls = store.pageUrls;
+      const ch    = store.activeChapter;
+      const urls  = store.pageUrls;
+      // resumePage is a $state set once from history — not reactive to scroll.
+      const targetPg = untrack(() => resumePage);
       appending = false;
-      if (autoNext) {
-        stripChapters    = [{ chapterId: ch.id, chapterName: ch.name, urls }];
-        visibleChapterId = ch.id;
-      } else {
-        stripChapters    = [];
-        visibleChapterId = null;
-      }
-      if (containerEl) containerEl.scrollTop = 0;
+      // Always populate stripChapters in longstrip — it's needed for infinite
+      // scroll appending. autoNext only controls whether the chapter header
+      // and visible-chapter tracking update as you scroll between chapters.
+      stripChapters    = [{ chapterId: ch.id, chapterName: ch.name, urls }];
+      visibleChapterId = ch.id;
+      // Wait for Svelte to flush the new img elements into the DOM, then scroll.
+      // If resuming mid-chapter (targetPg > 1), force-load preceding images so
+      // their heights are in layout, then scrollIntoView on the target image.
+      tick().then(() => {
+        if (!containerEl) return;
+        if (targetPg > 1) {
+          const chId = ch.id;
+          const scrollToResumePage = () => {
+            const target = containerEl.querySelector<HTMLImageElement>(
+              `img[data-local-page="${targetPg}"][data-chapter="${chId}"]`
+            );
+            if (!target) { requestAnimationFrame(scrollToResumePage); return; }
+
+            // Eager-load all images up to the target so their heights are known.
+            containerEl.querySelectorAll<HTMLImageElement>(`img[data-chapter="${chId}"]`)
+              .forEach((img, i) => { if (i < targetPg) img.loading = "eager"; });
+
+            const doScroll = () => {
+              target.scrollIntoView({ block: "start" });
+              stripResumeReady = true;
+            };
+            if (target.complete && target.naturalHeight > 0) { doScroll(); }
+            else { target.loading = "eager"; target.addEventListener("load", doScroll, { once: true }); }
+          };
+          scrollToResumePage();
+          return;
+        }
+        containerEl.scrollTop = 0;
+      });
     }
   });
 
@@ -334,9 +402,6 @@
   let stripChaptersRef: StripChapter[] = [];
   $effect(() => { stripChaptersRef = stripChapters; });
 
-  let autoNextRef = false;
-  $effect(() => { autoNextRef = autoNext; });
-
   function setupScrollTracking(): () => void {
     if (!containerEl || style !== "longstrip") return () => {};
 
@@ -362,7 +427,13 @@
       }
 
       if (activePage !== null) store.pageNumber = activePage;
-      if (activeChId && activeChId !== visibleChapterId) visibleChapterId = activeChId;
+      if (activeChId && activeChId !== visibleChapterId) {
+        // Crossed into a new chapter — reset the previous chapter's resume
+        // position to page 1 so reopening it starts fresh. The history entry
+        // itself is kept so it still appears in the continue-reading UI.
+        if (visibleChapterId) resetChapterProgress(visibleChapterId);
+        visibleChapterId = activeChId;
+      }
 
       if (store.settings.autoMarkRead && activePage !== null && activeChId) {
         const chunk = stripChaptersRef.find(c => c.chapterId === activeChId);
@@ -377,7 +448,8 @@
     }
 
     function onScrollAppend() {
-      if (!autoNextRef) return;
+      // Infinite scroll always active in longstrip — autoNext only controls the
+      // nav-button chapter transition behavior, not scroll-triggered appending.
       const pct = (containerEl.scrollTop + containerEl.clientHeight) / containerEl.scrollHeight;
       if (pct >= 0.80) appendNextChapter();
     }
@@ -577,6 +649,24 @@
     restoreZoomAnchor();
   }
 
+  function toggleBookmark() {
+    const ch    = store.activeChapter;
+    const manga = store.activeManga;
+    if (!ch || !manga) return;
+    if (isBookmarked) {
+      removeBookmark(ch.id);
+    } else {
+      addBookmark({
+        mangaId:      manga.id,
+        mangaTitle:   manga.title,
+        thumbnailUrl: manga.thumbnailUrl,
+        chapterId:    ch.id,
+        chapterName:  ch.name,
+        pageNumber:   store.pageNumber,
+      });
+    }
+  }
+
   // ─── Settings toggles ─────────────────────────────────────────────────────────
 
   function cycleStyle() {
@@ -639,6 +729,7 @@
     else if (matchesKeybind(e, kb.toggleReadingDirection)) { e.preventDefault(); updateSettings({ readingDirection: r ? "ltr" : "rtl" }); }
     else if (matchesKeybind(e, kb.toggleFullscreen))       { e.preventDefault(); toggleFullscreen().catch(console.error); }
     else if (matchesKeybind(e, kb.openSettings))           { e.preventDefault(); setSettingsOpen(true); }
+    else if (matchesKeybind(e, kb.toggleBookmark))         { e.preventDefault(); toggleBookmark(); }
   }
 
   function handleTap(e: MouseEvent) {
@@ -772,6 +863,12 @@
     onwheel={(e) => { if (e.ctrlKey) e.preventDefault(); }}
     onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); containerEl?.scrollBy({ top: containerEl.clientHeight * 0.85, behavior: "smooth" }); } }}
   >
+    {#if showResumeBanner}
+      <div class="resume-banner" role="status">
+        <span>Resumed from page {resumePage}</span>
+        <button class="resume-dismiss" onclick={() => resumeDismissed = true}>✕</button>
+      </div>
+    {/if}
     {#if loading}
       <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
     {/if}
@@ -860,6 +957,7 @@
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-muted); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .icon-btn:disabled { opacity: 0.2; cursor: default; }
+  .icon-btn.active { color: var(--accent-fg); }
   .ch-label { flex: 1; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); }
   .ch-sep   { color: var(--text-faint); }
@@ -936,5 +1034,25 @@
   .dl-step-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .dl-step-btn:disabled { opacity: 0.25; cursor: default; }
   .dl-step-val { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); min-width: 24px; text-align: center; letter-spacing: var(--tracking-wide); }
+  /* ── Resume banner ───────────────────────────────────────────────────────── */
+  .resume-banner {
+    position: absolute; top: var(--sp-3); left: 50%; translate: -50% 0;
+    display: flex; align-items: center; gap: var(--sp-2);
+    background: var(--bg-raised); border: 1px solid var(--border-base);
+    border-radius: var(--radius-lg); padding: 6px var(--sp-3);
+    font-family: var(--font-ui); font-size: var(--text-xs);
+    color: var(--text-secondary); z-index: 20;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    animation: scaleIn 0.15s ease both;
+    white-space: nowrap;
+  }
+  .resume-dismiss {
+    display: flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    font-size: 9px; color: var(--text-faint);
+    transition: color var(--t-fast), background var(--t-fast);
+  }
+  .resume-dismiss:hover { color: var(--text-primary); background: var(--bg-overlay); }
+
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

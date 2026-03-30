@@ -76,21 +76,14 @@
   let idle          = $state(false);
   let devSplash     = $state(false);
 
-  // The OS/monitor DPI scale factor for the current display.
-  // Queried from Rust (window.scale_factor()) on mount and updated live
-  // whenever the window moves to a different monitor via the scaleChanged event.
-  // 1.0 = standard display, 2.0 = HiDPI/4K, 1.25–1.5 = Windows scaled display.
   let platformScale = $state(1.0);
 
-  // effectiveZoom = platformScale × uiZoom (user preference, float, default 1.0)
-  // Applied to document.documentElement so the entire UI scales correctly.
   function applyZoom() {
     const uiZoom     = store.settings.uiZoom ?? 1.5;
     const effective  = platformScale * uiZoom;
     const pct        = effective * 100;
     document.documentElement.style.zoom = `${pct}%`;
     document.documentElement.style.setProperty("--ui-scale", String(effective));
-    // visual-vh compensates for the zoom so 100vh-based calculations stay correct.
     document.documentElement.style.setProperty("--visual-vh", `${window.innerHeight / effective}px`);
   }
 
@@ -136,7 +129,6 @@
     return () => idleEvents.forEach(e => window.removeEventListener(e, resetIdle));
   });
 
-  // Re-apply zoom whenever uiZoom setting or platformScale changes.
   $effect(() => {
     store.settings.uiZoom; platformScale;
     applyZoom();
@@ -226,8 +218,6 @@
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => devSplash = true;
 
-    // Fetch the real monitor scale factor from Rust (window.scale_factor()).
-    // This reflects actual DPI — 2.0 on HiDPI, 1.25 on Windows scaled displays, etc.
     platformScale = await invoke<number>("get_platform_ui_scale").catch(() => 1.0);
     applyZoom();
 
@@ -237,9 +227,6 @@
       store.isFullscreen = await win.isFullscreen();
     });
 
-    // Re-query the scale factor when the window moves to a different monitor.
-    // Tauri emits this event whenever the DPI changes (e.g. dragging window
-    // from a 1080p display to a 4K display).
     const unlistenScale = await win.onScaleChanged(async (event) => {
       platformScale = event.payload.scaleFactor;
       applyZoom();
@@ -287,7 +274,6 @@
       destroyRpc();
     }
   });
-
 
   // When the reader closes, show idle presence.
   $effect(() => {

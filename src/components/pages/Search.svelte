@@ -3,7 +3,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle, isNsfwManga } from "../../lib/util";
+  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw } from "../../lib/util";
   import { store, setSearchPrefill, setPreviewManga } from "../../store/state.svelte";
   import type { Manga, Source } from "../../lib/types";
 
@@ -91,14 +91,11 @@
   const availableLangs   = $derived(Array.from(new Set<string>(allSources.map((s) => s.lang))).sort());
   const hasMultipleLangs = $derived(availableLangs.length > 1);
 
-  // ── Keyword search ────────────────────────────────────────────────────────
-
   let kw_query        = $state("");
   let kw_submitted    = $state("");
   let kw_results:     SourceResult[] = $state([]);
   let kw_showAdvanced = $state(false);
   let kw_selectedLangs: Set<string>  = $state(new Set());
-  let kw_includeNsfw  = $state(false);
   let kw_inputEl:     HTMLInputElement | null = $state(null);
   let kw_abortCtrl:   AbortController | null  = null;
 
@@ -124,7 +121,7 @@
     let filtered = allSources;
     if (kw_selectedLangs.size > 0)
       filtered = filtered.filter((s) => kw_selectedLangs.has(s.lang));
-    if (!kw_includeNsfw)
+    if (!store.settings.showNsfw)
       filtered = filtered.filter((s) => !s.isNsfw);
     return filtered;
   }
@@ -146,9 +143,7 @@
           FETCH_SOURCE_MANGA, { source: src.id, type: "SEARCH", page: 1, query: trimmed }, ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
-        const mangas = store.settings.showNsfw
-          ? d.fetchSourceManga.mangas
-          : d.fetchSourceManga.mangas.filter((m) => !isNsfwManga(m));
+        const mangas = d.fetchSourceManga.mangas.filter((m) => !shouldHideNsfw(m, store.settings));
         kw_results = kw_results.map((r) =>
           r.source.id === src.id ? { ...r, mangas, loading: false } : r,
         );
@@ -171,8 +166,6 @@
   const kw_visibleCount = $derived(kwGetVisibleSources().length);
   const kw_hasResults   = $derived(kw_results.some((r) => r.mangas.length > 0));
   const kw_allDone      = $derived(kw_results.length > 0 && kw_results.every((r) => !r.loading));
-
-  // ── Tag search ────────────────────────────────────────────────────────────
 
   let tag_activeTags:       string[] = $state([]);
   let tag_tagMode:          TagMode  = $state("AND");
@@ -246,7 +239,7 @@
       ctrl.signal,
     ).then((d) => {
       if (ctrl.signal.aborted) return;
-      const nsfwFilter = (m: Manga) => store.settings.showNsfw || !isNsfwManga(m);
+      const nsfwFilter = (m: Manga) => !shouldHideNsfw(m, store.settings);
       tag_localResults  = d.mangas.nodes.filter(nsfwFilter);
       tag_totalCount    = d.mangas.totalCount;
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
@@ -286,7 +279,7 @@
       const matching = (activeTags.length > 1
         ? result.mangas.filter((m) => matchesAllTags(m, activeTags))
         : result.mangas
-      ).filter((m) => store.settings.showNsfw || !isNsfwManga(m));
+      ).filter((m) => !shouldHideNsfw(m, store.settings));
       if (matching.length > 0) {
         tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         tag_loadingSourceSearch = false;
@@ -309,8 +302,7 @@
         ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
-      const nsfwFilter = (m: Manga) => store.settings.showNsfw || !isNsfwManga(m);
-      tag_localResults  = [...tag_localResults, ...d.mangas.nodes.filter(nsfwFilter)];
+      const nsfwFilter = (m: Manga) => !shouldHideNsfw(m, store.settings);
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
       tag_localOffset  += (store.settings.renderLimit ?? 48);
     } catch (e: any) {
@@ -349,7 +341,7 @@
         const matching = (tag_activeTags.length > 1
           ? result.mangas.filter((m) => matchesAllTags(m, tag_activeTags))
           : result.mangas
-        ).filter((m) => store.settings.showNsfw || !isNsfwManga(m));
+        ).filter((m) => !shouldHideNsfw(m, store.settings));
         if (matching.length > 0) {
           tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         }
@@ -374,9 +366,7 @@
     }
   }
 
-  // ── Source browse ─────────────────────────────────────────────────────────
-
-  let src_selectedLang  = $state("all");
+  let src_selectedLang  = $state(preferredLang || "all");
   let src_activeSource: Source | null = $state(null);
   let src_browseResults: Manga[]       = $state([]);
   let src_loadingBrowse                = $state(false);
@@ -385,39 +375,32 @@
   let src_hasNextPage                  = $state(false);
   let src_currentPage                  = $state(1);
   let src_abortCtrl: AbortController | null = null;
-  let src_langPocketOpen = $state(true);
-  let src_expandedGroups: Set<string> = $state(new Set());
 
-  // Group sources by displayName — sources with same name but different langs get grouped
-  interface SourceGroup {
-    name:     string;
-    iconUrl:  string;
-    sources:  Source[];
-    isNsfw:   boolean;
-  }
+  $effect(() => {
+    if (!allSources.length) return;
+    const langs = new Set(allSources.map((s) => s.lang));
+    if (src_selectedLang !== "all" && !langs.has(src_selectedLang)) {
+      src_selectedLang = langs.has(preferredLang) ? preferredLang : "all";
+    }
+  });
 
-  const src_visibleSources = $derived(src_selectedLang === "all"
-    ? allSources
-    : allSources.filter((s) => s.lang === src_selectedLang));
-
-  const src_groupedSources = $derived.by(() => {
-    const filtered = src_visibleSources;
-    const map = new Map<string, SourceGroup>();
-    for (const src of filtered) {
-      const key = src.displayName;
-      if (!map.has(key)) {
-        map.set(key, { name: src.displayName, iconUrl: src.iconUrl, sources: [], isNsfw: src.isNsfw });
+  const src_visibleSources = $derived.by(() => {
+    const nsfw = (s: Source) => !store.settings.showNsfw && s.isNsfw;
+    if (src_selectedLang !== "all") {
+      return allSources.filter((s) => s.lang === src_selectedLang && !nsfw(s));
+    }
+    const map = new Map<string, Source>();
+    for (const s of allSources) {
+      if (nsfw(s)) continue;
+      const key = s.name;
+      const existing = map.get(key);
+      if (!existing) { map.set(key, s); continue; }
+      if (s.lang === preferredLang || (!existing || (existing.lang !== preferredLang && s.lang < existing.lang))) {
+        map.set(key, s);
       }
-      map.get(key)!.sources.push(src);
     }
     return Array.from(map.values());
   });
-
-  function srcToggleGroup(name: string) {
-    const next = new Set(src_expandedGroups);
-    if (next.has(name)) next.delete(name); else next.add(name);
-    src_expandedGroups = next;
-  }
 
   async function srcFetchBrowse(src: Source, type: "POPULAR" | "SEARCH", q?: string, page = 1) {
     src_abortCtrl?.abort();
@@ -429,9 +412,7 @@
         FETCH_SOURCE_MANGA, { source: src.id, type, page, query: q ?? null }, ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
-      const incoming = store.settings.showNsfw
-        ? d.fetchSourceManga.mangas
-        : d.fetchSourceManga.mangas.filter((m) => !isNsfwManga(m));
+      const incoming = d.fetchSourceManga.mangas.filter((m) => !shouldHideNsfw(m, store.settings));
       src_browseResults = page === 1 ? incoming : [...src_browseResults, ...incoming];
       src_hasNextPage = d.fetchSourceManga.hasNextPage;
       src_currentPage = page;
@@ -580,10 +561,6 @@
             {/each}
           </div>
           <div class="advancedDivider"></div>
-          <label class="advancedCheck">
-            <input type="checkbox" bind:checked={kw_includeNsfw} class="checkbox" />
-            Include NSFW sources
-          </label>
           <div class="advancedFooter">
             Searching <strong>{kw_visibleCount}</strong> source{kw_visibleCount !== 1 ? "s" : ""}
           </div>
@@ -877,27 +854,18 @@
     <div class="splitRoot">
       
       <div class="splitSidebar">
-        <button class="langPocketToggle" onclick={() => (src_langPocketOpen = !src_langPocketOpen)}>
-            <span class="langPocketLabel">Languages</span>
-            <svg width="9" height="9" viewBox="0 0 256 256" fill="currentColor"
-              style="transition: transform 0.2s ease; transform: rotate({src_langPocketOpen ? 180 : 0}deg)"
-              aria-hidden="true">
-              <path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/>
-            </svg>
-          </button>
-          {#if src_langPocketOpen}
-            <div class="langPocket">
-              {#each ["all", ...availableLangs] as lang (lang)}
-                <button
-                  class="langChip"
-                  class:langChipActive={src_selectedLang === lang}
-                  onclick={() => (src_selectedLang = lang)}
-                >
-                  {lang === "all" ? "All" : lang.toUpperCase()}
-                </button>
-              {/each}
-            </div>
-          {/if}
+        <div class="srcLangRow">
+          <span class="langPocketLabel">Language</span>
+          <select
+            class="langSelect"
+            bind:value={src_selectedLang}
+          >
+            <option value="all">All</option>
+            {#each availableLangs as lang (lang)}
+              <option value={lang}>{lang.toUpperCase()}{lang === preferredLang ? " ★" : ""}</option>
+            {/each}
+          </select>
+        </div>
 
         {#if loadingSources}
           <div class="splitLoading">
@@ -907,52 +875,22 @@
           </div>
         {:else}
           <div class="splitList">
-            {#each src_groupedSources as group (group.name)}
-              {#if group.sources.length === 1}
-                <button
-                  class="splitItem splitItemSource"
-                  class:splitItemActive={src_activeSource?.id === group.sources[0].id}
-                  onclick={() => srcSelectSource(group.sources[0])}
-                >
-                  <img src={thumbUrl(group.iconUrl)} alt="" class="splitSourceIcon"
-                    onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                  <span class="splitItemLabel">{group.name}</span>
-                  <span class="sourceLang" style="margin-left:auto;margin-right:4px">{group.sources[0].lang.toUpperCase()}</span>
-                  {#if group.isNsfw}<span class="nsfwBadge">18+</span>{/if}
-                </button>
-              {:else}
-                <button
-                  class="splitItem splitItemSource splitItemGroup"
-                  class:splitItemGroupOpen={src_expandedGroups.has(group.name)}
-                  onclick={() => srcToggleGroup(group.name)}
-                >
-                  <img src={thumbUrl(group.iconUrl)} alt="" class="splitSourceIcon"
-                    onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                  <span class="splitItemLabel">{group.name}</span>
-                  <span class="groupLangCount">{group.sources.length}</span>
-                  <svg width="8" height="8" viewBox="0 0 256 256" fill="currentColor"
-                    class="groupChevron"
-                    style="transform: rotate({src_expandedGroups.has(group.name) ? 180 : 0}deg)"
-                    aria-hidden="true">
-                    <path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/>
-                  </svg>
-                </button>
-                {#if src_expandedGroups.has(group.name)}
-                  {#each group.sources as src (src.id)}
-                    <button
-                      class="splitItem splitItemSource splitItemLangOption"
-                      class:splitItemActive={src_activeSource?.id === src.id}
-                      onclick={() => srcSelectSource(src)}
-                    >
-                      <span class="langOptionDot"></span>
-                      <span class="splitItemLabel">{src.lang.toUpperCase()}</span>
-                      {#if src.isNsfw}<span class="nsfwBadge">18+</span>{/if}
-                    </button>
-                  {/each}
+            {#each src_visibleSources as src (src.id)}
+              <button
+                class="splitItem splitItemSource"
+                class:splitItemActive={src_activeSource?.id === src.id}
+                onclick={() => srcSelectSource(src)}
+              >
+                <img src={thumbUrl(src.iconUrl)} alt="" class="splitSourceIcon"
+                  onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                <span class="splitItemLabel">{src.name}</span>
+                {#if src_selectedLang === "all"}
+                  <span class="sourceLang" style="margin-left:auto;margin-right:4px">{src.lang.toUpperCase()}</span>
                 {/if}
-              {/if}
+                {#if src.isNsfw}<span class="nsfwBadge">18+</span>{/if}
+              </button>
             {/each}
-            {#if src_groupedSources.length === 0}
+            {#if src_visibleSources.length === 0}
               <p class="splitEmpty">No sources for this language</p>
             {/if}
           </div>
@@ -1071,8 +1009,6 @@
 </div>
 
 <style>
-  /* ── Root ──────────────────────────────────────────────────────────────── */
-
   .root {
     display: flex;
     flex-direction: column;
@@ -1080,9 +1016,6 @@
     overflow: hidden;
     animation: fadeIn 0.14s ease both;
   }
-
-  /* ── Header ────────────────────────────────────────────────────────────── */
-
   .header {
     display: flex;
     align-items: center;
@@ -1091,7 +1024,6 @@
     flex-shrink: 0;
     border-bottom: 1px solid var(--border-dim);
   }
-
   .heading {
     font-family: var(--font-ui);
     font-size: var(--text-xs);
@@ -1100,9 +1032,6 @@
     letter-spacing: var(--tracking-wider);
     text-transform: uppercase;
   }
-
-  /* ── Tabs ──────────────────────────────────────────────────────────────── */
-
   .tabs {
     display: flex;
     gap: 2px;
@@ -1111,7 +1040,6 @@
     border-radius: var(--radius-md);
     padding: 2px;
   }
-
   .tab {
     display: flex;
     align-items: center;
@@ -1130,16 +1058,12 @@
     white-space: nowrap;
   }
   .tab:hover { color: var(--text-muted); }
-
   .tabActive {
     background: var(--accent-muted);
     color: var(--accent-fg);
     border: 1px solid var(--accent-dim);
   }
   .tabActive:hover { color: var(--accent-fg); }
-
-  /* ── Keyword bar ───────────────────────────────────────────────────────── */
-
   .keywordBar {
     padding: var(--sp-3) var(--sp-4);
     flex-shrink: 0;
@@ -1147,7 +1071,6 @@
     flex-direction: column;
     gap: var(--sp-2);
   }
-
   .searchBar {
     display: flex;
     align-items: center;
@@ -1159,9 +1082,7 @@
     transition: border-color var(--t-base);
   }
   .searchBar:focus-within { border-color: var(--border-strong); }
-
   .searchIcon { color: var(--text-faint); flex-shrink: 0; }
-
   .searchInput {
     flex: 1;
     background: none;
@@ -1172,7 +1093,6 @@
     padding: 7px 0;
   }
   .searchInput::placeholder { color: var(--text-faint); }
-
   .clearBtn {
     color: var(--text-faint);
     font-size: 14px;
@@ -1184,7 +1104,6 @@
     transition: color var(--t-base);
   }
   .clearBtn:hover { color: var(--text-muted); }
-
   .advancedBtn {
     display: flex;
     align-items: center;
@@ -1202,7 +1121,6 @@
   .advancedBtn:hover { color: var(--text-muted); background: var(--bg-overlay); }
   .advancedBtnActive { color: var(--accent-fg); background: var(--accent-muted); }
   .advancedBtnActive:hover { color: var(--accent-fg); background: var(--accent-muted); }
-
   .searchBtn {
     font-family: var(--font-ui);
     font-size: var(--text-xs);
@@ -1221,9 +1139,6 @@
   }
   .searchBtn:hover:not(:disabled) { filter: brightness(1.1); }
   .searchBtn:disabled { opacity: 0.4; cursor: default; }
-
-  /* ── Advanced filter panel ─────────────────────────────────────────────── */
-
   .advancedPanel {
     background: var(--bg-raised);
     border: 1px solid var(--border-dim);
@@ -1234,13 +1149,11 @@
     gap: var(--sp-2);
     animation: fadeIn 0.1s ease both;
   }
-
   .advancedHeader {
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
-
   .advancedTitle {
     font-family: var(--font-ui);
     font-size: var(--text-2xs);
@@ -1248,9 +1161,7 @@
     letter-spacing: var(--tracking-wider);
     text-transform: uppercase;
   }
-
   .advancedActions { display: flex; gap: var(--sp-1); }
-
   .advancedLink {
     font-family: var(--font-ui);
     font-size: var(--text-2xs);
@@ -1264,13 +1175,11 @@
     transition: opacity var(--t-base);
   }
   .advancedLink:hover { opacity: 1; }
-
   .langGrid {
     display: flex;
     flex-wrap: wrap;
     gap: var(--sp-1);
   }
-
   .langChip {
     font-family: var(--font-ui);
     font-size: var(--text-2xs);
@@ -1284,20 +1193,17 @@
     transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
   }
   .langChip:hover { color: var(--text-muted); border-color: var(--border-strong); }
-
   .langChipActive {
     background: var(--accent-muted);
     border-color: var(--accent-dim);
     color: var(--accent-fg);
   }
   .langChipActive:hover { background: var(--accent-muted); color: var(--accent-fg); }
-
   .advancedDivider {
     height: 1px;
     background: var(--border-dim);
     margin: 2px 0;
   }
-
   .advancedCheck {
     display: flex;
     align-items: center;
@@ -1307,16 +1213,13 @@
     color: var(--text-muted);
     cursor: pointer;
   }
-
   .checkbox { accent-color: var(--accent-fg); cursor: pointer; }
-
   .advancedFooter {
     font-family: var(--font-ui);
     font-size: var(--text-2xs);
     color: var(--text-faint);
     letter-spacing: var(--tracking-wide);
   }
-
   .advancedLinkStandalone {
     display: inline-flex;
     align-items: center;
@@ -1333,9 +1236,6 @@
     transition: opacity var(--t-base);
   }
   .advancedLinkStandalone:hover { opacity: 1; }
-
-  /* ── Empty states ──────────────────────────────────────────────────────── */
-
   .empty {
     flex: 1;
     display: flex;
@@ -1344,33 +1244,26 @@
     justify-content: center;
     gap: var(--sp-2);
   }
-
   .emptyIcon { color: var(--text-faint); }
   .emptyText { font-size: var(--text-base); color: var(--text-muted); }
   .emptyHint { font-size: var(--text-sm); color: var(--text-faint); }
-
-  /* ── Keyword results ───────────────────────────────────────────────────── */
-
   .results {
     flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
   }
-
   .sourceSection {
     padding: var(--sp-1) var(--sp-4) var(--sp-3);
     border-bottom: 1px solid var(--border-dim);
   }
   .sourceSection:last-child { border-bottom: none; }
-
   .sourceHeader {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     padding: var(--sp-2) 0;
   }
-
   .sourceIcon {
     width: 18px;
     height: 18px;
@@ -1379,13 +1272,11 @@
     flex-shrink: 0;
     background: var(--bg-raised);
   }
-
   .sourceName {
     font-size: var(--text-base);
     font-weight: var(--weight-medium);
     color: var(--text-secondary);
   }
-
   .sourceLang {
     font-family: var(--font-ui);
     font-size: var(--text-2xs);
@@ -1396,7 +1287,6 @@
     border-radius: var(--radius-sm);
     padding: 1px 5px;
   }
-
   .resultCount {
     margin-left: auto;
     font-family: var(--font-ui);
@@ -1404,15 +1294,12 @@
     color: var(--text-faint);
     letter-spacing: var(--tracking-wide);
   }
-
   .sourceError {
     font-size: var(--text-xs);
     color: var(--color-error);
     padding: var(--sp-1) 0;
     margin: 0;
   }
-
-  /* Horizontal scroll row */
   .sourceRow {
     display: flex;
     gap: var(--sp-3);
@@ -1421,9 +1308,6 @@
     scrollbar-width: none;
   }
   .sourceRow::-webkit-scrollbar { display: none; }
-
-  /* ── Manga card ────────────────────────────────────────────────────────── */
-
   .card {
     display: flex;
     flex-direction: column;
@@ -1438,7 +1322,6 @@
   }
   .card:hover .cover { filter: brightness(1.06); }
   .card:hover .cardTitle { color: var(--text-primary); }
-
   .coverWrap {
     position: relative;
     width: 100%;
@@ -1449,14 +1332,12 @@
     border: 1px solid var(--border-dim);
     transform: translateZ(0);
   }
-
   .cover {
     width: 100%;
     height: 100%;
     object-fit: cover;
     transition: filter var(--t-base);
   }
-
   .inLibBadge {
     position: absolute;
     bottom: var(--sp-1);
@@ -1471,7 +1352,6 @@
     border-radius: var(--radius-sm);
     border: 1px solid var(--accent-muted);
   }
-
   .cardTitle {
     font-size: var(--text-sm);
     color: var(--text-secondary);
@@ -1482,9 +1362,6 @@
     overflow: hidden;
     transition: color var(--t-base);
   }
-
-  /* ── Skeleton ──────────────────────────────────────────────────────────── */
-
   .skCard {
     display: flex;
     flex-direction: column;
@@ -1492,30 +1369,20 @@
     flex-shrink: 0;
     width: 110px;
   }
-
   .tagGrid .card  { width: 100%; }
   .tagGrid .skCard { width: 100%; }
-
   .skeleton { border-radius: var(--radius-sm); }
-
   .skCover {
     aspect-ratio: 2 / 3;
     width: 100%;
     border-radius: var(--radius-md);
   }
-
   .skTitle { height: 10px; width: 80%; }
-
-  /* ── Split root (Tag + Source tabs) ────────────────────────────────────── */
-
   .splitRoot {
     flex: 1;
     display: flex;
     overflow: hidden;
   }
-
-  /* ── Split sidebar ─────────────────────────────────────────────────────── */
-
   .splitSidebar {
     width: 180px;
     flex-shrink: 0;
@@ -1524,7 +1391,6 @@
     display: flex;
     flex-direction: column;
   }
-
   .splitSearchWrap {
     display: flex;
     align-items: center;
@@ -1533,9 +1399,7 @@
     border-bottom: 1px solid var(--border-dim);
     flex-shrink: 0;
   }
-
   .splitSearchIcon { color: var(--text-faint); flex-shrink: 0; }
-
   .splitSearchInput {
     flex: 1;
     background: none;
@@ -1547,7 +1411,6 @@
     min-width: 0;
   }
   .splitSearchInput::placeholder { color: var(--text-faint); }
-
   .splitSearchClear {
     color: var(--text-faint);
     font-size: 13px;
@@ -1559,7 +1422,6 @@
     transition: color var(--t-base);
   }
   .splitSearchClear:hover { color: var(--text-muted); }
-
   .splitList {
     flex: 1;
     overflow-y: auto;
@@ -1567,7 +1429,6 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border-dim) transparent;
   }
-
   .splitItem {
     display: flex;
     align-items: center;
@@ -1582,13 +1443,11 @@
     transition: background var(--t-fast), border-color var(--t-fast);
   }
   .splitItem:hover { background: var(--bg-raised); border-color: var(--border-dim); }
-
   .splitItemActive {
     background: var(--accent-muted);
     border-color: var(--accent-dim);
   }
   .splitItemActive:hover { background: var(--accent-muted); }
-
   .splitItemLabel {
     font-size: var(--text-xs);
     color: var(--text-muted);
@@ -1598,9 +1457,7 @@
     white-space: nowrap;
   }
   .splitItemActive .splitItemLabel { color: var(--accent-fg); font-weight: var(--weight-medium); }
-
   .splitItemSource { gap: var(--sp-2); }
-
   .splitEmpty {
     font-family: var(--font-ui);
     font-size: var(--text-xs);
@@ -1608,7 +1465,6 @@
     padding: var(--sp-3);
     margin: 0;
   }
-
   .splitLoading {
     flex: 1;
     display: flex;
@@ -1616,16 +1472,12 @@
     justify-content: center;
     padding: var(--sp-6);
   }
-
-  /* ── Split content ─────────────────────────────────────────────────────── */
-
   .splitContent {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
-
   .splitContentHeader {
     display: flex;
     align-items: center;
@@ -1635,7 +1487,6 @@
     flex-shrink: 0;
     gap: var(--sp-2);
   }
-
   .splitSourceTitle {
     display: flex;
     align-items: center;
@@ -1643,7 +1494,6 @@
     flex: 1;
     min-width: 0;
   }
-
   .splitContentTitle {
     font-size: var(--text-base);
     font-weight: var(--weight-medium);
@@ -1653,7 +1503,6 @@
     white-space: nowrap;
     letter-spacing: var(--tracking-tight);
   }
-
   .splitResultCount {
     font-family: var(--font-ui);
     font-size: var(--text-2xs);
@@ -1661,7 +1510,6 @@
     letter-spacing: var(--tracking-wide);
     flex-shrink: 0;
   }
-
   .splitSourceIcon {
     width: 18px;
     height: 18px;
@@ -1670,9 +1518,6 @@
     flex-shrink: 0;
     background: var(--bg-raised);
   }
-
-  /* ── Tag active bar ────────────────────────────────────────────────────── */
-
   .tagActiveBar {
     display: flex;
     align-items: flex-start;
@@ -1682,7 +1527,6 @@
     flex-shrink: 0;
     flex-wrap: wrap;
   }
-
   .tagPillRow {
     display: flex;
     flex-wrap: wrap;
@@ -1690,7 +1534,6 @@
     flex: 1;
     min-width: 0;
   }
-
   .tagPill {
     display: inline-flex;
     align-items: center;
@@ -1704,7 +1547,6 @@
     letter-spacing: var(--tracking-wide);
     color: var(--accent-fg);
   }
-
   .tagPillRemove {
     color: var(--accent-fg);
     opacity: 0.6;
@@ -1717,21 +1559,18 @@
     transition: opacity var(--t-base);
   }
   .tagPillRemove:hover { opacity: 1; }
-
   .tagBarRight {
     display: flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
   }
-
   .tagModeToggle {
     display: flex;
     border: 1px solid var(--border-dim);
     border-radius: var(--radius-md);
     overflow: hidden;
   }
-
   .tagModeBtn {
     display: flex;
     align-items: center;
@@ -1751,7 +1590,6 @@
   .tagModeBtn:hover { color: var(--text-muted); background: var(--bg-raised); }
   .tagModeBtnActive { color: var(--accent-fg); background: var(--accent-muted); }
   .tagModeBtnActive:hover { color: var(--accent-fg); background: var(--accent-muted); }
-
   .tagClearAll {
     display: flex;
     align-items: center;
@@ -1771,15 +1609,11 @@
     border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
     background: var(--color-error-bg, color-mix(in srgb, var(--color-error) 8%, transparent));
   }
-
   .tagCheckMark {
     font-size: var(--text-xs);
     color: var(--accent-fg);
     margin-left: auto;
   }
-
-  /* ── Grid results ──────────────────────────────────────────────────────── */
-
   .tagGrid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -1789,9 +1623,6 @@
     flex: 1;
     align-content: start;
   }
-
-  /* ── Show more / load more ─────────────────────────────────────────────── */
-
   .showMoreCell {
     grid-column: 1 / -1;
     display: flex;
@@ -1799,7 +1630,6 @@
     gap: var(--sp-2);
     padding: var(--sp-2) 0;
   }
-
   .showMoreBtn {
     display: inline-flex;
     align-items: center;
@@ -1821,7 +1651,6 @@
     border-color: var(--border-strong);
   }
   .showMoreBtn:disabled { opacity: 0.4; cursor: default; }
-
   .loadMoreRow {
     display: flex;
     justify-content: center;
@@ -1829,9 +1658,6 @@
     flex-shrink: 0;
     border-top: 1px solid var(--border-dim);
   }
-
-  /* ── Source tab: lang filter + browse bar ──────────────────────────────── */
-
   .sourceBrowseBar {
     display: flex;
     align-items: center;
@@ -1840,9 +1666,54 @@
     border-bottom: 1px solid var(--border-dim);
     flex-shrink: 0;
   }
-
-  /* ── NSFW badge ────────────────────────────────────────────────────────── */
-
+  .srcLangRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border-dim);
+    flex-shrink: 0;
+    gap: var(--sp-2);
+  }
+  .langPocketLabel {
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+  }
+  .langSelect {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-dim);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-wide);
+    padding: 4px 24px 4px 8px;
+    cursor: pointer;
+    max-width: 110px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 256 256'%3E%3Cpath fill='%23888' d='M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 7px center;
+    transition: border-color var(--t-base), background var(--t-base), color var(--t-base);
+  }
+  .langSelect:hover {
+    border-color: var(--border-strong);
+    background-color: var(--bg-raised);
+    color: var(--text-primary);
+  }
+  .langSelect:focus {
+    outline: none;
+    border-color: var(--accent-dim);
+    color: var(--text-primary);
+  }
+  .langSelect option {
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+  }
   .nsfwBadge {
     font-family: var(--font-ui);
     font-size: var(--text-2xs);
@@ -1855,81 +1726,8 @@
     margin-left: auto;
     flex-shrink: 0;
   }
-
-  /* ── Language pocket ───────────────────────────────────────────────────── */
-
-  .langPocketToggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding: var(--sp-2) var(--sp-3);
-    border-bottom: 1px solid var(--border-dim);
-    border-top: none;
-    border-left: none;
-    border-right: none;
-    background: none;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: background var(--t-fast);
-  }
-  .langPocketToggle:hover { background: var(--bg-raised); }
-
-  .langPocketLabel {
-    font-family: var(--font-ui);
-    font-size: var(--text-2xs);
-    color: var(--text-faint);
-    letter-spacing: var(--tracking-wider);
-    text-transform: uppercase;
-  }
-
-  .langPocket {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-1);
-    padding: var(--sp-2) var(--sp-3);
-    border-bottom: 1px solid var(--border-dim);
-    flex-shrink: 0;
-    animation: fadeIn 0.1s ease both;
-  }
-
-  /* ── Source group (multi-lang) ─────────────────────────────────────────── */
-
   .splitItemGroup { }
   .splitItemGroupOpen { background: var(--bg-raised); }
-
-  .groupLangCount {
-    font-family: var(--font-ui);
-    font-size: var(--text-2xs);
-    color: var(--text-faint);
-    background: var(--bg-overlay);
-    border: 1px solid var(--border-dim);
-    border-radius: var(--radius-sm);
-    padding: 0px 5px;
-    flex-shrink: 0;
-    letter-spacing: var(--tracking-wide);
-  }
-
-  .groupChevron {
-    color: var(--text-faint);
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
-  }
-
-  .splitItemLangOption {
-    padding-left: var(--sp-5);
-    background: var(--bg-overlay);
-  }
-  .splitItemLangOption:hover { background: var(--bg-raised); }
-
-  .langOptionDot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--border-strong);
-    flex-shrink: 0;
-  }
-  .splitItemActive .langOptionDot { background: var(--accent-fg); }
 </style>
 
 <script module>
