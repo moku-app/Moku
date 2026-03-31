@@ -7,9 +7,9 @@
   import { open as openUrl } from "@tauri-apps/plugin-shell";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER, GET_SOURCES } from "../../lib/queries";
-  import { GET_DOWNLOADS_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
+  import { GET_DOWNLOADS_PATH, SET_DOWNLOADS_PATH, SET_LOCAL_SOURCE_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
   import type { Category, Source } from "../../lib/types";
-  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories } from "../../store/state.svelte";
+  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories, clearBookmarks } from "../../store/state.svelte";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
@@ -76,13 +76,178 @@
   let storageError: string | null = $state(null);
   let clearing = $state(false);
   let cleared  = $state(false);
+
+  // ── Download path editing ────────────────────────────────────────────────────
+  let downloadsPathInput    = $state(store.settings.serverDownloadsPath ?? "");
+  let localSourcePathInput  = $state(store.settings.serverLocalSourcePath ?? "");
+  let pathsSaving           = $state(false);
+  let pathsError: string | null = $state(null);
+  let pathsFieldError: { dl?: string; loc?: string } = $state({});
+  let pathsSaved            = $state(false);
+
+  // The actual resolved default path from Rust — shown as placeholder + scanned when dl path is empty
+  let defaultDownloadsPath  = $state("");
+  invoke<string>("get_default_downloads_path").then(p => { defaultDownloadsPath = p; });
+
+  // The last confirmed server paths — used to detect a change requiring migration
+  let confirmedDownloadsPath   = $state(store.settings.serverDownloadsPath ?? "");
+  let confirmedLocalSourcePath = $state(store.settings.serverLocalSourcePath ?? "");
+
+  // ── Migration state ──────────────────────────────────────────────────────────
+  let migrateFrom: string | null   = $state(null); // old path that has content
+  let migrateTo:   string | null   = $state(null); // new path
+  let migrating                    = $state(false);
+  let migrateProgress: { done: number; total: number; current: string } | null = $state(null);
+  let migrateError: string | null  = $state(null);
+  let migrateUnlisten: (() => void) | null = null;
+
+  // ── Extra scan directories (local-only, stored in app settings) ──────────────
+  let extraScanDirs: string[]   = $state([...(store.settings.extraScanDirs ?? [])]);
+  let newScanDir                = $state("");
+  let multiStorageInfos: (StorageInfo & { label: string })[] = $state([]);
+  let advStorageOpen            = $state(false);
+
   async function fetchStorage() {
     storageLoading = true; storageError = null;
     try {
-      const pathData = await gql<{ settings: { downloadsPath: string } }>(GET_DOWNLOADS_PATH);
-      storageInfo = await invoke<StorageInfo>("get_storage_info", { downloadsPath: pathData.settings.downloadsPath });
-    } catch (e: any) { storageError = e instanceof Error ? e.message : String(e); }
-    finally { storageLoading = false; }
+      const pathData = await gql<{ settings: { downloadsPath: string; localSourcePath: string } }>(GET_DOWNLOADS_PATH);
+      const dl  = pathData.settings.downloadsPath  ?? "";
+      const loc = pathData.settings.localSourcePath ?? "";
+
+      downloadsPathInput    = dl;
+      localSourcePathInput  = loc;
+      confirmedDownloadsPath   = dl;
+      confirmedLocalSourcePath = loc;
+      updateSettings({ serverDownloadsPath: dl, serverLocalSourcePath: loc });
+
+      // When dl is empty the server uses the default path — scan that instead
+      const effectiveDl = dl || defaultDownloadsPath;
+
+      const dirsToScan: { path: string; label: string }[] = [];
+      if (effectiveDl) dirsToScan.push({ path: effectiveDl, label: dl ? "Downloads" : "Downloads (default)" });
+      if (loc && loc !== effectiveDl) dirsToScan.push({ path: loc, label: "Local source" });
+      for (const p of extraScanDirs) {
+        if (p && !dirsToScan.find(d => d.path === p)) dirsToScan.push({ path: p, label: p });
+      }
+
+      if (dirsToScan.length === 0) {
+        multiStorageInfos = []; storageInfo = null; return;
+      }
+
+      const results = await Promise.allSettled(
+        dirsToScan.map(d =>
+          invoke<StorageInfo>("get_storage_info", { downloadsPath: d.path })
+            .then(info => ({ ...info, label: d.label }))
+        )
+      );
+
+      multiStorageInfos = results
+        .filter((r): r is PromiseFulfilledResult<StorageInfo & { label: string }> => r.status === "fulfilled")
+        .map(r => r.value);
+      storageInfo = multiStorageInfos[0] ?? null;
+    } catch (e: any) {
+      storageError = e instanceof Error ? e.message : String(e);
+    } finally {
+      storageLoading = false;
+    }
+  }
+
+  /** Validate a path exists on disk. Returns error string or null. */
+  async function validatePath(path: string): Promise<string | null> {
+    if (!path.trim()) return null; // empty = use default, always valid
+    try {
+      const exists = await invoke<boolean>("check_path_exists", { path: path.trim() });
+      return exists ? null : "Directory does not exist";
+    } catch {
+      return "Could not check path";
+    }
+  }
+
+  /** Create a directory on disk via Tauri. */
+  async function createDirectory(path: string): Promise<void> {
+    await invoke("create_directory", { path });
+  }
+
+  async function savePaths() {
+    const dl  = downloadsPathInput.trim();
+    const loc = localSourcePathInput.trim();
+    pathsError = null; pathsFieldError = {};
+
+    // Validate paths exist before touching the server (empty = use default = always valid)
+    const [dlErr, locErr] = await Promise.all([validatePath(dl), validatePath(loc)]);
+    if (dlErr || locErr) {
+      pathsFieldError = { ...(dlErr ? { dl: dlErr } : {}), ...(locErr ? { loc: locErr } : {}) };
+      return;
+    }
+
+    pathsSaving = true;
+    try {
+      // Send each mutation independently — localSourcePath rejects empty string server-side
+      await gql(SET_DOWNLOADS_PATH, { path: dl });
+      if (loc) await gql(SET_LOCAL_SOURCE_PATH, { path: loc });
+
+      updateSettings({ serverDownloadsPath: dl, serverLocalSourcePath: loc });
+
+      // If downloads path changed and old path had content, offer migration
+      const oldDl = confirmedDownloadsPath || defaultDownloadsPath;
+      const newDl = dl || defaultDownloadsPath;
+      if (newDl && oldDl && newDl !== oldDl) {
+        const hadContent = await invoke<boolean>("check_path_exists", { path: oldDl });
+        if (hadContent) { migrateFrom = oldDl; migrateTo = newDl; }
+      }
+
+      confirmedDownloadsPath   = dl;
+      confirmedLocalSourcePath = loc;
+      pathsSaved = true;
+      setTimeout(() => pathsSaved = false, 2000);
+      await fetchStorage();
+    } catch (e: any) {
+      pathsError = e?.message ?? "Failed to save paths";
+    } finally {
+      pathsSaving = false;
+    }
+  }
+
+  async function startMigration() {
+    if (!migrateFrom || !migrateTo) return;
+    migrating = true; migrateError = null; migrateProgress = { done: 0, total: 0, current: "" };
+
+    // Subscribe to progress events from Tauri
+    const { listen } = await import("@tauri-apps/api/event");
+    migrateUnlisten = await listen<{ done: number; total: number; current: string }>(
+      "migrate_progress",
+      (e) => { migrateProgress = e.payload; }
+    );
+
+    try {
+      await invoke("migrate_downloads", { src: migrateFrom, dst: migrateTo });
+      migrateFrom = null; migrateTo = null; migrateProgress = null;
+      await fetchStorage();
+    } catch (e: any) {
+      migrateError = e?.message ?? "Migration failed";
+    } finally {
+      migrating = false;
+      migrateUnlisten?.(); migrateUnlisten = null;
+    }
+  }
+
+  function dismissMigration() {
+    migrateFrom = null; migrateTo = null; migrateError = null; migrateProgress = null;
+  }
+
+  function addExtraScanDir() {
+    const dir = newScanDir.trim();
+    if (!dir || extraScanDirs.includes(dir)) return;
+    extraScanDirs = [...extraScanDirs, dir];
+    updateSettings({ extraScanDirs });
+    newScanDir = "";
+    fetchStorage();
+  }
+
+  function removeExtraScanDir(path: string) {
+    extraScanDirs = extraScanDirs.filter(d => d !== path);
+    updateSettings({ extraScanDirs });
+    fetchStorage();
   }
   $effect(() => { if (tab === "storage" && !storageInfo && !storageLoading) fetchStorage(); });
   function handleClearCache() {
@@ -660,7 +825,7 @@
               <p class="section-title">Interface Scale</p>
               <div class="scale-row">
                 <input type="range" min={50} max={200} step={5}
-                  value={Math.round((store.settings.uiZoom ?? 0) * 100)}
+                  value={Math.round((store.settings.uiZoom ?? 1.0) * 100)}
                   oninput={(e) => updateSettings({ uiZoom: Number(e.currentTarget.value) / 100 })}
                   class="scale-slider" />
                 <input
@@ -678,11 +843,11 @@
                   }}
                 />
                 <span class="scale-pct">%</span>
-                <button class="step-btn" onclick={() => updateSettings({ uiZoom: 1.5 })} disabled={(store.settings.uiZoom ?? 1.5) === 1.5} title="Reset">↺</button>
+                <button class="step-btn" onclick={() => updateSettings({ uiZoom: 1.0 })} disabled={(store.settings.uiZoom ?? 1.0) === 1.0} title="Reset to 100%">↺</button>
               </div>
               <p class="scale-hint">
                 {#each [50,60,70,80,90,100,110,125,150,175,200] as v}
-                  <button class="scale-preset" class:active={Math.round((store.settings.uiZoom ?? 1.5) * 100) === v} onclick={() => updateSettings({ uiZoom: v / 100 })}>{v}%</button>
+                  <button class="scale-preset" class:active={Math.round((store.settings.uiZoom ?? 1.0) * 100) === v} onclick={() => updateSettings({ uiZoom: v / 100 })}>{v}%</button>
                 {/each}
               </p>
             </div>
@@ -863,18 +1028,18 @@
                 </div>
               </div>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Page gap</span><span class="toggle-desc">Add spacing between pages in longstrip mode</span></div>
+                <div class="toggle-info"><span class="toggle-label">Page gap</span></div>
                 <button role="switch" aria-checked={store.settings.pageGap} aria-label="Page gap" class="toggle" class:on={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Overlay bars</span><span class="toggle-desc">Top and bottom bars float over the page instead of pushing it</span></div>
+                <div class="toggle-info"><span class="toggle-label">Overlay bars</span></div>
                 <button role="switch" aria-checked={store.settings.overlayBars ?? false} aria-label="Overlay bars" class="toggle" class:on={store.settings.overlayBars ?? false} onclick={() => updateSettings({ overlayBars: !(store.settings.overlayBars ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Fit &amp; Zoom</p>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Default fit mode</span><span class="toggle-desc">How pages are sized to fit the screen</span></div>
+                <div class="toggle-info"><span class="toggle-label">Default fit mode</span></div>
                 <div class="select-wrap" id="fit-mode">
                   <button class="select-btn" onclick={() => toggleSelect("fit-mode")}>
                     <span>{{ "width":"Fit width","height":"Fit height","screen":"Fit screen","original":"Original (1:1)" }[store.settings.fitMode ?? "width"]}</span>
@@ -892,7 +1057,7 @@
               <div class="step-row">
                 <div class="toggle-info">
                   <span class="toggle-label">Default zoom</span>
-                  <span class="toggle-desc">Starting zoom when opening a chapter. 100% = fills the reader.</span>
+                  <span class="toggle-desc">100% = fills the reader</span>
                 </div>
                 <div class="scale-row">
                   <input type="range" min={10} max={400} step={5}
@@ -925,28 +1090,36 @@
                 {/each}
               </p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Optimize contrast</span><span class="toggle-desc">Use webkit-optimize-contrast rendering</span></div>
+                <div class="toggle-info"><span class="toggle-label">Optimize contrast</span></div>
                 <button role="switch" aria-checked={store.settings.optimizeContrast} aria-label="Optimize contrast" class="toggle" class:on={store.settings.optimizeContrast} onclick={() => updateSettings({ optimizeContrast: !store.settings.optimizeContrast })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Behaviour</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Auto-mark chapters read</span><span class="toggle-desc">Mark a chapter as read when you reach the last page</span></div>
+                <div class="toggle-info"><span class="toggle-label">Auto-mark read</span></div>
                 <button role="switch" aria-checked={store.settings.autoMarkRead} aria-label="Auto-mark chapters read" class="toggle" class:on={store.settings.autoMarkRead} onclick={() => updateSettings({ autoMarkRead: !store.settings.autoMarkRead })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Auto-advance chapters</span><span class="toggle-desc">Automatically open the next chapter at the end of a long strip</span></div>
+                <div class="toggle-info"><span class="toggle-label">Auto-advance chapters</span></div>
                 <button role="switch" aria-checked={store.settings.autoNextChapter ?? false} aria-label="Auto-advance chapters" class="toggle" class:on={store.settings.autoNextChapter} onclick={() => updateSettings({ autoNextChapter: !(store.settings.autoNextChapter ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
               {#if !(store.settings.autoNextChapter ?? false)}
                 <label class="toggle-row">
-                  <div class="toggle-info"><span class="toggle-label">Mark read when skipping to next chapter</span><span class="toggle-desc">Mark chapter as read when you tap next before finishing</span></div>
+                  <div class="toggle-info"><span class="toggle-label">Mark read when skipping</span></div>
                   <button role="switch" aria-checked={store.settings.markReadOnNext ?? true} aria-label="Mark read when skipping" class="toggle" class:on={store.settings.markReadOnNext ?? true} onclick={() => updateSettings({ markReadOnNext: !(store.settings.markReadOnNext ?? true) })}><span class="toggle-thumb"></span></button>
                 </label>
               {/if}
+              <label class="toggle-row">
+                <div class="toggle-info"><span class="toggle-label">Bookmarks</span><span class="toggle-desc">One per manga — acts like a physical bookmark</span></div>
+                <button role="switch" aria-checked={store.settings.bookmarksEnabled ?? true} aria-label="Enable bookmarks" class="toggle" class:on={store.settings.bookmarksEnabled ?? true} onclick={() => {
+                    const next = !(store.settings.bookmarksEnabled ?? true);
+                    updateSettings({ bookmarksEnabled: next });
+                    if (!next) clearBookmarks();
+                  }}><span class="toggle-thumb"></span></button>
+              </label>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Pages to preload</span><span class="toggle-desc">Images loaded ahead of the current page</span></div>
+                <div class="toggle-info"><span class="toggle-label">Pages to preload</span></div>
                 <div class="step-controls">
                   <button class="step-btn" onclick={() => updateSettings({ preloadPages: Math.max(0, store.settings.preloadPages - 1) })} disabled={store.settings.preloadPages <= 0}>−</button>
                   <span class="step-val">{store.settings.preloadPages}</span>
@@ -960,7 +1133,7 @@
             <div class="section">
               <p class="section-title">Display</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Crop cover images</span><span class="toggle-desc">Fill grid cells — may crop cover edges</span></div>
+                <div class="toggle-info"><span class="toggle-label">Crop cover images</span></div>
                 <button role="switch" aria-checked={store.settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={store.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !store.settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
@@ -986,15 +1159,15 @@
             <div class="section">
               <p class="section-title">History</p>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Reading history</span><span class="toggle-desc">{store.history.length} entries stored</span></div>
-                <button class="danger-btn" onclick={clearHistory} disabled={store.history.length === 0}>Clear activity</button>
+                <div class="toggle-info"><span class="toggle-label">Reading history</span><span class="toggle-desc">{store.history.length} entries</span></div>
+                <button class="danger-btn" onclick={clearHistory} disabled={store.history.length === 0}>Clear</button>
               </div>
               <div class="step-row">
                 <div class="toggle-info">
-                  <span class="toggle-label">Full data cleanse</span>
-                  <span class="toggle-desc">Removes history, stats, completed list, hero pins, and manga links</span>
+                  <span class="toggle-label">Wipe all data</span>
+                  <span class="toggle-desc">History, stats, pins, and manga links</span>
                 </div>
-                <button class="danger-btn" onclick={wipeAllData}>Wipe all data</button>
+                <button class="danger-btn" onclick={wipeAllData}>Wipe</button>
               </div>
             </div>
           </div>
@@ -1005,7 +1178,7 @@
               <div class="step-row">
                 <div class="toggle-info">
                   <span class="toggle-label">Items per page</span>
-                  <span class="toggle-desc">Library and Search render this many items before showing a "Load more" button. Lower = faster scrolling on large libraries.</span>
+                  <span class="toggle-desc">Lower = faster on large libraries</span>
                 </div>
                 <div class="step-controls">
                   <button class="step-btn" onclick={() => updateSettings({ renderLimit: Math.max(12, (store.settings.renderLimit ?? 48) - 12) })} disabled={(store.settings.renderLimit ?? 48) <= 12}>−</button>
@@ -1022,21 +1195,21 @@
             <div class="section">
               <p class="section-title">Rendering</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">GPU acceleration</span><span class="toggle-desc">Promote reader and library to compositor layers</span></div>
+                <div class="toggle-info"><span class="toggle-label">GPU acceleration</span></div>
                 <button role="switch" aria-checked={store.settings.gpuAcceleration} aria-label="GPU acceleration" class="toggle" class:on={store.settings.gpuAcceleration} onclick={() => updateSettings({ gpuAcceleration: !store.settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Idle / Splash Screen</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Animated card background</span><span class="toggle-desc">Show floating manga cards on splash and idle screens.</span></div>
+                <div class="toggle-info"><span class="toggle-label">Animated card background</span></div>
                 <button role="switch" aria-checked={store.settings.splashCards ?? true} aria-label="Animated card background" class="toggle" class:on={store.settings.splashCards ?? true} onclick={() => updateSettings({ splashCards: !(store.settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Interface</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Compact sidebar</span><span class="toggle-desc">Reduce sidebar icon spacing</span></div>
+                <div class="toggle-info"><span class="toggle-label">Compact sidebar</span></div>
                 <button role="switch" aria-checked={store.settings.compactSidebar} aria-label="Compact sidebar" class="toggle" class:on={store.settings.compactSidebar} onclick={() => updateSettings({ compactSidebar: !store.settings.compactSidebar })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
@@ -1045,7 +1218,7 @@
               <div class="step-row">
                 <div class="toggle-info">
                   <span class="toggle-label">Cache entries</span>
-                  <span class="toggle-desc">In-memory request cache for this session (library, sources, genre pages). Cleared on restart.</span>
+                  <span class="toggle-desc">In-memory, cleared on restart</span>
                 </div>
                 <div class="perf-stat-group">
                   <span class="perf-stat">{perfSnapshot?.cacheEntries ?? 0} entries</span>
@@ -1098,83 +1271,192 @@
           </div>
         {:else if tab === "storage"}
           <div class="panel">
+
+            <!-- ── Migration banner ──────────────────────────────────────── -->
+            {#if migrateFrom}
+              <div class="migrate-banner">
+                <div class="migrate-banner-body">
+                  <span class="migrate-title">Manga found at previous path — move to new location?</span>
+                  <span class="migrate-paths">{migrateFrom} → {migrateTo}</span>
+                  {#if migrateProgress && migrateProgress.total > 0}
+                    <div class="migrate-progress">
+                      <div class="migrate-progress-labels">
+                        <span class="migrate-current">{migrateProgress.current}</span>
+                        <span class="migrate-count">{migrateProgress.done} / {migrateProgress.total}</span>
+                      </div>
+                      <div class="migrate-bar"><div class="migrate-bar-fill" style="width:{Math.round((migrateProgress.done/migrateProgress.total)*100)}%"></div></div>
+                    </div>
+                  {/if}
+                  {#if migrateError}<span class="migrate-error">{migrateError}</span>{/if}
+                </div>
+                <div class="migrate-banner-actions">
+                  <button class="sec-action-btn sec-action-primary" onclick={startMigration} disabled={migrating}>
+                    {migrating ? (migrateProgress ? `Moving… ${migrateProgress.done}/${migrateProgress.total}` : "Starting…") : "Move files"}
+                  </button>
+                  <button class="sec-action-btn" onclick={dismissMigration} disabled={migrating}>Skip</button>
+                </div>
+              </div>
+            {/if}
+
+            <!-- ── Disk Usage ─────────────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Disk Usage</p>
-              {#if storageLoading}<p class="storage-loading">Reading filesystem…</p>
-              {:else if storageError}<p class="storage-loading" style="color:var(--color-error)">{storageError}</p>
-              {:else if storageInfo}
-                {@const mangaBytes = storageInfo.manga_bytes}
-                {@const totalBytes = storageInfo.total_bytes}
-                {@const freeBytes  = storageInfo.free_bytes}
-                {@const limitGb    = store.settings.storageLimitGb ?? null}
-                {@const limitBytes = limitGb !== null ? limitGb * 1024 ** 3 : null}
-                {@const available  = mangaBytes + freeBytes}
-                {@const cap        = limitBytes !== null ? Math.min(limitBytes, available) : available}
-                {@const pctUsed    = cap > 0 ? Math.min(100, (mangaBytes / cap) * 100) : 0}
-                <div class="storage-bar-wrap">
-                  <div class="storage-bar">
-                    <div class="storage-bar-fill" class:critical={pctUsed > 90} class:warn={pctUsed > 75 && pctUsed <= 90} style="width:{pctUsed}%"></div>
+              {#if storageLoading}
+                <p class="storage-loading">Reading filesystem…</p>
+              {:else if storageError}
+                <p class="storage-loading" style="color:var(--color-error)">{storageError}</p>
+              {:else if multiStorageInfos.length > 0}
+                {#each multiStorageInfos as info}
+                  {@const limitGb    = store.settings.storageLimitGb ?? null}
+                  {@const limitBytes = limitGb !== null ? limitGb * 1024 ** 3 : null}
+                  {@const available  = info.manga_bytes + info.free_bytes}
+                  {@const cap        = limitBytes !== null ? Math.min(limitBytes, available) : available}
+                  {@const pct        = cap > 0 ? Math.min(100, (info.manga_bytes / cap) * 100) : 0}
+                  <div class="storage-bar-wrap">
+                    <div class="storage-bar-header">
+                      <span class="storage-bar-label">{info.label}</span>
+                      <span class="storage-bar-used">{fmtBytes(info.manga_bytes)} of {fmtBytes(cap)}</span>
+                    </div>
+                    <div class="storage-bar">
+                      <div class="storage-bar-fill" class:critical={pct > 90} class:warn={pct > 75 && pct <= 90} style="width:{pct}%"></div>
+                    </div>
+                    <div class="storage-bar-labels">
+                      <span class="storage-path-note" style="margin:0">{info.path}</span>
+                      <span class="storage-bar-free">{fmtBytes(info.free_bytes)} free</span>
+                    </div>
                   </div>
-                  <div class="storage-bar-labels">
-                    <span class="storage-bar-used">{fmtBytes(mangaBytes)} used</span>
-                    <span class="storage-bar-free">{fmtBytes(Math.max(0, cap - mangaBytes))} free</span>
-                  </div>
-                </div>
-                <div class="storage-legend">
-                  <div class="storage-legend-row"><span class="storage-dot storage-dot-manga"></span><span class="storage-legend-label">Downloaded manga</span><span class="storage-legend-val">{fmtBytes(mangaBytes)}</span></div>
-                  <div class="storage-legend-row"><span class="storage-dot storage-dot-free"></span><span class="storage-legend-label">Drive free</span><span class="storage-legend-val">{fmtBytes(freeBytes)}</span></div>
-                  <div class="storage-legend-row"><span class="storage-dot storage-dot-app"></span><span class="storage-legend-label">Drive total</span><span class="storage-legend-val">{fmtBytes(totalBytes)}</span></div>
-                </div>
-                <p class="storage-path-note">{storageInfo.path}</p>
+                {/each}
+              {:else}
+                <p class="storage-loading">No download path configured.</p>
               {/if}
             </div>
+
+            <!-- ── Downloads path ─────────────────────────────────────────── -->
             <div class="section">
-              <p class="section-title">Cache</p>
-              <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Image cache</span><span class="toggle-desc">Cached page images stored by the webview</span></div>
-                <button class="danger-btn" onclick={handleClearCache} disabled={clearing}>
-                  {cleared ? "Cleared" : clearing ? "Clearing…" : "Clear cache"}
-                </button>
+              <p class="section-title">Downloads Path</p>
+              <div class="path-row">
+                <input
+                  class="text-input path-input"
+                  class:path-input-error={!!pathsFieldError.dl}
+                  bind:value={downloadsPathInput}
+                  placeholder={defaultDownloadsPath || "Default location"}
+                  spellcheck="false"
+                  onkeydown={(e) => e.key === "Enter" && savePaths()}
+                  oninput={() => { pathsFieldError = { ...pathsFieldError, dl: undefined }; }}
+                />
+                <div class="path-actions">
+                  {#if pathsFieldError.dl}
+                    <span class="path-field-error">{pathsFieldError.dl}</span>
+                    <button class="sec-action-btn" onclick={async () => {
+                      try { await createDirectory(downloadsPathInput.trim()); pathsFieldError = { ...pathsFieldError, dl: undefined }; }
+                      catch (e: any) { pathsFieldError = { ...pathsFieldError, dl: e?.message ?? "Failed" }; }
+                    }}>Create</button>
+                  {/if}
+                  {#if pathsError}<span class="path-field-error">{pathsError}</span>{/if}
+                  <button class="sec-action-btn sec-action-primary" onclick={savePaths} disabled={pathsSaving}>
+                    {pathsSaved ? "Saved ✓" : pathsSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
               </div>
             </div>
+
+            <!-- ── Storage Limit ───────────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Storage Limit</p>
               <div class="step-row">
                 <div class="toggle-info">
-                  <span class="toggle-label">Limit download storage</span>
-                  <span class="toggle-desc">
-                    {store.settings.storageLimitGb === null
-                      ? "No limit — uses full drive capacity"
-                      : `Warn when downloads exceed ${store.settings.storageLimitGb} GB`}
-                  </span>
+                  <span class="toggle-label">Warn when limit is reached</span>
+                  <span class="toggle-desc">{store.settings.storageLimitGb === null ? "No limit set" : `Warn above ${store.settings.storageLimitGb} GB`}</span>
                 </div>
                 {#if store.settings.storageLimitGb === null}
                   <button class="step-btn" style="width:auto;padding:0 var(--sp-3);font-size:var(--text-xs);letter-spacing:var(--tracking-wide)"
-                    onclick={() => updateSettings({ storageLimitGb: 10 })}>
-                    Set limit
-                  </button>
+                    onclick={() => updateSettings({ storageLimitGb: 10 })}>Set limit</button>
                 {:else}
                   <div class="step-controls">
-                    <button class="step-btn"
-                      onclick={() => updateSettings({ storageLimitGb: Math.max(1, (store.settings.storageLimitGb ?? 10) - 1) })}
-                      disabled={(store.settings.storageLimitGb ?? 10) <= 1}>−</button>
-                    <input
-                      type="number" min="1" step="1"
-                      class="storage-limit-input"
-                      value={store.settings.storageLimitGb}
-                      oninput={(e) => {
-                        const n = parseFloat(e.currentTarget.value);
-                        if (!isNaN(n) && n > 0) updateSettings({ storageLimitGb: n });
-                      }}
-                    />
+                    <button class="step-btn" onclick={() => updateSettings({ storageLimitGb: Math.max(1, (store.settings.storageLimitGb ?? 10) - 1) })} disabled={(store.settings.storageLimitGb ?? 10) <= 1}>−</button>
+                    <input type="number" min="1" step="1" class="storage-limit-input" value={store.settings.storageLimitGb}
+                      oninput={(e) => { const n = parseFloat(e.currentTarget.value); if (!isNaN(n) && n > 0) updateSettings({ storageLimitGb: n }); }} />
                     <span class="storage-limit-unit">GB</span>
-                    <button class="step-btn"
-                      onclick={() => updateSettings({ storageLimitGb: (store.settings.storageLimitGb ?? 10) + 1 })}>+</button>
-                    <button class="kb-reset" title="Remove limit"
-                      onclick={() => updateSettings({ storageLimitGb: null })}>↺</button>
+                    <button class="step-btn" onclick={() => updateSettings({ storageLimitGb: (store.settings.storageLimitGb ?? 10) + 1 })}>+</button>
+                    <button class="kb-reset" title="Remove limit" onclick={() => updateSettings({ storageLimitGb: null })}>↺</button>
                   </div>
                 {/if}
               </div>
+            </div>
+
+            <!-- ── Cache ──────────────────────────────────────────────────── -->
+            <div class="section">
+              <p class="section-title">Cache</p>
+              <div class="step-row">
+                <div class="toggle-info"><span class="toggle-label">Image cache</span><span class="toggle-desc">Webview page image cache</span></div>
+                <button class="danger-btn" onclick={handleClearCache} disabled={clearing}>
+                  {cleared ? "Cleared" : clearing ? "Clearing…" : "Clear"}
+                </button>
+              </div>
+            </div>
+
+            <!-- ── Advanced (collapsible) ──────────────────────────────────── -->
+            <div class="section adv-section">
+              <button class="adv-toggle" onclick={() => advStorageOpen = !advStorageOpen}>
+                <span class="section-title" style="padding:0">Advanced</span>
+                <svg class="adv-caret" class:open={advStorageOpen} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+              </button>
+              {#if advStorageOpen}
+                <div class="adv-body">
+                  <!-- Local source -->
+                  <div class="step-row">
+                    <div class="toggle-info">
+                      <span class="toggle-label">Local source path</span>
+                      <span class="toggle-desc">Read manga already on disk without an extension. Leave blank if unused.</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+                      <div style="display:flex;align-items:center;gap:var(--sp-2)">
+                        <input class="text-input" style="width:200px;font-family:monospace;font-size:var(--text-xs);{pathsFieldError.loc?'border-color:var(--color-error)':''}"
+                          bind:value={localSourcePathInput} placeholder="Optional" spellcheck="false"
+                          onkeydown={(e) => e.key === "Enter" && savePaths()}
+                          oninput={() => { pathsFieldError = { ...pathsFieldError, loc: undefined }; }} />
+                        {#if pathsFieldError.loc}
+                          <button class="sec-action-btn" onclick={async () => {
+                            try { await createDirectory(localSourcePathInput.trim()); pathsFieldError = { ...pathsFieldError, loc: undefined }; }
+                            catch (e: any) { pathsFieldError = { ...pathsFieldError, loc: e?.message ?? "Failed" }; }
+                          }}>Create</button>
+                        {/if}
+                      </div>
+                      {#if pathsFieldError.loc}<span style="font-family:var(--font-ui);font-size:10px;color:var(--color-error)">{pathsFieldError.loc}</span>{/if}
+                    </div>
+                  </div>
+                  <!-- Extra scan dirs -->
+                  {#each extraScanDirs as dir}
+                    <div class="step-row">
+                      <div class="toggle-info">
+                        <span class="toggle-label" style="font-family:monospace;font-size:var(--text-xs)">{dir}</span>
+                        <span class="toggle-desc">Extra scan directory</span>
+                      </div>
+                      <button class="danger-btn" onclick={() => removeExtraScanDir(dir)}>Remove</button>
+                    </div>
+                  {/each}
+                  <!-- Add extra dir -->
+                  <div class="step-row">
+                    <div class="toggle-info">
+                      <span class="toggle-label">Additional scan path</span>
+                      <span class="toggle-desc">Include an extra directory in disk usage readings</span>
+                    </div>
+                    <div style="display:flex;gap:var(--sp-2);align-items:center;flex-shrink:0">
+                      <input class="text-input" style="width:200px;font-family:monospace;font-size:var(--text-xs)"
+                        bind:value={newScanDir} placeholder="/path/to/dir" spellcheck="false"
+                        onkeydown={(e) => e.key === "Enter" && addExtraScanDir()} />
+                      <button class="sec-action-btn" onclick={addExtraScanDir} disabled={!newScanDir.trim() || extraScanDirs.includes(newScanDir.trim())}>Add</button>
+                    </div>
+                  </div>
+                  <!-- Save -->
+                  <div class="step-row" style="padding-top:0">
+                    <div class="toggle-info"></div>
+                    <button class="sec-action-btn sec-action-primary" onclick={savePaths} disabled={pathsSaving}>
+                      {pathsSaved ? "Saved ✓" : pathsSaving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              {/if}
             </div>
           </div>
         {:else if tab === "folders"}
@@ -1244,10 +1526,6 @@
           <div class="panel">
             <div class="section">
               <p class="section-title">Connected Trackers</p>
-              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-2)">
-                Log in to sync your reading progress with external tracking services.
-                After connecting, use the Tracking panel inside any manga's detail page.
-              </p>
               {#if trackersError}
                 <div class="tracker-error">{trackersError}</div>
               {/if}
@@ -1280,9 +1558,7 @@
                         {:else if oauthTrackerId === tracker.id}
                           <div class="oauth-flow">
                             <p class="oauth-hint">
-                              Your browser opened the {tracker.name} login page. After authorising,
-                              you'll land on a Suwayomi page — <strong>copy the full URL from your browser's address bar</strong>
-                              (it starts with <code>https://suwayomi.org/...</code> and contains your token) and paste it below.
+                              Browser opened {tracker.name} login — after authorising, copy the full callback URL and paste it below.
                             </p>
                             <input
                               class="oauth-input"
@@ -1559,14 +1835,14 @@
             <div class="section">
               <p class="section-title">Content Filter</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Show adult content</span><span class="toggle-desc">When off, sources and manga matching blocked tags are hidden across all views</span></div>
+                <div class="toggle-info"><span class="toggle-label">Show adult content</span><span class="toggle-desc">Sources and manga matching blocked tags are hidden when off</span></div>
                 <button role="switch" aria-checked={store.settings.showNsfw} aria-label="Show adult content" class="toggle" class:on={store.settings.showNsfw} onclick={() => updateSettings({ showNsfw: !store.settings.showNsfw })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Blocked Genre Tags</p>
-              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-3);display:block">
-                Manga whose genres contain any of these substrings are filtered out. Matching is case-insensitive and partial — "erotic" catches "Erotica", "Erotic Content", etc.
+              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-2);display:block">
+                Manga whose genres contain any of these substrings are filtered out. Case-insensitive, partial match.
               </p>
               <div class="content-tag-grid">
                 {#each (store.settings.nsfwFilteredTags ?? []) as tag}
@@ -1593,8 +1869,8 @@
             </div>
             <div class="section">
               <p class="section-title">Source Overrides</p>
-              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-3);display:block">
-                <strong>Allow</strong> lets a source through even if it's flagged NSFW (genre tags still apply). <strong>Block</strong> always hides a source regardless of the global setting.
+              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-2);display:block">
+                Allow lets a source through even if flagged NSFW. Block always hides it.
               </p>
               <div class="content-source-search-wrap">
                 <input class="text-input" placeholder="Filter sources…" bind:value={sourceSearch} style="width:100%" />
@@ -1700,7 +1976,8 @@
               {:else if releases.length === 0}
                 <p class="storage-loading">No releases found.</p>
               {:else}
-                <div class="release-list">
+                <div class="release-list-scroll">
+                  <div class="release-list">
                   {#each releases as release}
                     {@const isCurrent   = isCurrentVersion(release.tag_name)}
                     {@const isExpanded  = expandedTag === release.tag_name}
@@ -1748,6 +2025,7 @@
                       {/if}
                     </div>
                   {/each}
+                  </div>
                 </div>
               {/if}
             </div>
@@ -1883,6 +2161,8 @@
   .kb-reset:disabled { opacity: 0.3; cursor: default; }
   .storage-loading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-3); }
   .storage-bar-wrap { padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+  .storage-bar-header { display: flex; justify-content: space-between; align-items: baseline; }
+  .storage-bar-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); }
   .storage-bar { height: 6px; background: var(--bg-overlay); border-radius: var(--radius-full); overflow: hidden; }
   .storage-bar-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.4s ease; }
   .storage-bar-fill.warn { background: #d97706; }
@@ -1898,6 +2178,41 @@
   .storage-legend-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); flex: 1; }
   .storage-legend-val   { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); }
   .storage-path-note { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-3) 0; word-break: break-all; }
+
+  /* ── Migration banner ───────────────────────────────────────── */
+  .migrate-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); margin: 0 0 var(--sp-2); padding: var(--sp-3) var(--sp-4); background: color-mix(in srgb, var(--color-info) 7%, transparent); border: 1px solid color-mix(in srgb, var(--color-info) 22%, transparent); border-radius: var(--radius-md); }
+  .migrate-banner-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  .migrate-title { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-info); letter-spacing: var(--tracking-wide); }
+  .migrate-paths { font-family: monospace; font-size: 10px; color: var(--text-faint); word-break: break-all; }
+  .migrate-error { font-size: var(--text-xs); color: var(--color-error); }
+  .migrate-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+  .migrate-progress-labels { display: flex; justify-content: space-between; }
+  .migrate-current { font-family: monospace; font-size: 10px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+  .migrate-count { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+  .migrate-bar { height: 3px; background: var(--bg-overlay); border-radius: 2px; overflow: hidden; }
+  .migrate-bar-fill { height: 100%; background: var(--color-info); border-radius: 2px; transition: width 0.15s; }
+  .migrate-banner-actions { display: flex; flex-direction: column; gap: var(--sp-1); flex-shrink: 0; align-items: flex-end; }
+
+  /* ── Downloads path row ─────────────────────────────────────── */
+  .path-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+  .path-input { flex: 1; width: 0 !important; min-width: 0; font-family: monospace !important; font-size: var(--text-xs) !important; }
+  .path-input-error { border-color: var(--color-error) !important; }
+  .path-field-error { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-error); letter-spacing: var(--tracking-wide); white-space: nowrap; }
+  .path-actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+
+  /* ── Advanced collapsible ───────────────────────────────────── */
+  .adv-section { padding-bottom: var(--sp-1); }
+  .adv-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: var(--sp-2) var(--sp-3); background: none; border: none; cursor: pointer; border-radius: var(--radius-md); transition: background var(--t-fast); }
+  .adv-toggle:hover { background: var(--bg-raised); }
+  .adv-caret { color: var(--text-faint); transition: transform var(--t-base); flex-shrink: 0; }
+  .adv-caret.open { transform: rotate(180deg); }
+  .adv-body { display: flex; flex-direction: column; gap: 1px; padding-top: var(--sp-1); }
+
+  /* ── Releases scroll ────────────────────────────────────────── */
+  .release-list-scroll { max-height: 336px; overflow-y: auto; padding: 0 var(--sp-1); scrollbar-width: thin; scrollbar-color: var(--border-base) transparent; }
+  .release-list-scroll::-webkit-scrollbar { width: 4px; }
+  .release-list-scroll::-webkit-scrollbar-track { background: transparent; }
+  .release-list-scroll::-webkit-scrollbar-thumb { background: var(--border-base); border-radius: 2px; }
   .folder-create-row { display: flex; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
   .folder-create-btn { display: flex; align-items: center; gap: var(--sp-1); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 12px; border-radius: var(--radius-md); background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); cursor: pointer; flex-shrink: 0; transition: filter var(--t-base); }
   .folder-create-btn:hover:not(:disabled) { filter: brightness(1.1); }

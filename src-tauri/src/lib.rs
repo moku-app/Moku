@@ -61,10 +61,14 @@ fn resolve_downloads_path(downloads_path: &str) -> PathBuf {
     if !downloads_path.trim().is_empty() {
         return PathBuf::from(downloads_path);
     }
+    // Mirror Suwayomi-Server's own default: <data_dir>/Tachidesk/downloads
+    // Windows: %LOCALAPPDATA%\Tachidesk\downloads
+    // macOS:   ~/Library/Application Support/Tachidesk/downloads
+    // Linux:   $XDG_DATA_HOME/Tachidesk/downloads  (~/.local/share/Tachidesk/downloads)
     let base = std::env::var("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| dirs::data_dir().unwrap_or_else(|| PathBuf::from("/")));
-    base.join("Tachidesk/downloads")
+    base.join("Tachidesk").join("downloads")
 }
 
 #[tauri::command]
@@ -102,6 +106,82 @@ fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
         free_bytes:  disk.available_space(),
         path: path.to_string_lossy().into_owned(),
     })
+}
+
+/// Returns the resolved default downloads path for the current platform.
+/// This mirrors resolve_downloads_path("") so the frontend can display it.
+#[tauri::command]
+fn get_default_downloads_path() -> String {
+    resolve_downloads_path("").to_string_lossy().into_owned()
+}
+
+/// Returns true if the given path exists and is a directory.
+#[tauri::command]
+fn check_path_exists(path: String) -> bool {
+    std::path::Path::new(path.trim()).is_dir()
+}
+
+/// Creates a directory and all missing parent directories.
+#[tauri::command]
+fn create_directory(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(path.trim()).map_err(|e| e.to_string())
+}
+
+/// Moves all content from `src` into `dst`, then removes `src`.
+/// Emits `migrate_progress` events: `{ done, total, current }`.
+/// Only deletes the source tree after every file is confirmed copied.
+#[tauri::command]
+async fn migrate_downloads(
+    app: tauri::AppHandle,
+    src: String,
+    dst: String,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    use std::fs;
+
+    let src_path = std::path::PathBuf::from(src.trim());
+    let dst_path = std::path::PathBuf::from(dst.trim());
+
+    if !src_path.is_dir() {
+        return Ok(()); // nothing to migrate
+    }
+
+    // Count files first so the frontend can show accurate progress
+    let total: u64 = WalkDir::new(&src_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .count() as u64;
+
+    let _ = app.emit("migrate_progress", serde_json::json!({
+        "done": 0u64, "total": total, "current": ""
+    }));
+
+    let mut done: u64 = 0;
+
+    for entry in WalkDir::new(&src_path).into_iter().filter_map(|e| e.ok()) {
+        let rel    = entry.path().strip_prefix(&src_path).map_err(|e| e.to_string())?;
+        let target = dst_path.join(rel);
+
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::copy(entry.path(), &target).map_err(|e| e.to_string())?;
+            done += 1;
+            let _ = app.emit("migrate_progress", serde_json::json!({
+                "done": done,
+                "total": total,
+                "current": rel.to_string_lossy()
+            }));
+        }
+    }
+
+    // Only remove source after all files are confirmed copied
+    fs::remove_dir_all(&src_path).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Returns the OS/monitor DPI scale factor for the window's current monitor.
@@ -651,6 +731,10 @@ pub fn run() {
         .manage(ServerState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_storage_info,
+            get_default_downloads_path,
+            check_path_exists,
+            create_directory,
+            migrate_downloads,
             spawn_server,
             kill_server,
             get_platform_ui_scale,

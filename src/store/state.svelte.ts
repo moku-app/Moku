@@ -104,7 +104,6 @@ export interface HistoryEntry {
   thumbnailUrl: string;
   chapterId:    number;
   chapterName:  string;
-  pageNumber:   number;
   readAt:       number;
 }
 
@@ -214,6 +213,7 @@ export interface Settings {
   storageLimitGb:          number | null;
   markReadOnNext:          boolean;
   readerDebounceMs:        number;
+  bookmarksEnabled:        boolean;
   theme:                   Theme;
   libraryBranches:         boolean;
   renderLimit:             number;
@@ -257,6 +257,12 @@ export interface Settings {
   maxPageWidth?:           number;
   /** @deprecated use uiZoom */
   uiScale?:                number;
+  /** User-added extra directories to include when scanning storage usage. */
+  extraScanDirs:           string[];
+  /** Cached downloads path from Suwayomi, kept in sync on storage tab load. */
+  serverDownloadsPath:     string;
+  /** Cached local source path from Suwayomi, kept in sync on storage tab load. */
+  serverLocalSourcePath:   string;
 }
 
 
@@ -291,6 +297,7 @@ export const DEFAULT_SETTINGS: Settings = {
   storageLimitGb:         null,
   markReadOnNext:         true,
   readerDebounceMs:       120,
+  bookmarksEnabled:       true,
   theme:                  "dark",
   libraryBranches:        true,
   renderLimit:            48,
@@ -321,6 +328,9 @@ export const DEFAULT_SETTINGS: Settings = {
   nsfwBlockedSourceIds:  [],
   libraryTabSort:         {},
   libraryTabStatus:       {},
+  extraScanDirs:          [],
+  serverDownloadsPath:    "",
+  serverLocalSourcePath:  "",
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -476,12 +486,7 @@ class Store {
     this.activeChapter     = chapter;
     this.activeChapterList = chapterList;
     this.pageUrls          = [];
-    // Resume from the last saved position if history has one for this chapter.
-    // history[n].pageNumber is kept up-to-date by the progress $effect in
-    // Reader.svelte as the user pages through, so this is always the last page
-    // they were on — not just the page they started from.
-    const saved = this.history.find(h => h.chapterId === chapter.id);
-    this.pageNumber = (saved && saved.pageNumber > 1) ? saved.pageNumber : 1;
+    this.pageNumber        = 1;
   }
 
   closeReader() {
@@ -507,7 +512,7 @@ class Store {
     // ── 1. Update the deduped "continue reading" history ──────────────────
     // Always keep the latest position for each chapter at the top.
     if (this.history[0]?.chapterId === entry.chapterId) {
-      this.history[0] = { ...this.history[0], pageNumber: entry.pageNumber, readAt: entry.readAt };
+      this.history[0] = { ...this.history[0], readAt: entry.readAt };
     } else {
       this.history = [entry, ...this.history.filter(x => x.chapterId !== entry.chapterId)].slice(0, 300);
     }
@@ -564,10 +569,12 @@ class Store {
    * per chapter is kept — adding a second one replaces the first.
    */
   addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) {
+    if (!(this.settings.bookmarksEnabled ?? true)) return;
     const bookmark: BookmarkEntry = { ...entry, savedAt: Date.now(), label };
     this.bookmarks = [
       bookmark,
-      ...this.bookmarks.filter(b => b.chapterId !== entry.chapterId),
+      // Keep bookmarks from other manga only — one bookmark per manga at a time
+      ...this.bookmarks.filter(b => b.mangaId !== entry.mangaId),
     ].slice(0, 200);
   }
 
@@ -575,22 +582,15 @@ class Store {
     this.bookmarks = this.bookmarks.filter(b => b.chapterId !== chapterId);
   }
 
+  clearBookmarks() {
+    this.bookmarks = [];
+  }
+
   getBookmark(chapterId: number): BookmarkEntry | undefined {
     return this.bookmarks.find(b => b.chapterId === chapterId);
   }
 
   clearHistory()                        { this.history = []; this.readLog = []; }
-  /**
-   * Reset the resume position for a chapter back to page 1.
-   * Called when the user scrolls past a chapter boundary in longstrip — the
-   * chapter still appears in history (for the continue-reading UI), but
-   * reopening it will start from page 1 instead of resuming mid-chapter.
-   */
-  resetChapterProgress(chapterId: number) {
-    this.history = this.history.map(h =>
-      h.chapterId === chapterId ? { ...h, pageNumber: 1 } : h
-    );
-  }
   clearHistoryForManga(mangaId: number) {
     this.history = this.history.filter(x => x.mangaId !== mangaId);
     this.readLog  = this.readLog.filter(x => x.mangaId !== mangaId);
@@ -726,7 +726,6 @@ export function openReader(chapter: Chapter, chapterList: Chapter[], manga?: Man
 export function closeReader()                                            { store.closeReader(); }
 export function addHistory(entry: HistoryEntry, completed?: boolean, minutes?: number) { store.addHistory(entry, completed, minutes); }
 export function clearHistory()                                           { store.clearHistory(); }
-export function resetChapterProgress(chapterId: number)                  { store.resetChapterProgress(chapterId); }
 export function clearHistoryForManga(mangaId: number)                    { store.clearHistoryForManga(mangaId); }
 export function wipeAllData()                                            { store.wipeAllData(); }
 export function linkManga(idA: number, idB: number)                      { store.linkManga(idA, idB); }
@@ -753,6 +752,7 @@ export function resetKeybinds()                                          { store
 export function clearDiscoverCache()                                       { store.clearDiscoverCache(); }
 export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) { store.addBookmark(entry, label); }
 export function removeBookmark(chapterId: number)                            { store.removeBookmark(chapterId); }
+export function clearBookmarks()                                             { store.clearBookmarks(); }
 export function getBookmark(chapterId: number)                               { return store.getBookmark(chapterId); }
 export function toggleHiddenCategory(id: number)                           { store.toggleHiddenCategory(id); }
 export function saveCustomTheme(theme: CustomTheme)                        { store.saveCustomTheme(theme); }

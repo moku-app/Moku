@@ -1,24 +1,19 @@
 <script lang="ts">
   import { onMount, untrack, tick } from "svelte";
-  import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus, BookmarkSimple } from "phosphor-svelte";
+  import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus, Bookmark } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
-  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, resetChapterProgress } from "../../store/state.svelte";
+  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, addToast } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import { setReading } from "../../lib/discord";
   import type { FitMode } from "../../store/state.svelte";
 
-  // ─── Constants ────────────────────────────────────────────────────────────────
-
   const AVG_MIN_PER_PAGE = 0.33;
   const MAX_CACHED       = 10;
   const READ_LINE_PCT    = 0.20;
-  // Zoom step per Ctrl+Wheel tick or keyboard shortcut (5% of viewer width)
   const ZOOM_STEP        = 0.05;
   const ZOOM_MIN         = 0.1;
   const ZOOM_MAX         = 4.0;
-
-  // ─── Page cache ───────────────────────────────────────────────────────────────
 
   const pageCache  = new Map<number, string[]>();
   const inflight   = new Map<number, Promise<string[]>>();
@@ -30,13 +25,12 @@
     cacheOrder.push(id);
   }
 
-  function cacheEvict(keep: Set<number>) {
-    while (pageCache.size > MAX_CACHED) {
-      const victim = cacheOrder.find(id => !keep.has(id));
-      if (victim === undefined) break;
-      cacheOrder.splice(cacheOrder.indexOf(victim), 1);
-      pageCache.delete(victim);
+  function cacheClearExcept(keepId: number) {
+    for (const id of pageCache.keys()) {
+      if (id !== keepId) pageCache.delete(id);
     }
+    cacheOrder.length = 0;
+    if (pageCache.has(keepId)) cacheOrder.push(keepId);
   }
 
   function fetchPages(chapterId: number, signal?: AbortSignal): Promise<string[]> {
@@ -61,8 +55,6 @@
       base.then(resolve, reject);
     });
   }
-
-  // ─── Image helpers ────────────────────────────────────────────────────────────
 
   const aspectCache = new Map<string, number>();
   function preloadImage(url: string) { new Image().src = url; }
@@ -90,25 +82,11 @@
     });
   }
 
-  // ─── Types ────────────────────────────────────────────────────────────────────
-
   interface StripChapter { chapterId: number; chapterName: string; urls: string[]; }
-
-  // ─── DOM refs ─────────────────────────────────────────────────────────────────
 
   let containerEl: HTMLDivElement;
 
-  // ─── Container width (for resolution-based zoom) ──────────────────────────────
-  // Tracked via ResizeObserver so 100% zoom always means "fills the viewer",
-  // regardless of screen resolution or window size.
-
   let containerWidth = $state(0);
-
-  // ─── Zoom anchor (longstrip) ──────────────────────────────────────────────────
-  // Before zoom changes the layout we snapshot which image is at the top of the
-  // viewport and how far it is from the top edge.  After the DOM re-renders at
-  // the new zoom we scroll back so that same image is at the same visual offset,
-  // preventing the "random page teleport" that occurs when scrollHeight changes.
 
   let zoomAnchorEl:     HTMLElement | null = null;
   let zoomAnchorOffset: number             = 0;
@@ -131,15 +109,12 @@
     if (!zoomAnchorEl || !containerEl) return;
     const el = zoomAnchorEl;
     zoomAnchorEl = null;
-    // Use rAF to wait for the DOM to finish re-laying out after the zoom change.
     requestAnimationFrame(() => {
       const containerTop = containerEl.getBoundingClientRect().top;
       const newRect      = el.getBoundingClientRect();
       containerEl.scrollTop += (newRect.top - containerTop) - zoomAnchorOffset;
     });
   }
-
-  // ─── UI state ─────────────────────────────────────────────────────────────────
 
   let loading          = $state(true);
   let error: string | null = $state(null);
@@ -154,18 +129,12 @@
   let dlBusy           = $state(false);
   let hideTimer:       ReturnType<typeof setTimeout> | null = null;
 
-  // ─── Non-reactive bookkeeping ─────────────────────────────────────────────────
-
   let markedRead  = new Set<number>();
   let appending   = false;
   let abortCtrl:  AbortController | null = null;
   let loadingId:  number | null = null;
   let navToken    = 0;
-  // Only write history after the user has genuinely moved past the opening page.
-  // Prevents the "started on page 1" entry being saved as last position on close.
   let hasNavigated = false;
-
-  // ─── Derived ──────────────────────────────────────────────────────────────────
 
   const rtl         = $derived(store.settings.readingDirection === "rtl");
   const fit         = $derived((store.settings.fitMode ?? "width") as FitMode);
@@ -176,53 +145,30 @@
   const overlayBars = $derived(store.settings.overlayBars ?? false);
   const lastPage    = $derived(store.pageUrls.length);
 
-  // effectiveWidth: how wide the image should be, in pixels.
-  // = container width × zoom multiplier. Applied as max-width on the viewer
-  // so fit modes (height, screen) can still further constrain the image.
   const effectiveWidth = $derived(
     containerWidth > 0 ? Math.round(containerWidth * zoom) : undefined
   );
 
   const zoomPct = $derived(Math.round(zoom * 100));
 
-  // ─── Resume / bookmark ────────────────────────────────────────────────────────
-  // resumePage: fixed at component init from history. Never changes after mount.
-  // We read from history directly (not store.pageNumber) because loadChapter
-  // temporarily resets store.pageNumber to 1 during the fetch.
-  const _resumeHistoryPage = store.activeChapter
-    ? (store.history.find(h => h.chapterId === store.activeChapter!.id)?.pageNumber ?? 1)
-    : 1;
-  let resumePage        = $state(_resumeHistoryPage > 1 ? _resumeHistoryPage : 0);
+  let resumePage        = $state(0);
   let resumeDismissed   = $state(false);
-  // stripResumeReady: flipped to true once the longstrip scroll-to-resume fires.
-  // In single/double mode store.pageNumber drives the banner; in longstrip we
-  // use this flag because store.pageNumber is scroll-observer-driven and may
-  // never exactly equal resumePage after layout shifts from image loading.
   let stripResumeReady  = $state(false);
   const showResumeBanner = $derived(
     resumePage > 1 && !resumeDismissed &&
     (style === "longstrip" ? stripResumeReady : store.pageNumber === resumePage)
   );
 
-  const currentBookmark = $derived(
-    store.activeChapter ? store.bookmarks.find(b => b.chapterId === store.activeChapter!.id) : undefined
-  );
-  const isBookmarked = $derived(!!currentBookmark);
-
-  // In longstrip, always track the visually active chapter for history/RPC —
-  // autoNext only controls nav-button behavior, not which chapter we attribute
-  // progress to. Without this, scrolling into ch48 while ch47 is activeChapter
-  // would record page 28 of ch48 as page 28 of ch47.
   const displayChapter = $derived(
     style === "longstrip" && visibleChapterId
       ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
       : store.activeChapter
   );
 
-  // ─── Discord RPC ──────────────────────────────────────────────────────────────
-  // displayChapter already handles both single/double (store.activeChapter) and
-  // longstrip auto-next (visibleChapterId) — so reacting to it here means RPC
-  // updates on every chapter transition regardless of reading mode.
+  const currentBookmark = $derived(
+    displayChapter ? store.bookmarks.find(b => b.chapterId === displayChapter!.id) : undefined
+  );
+  const isBookmarked = $derived(!!currentBookmark);
 
   $effect(() => {
     const chapter = displayChapter;
@@ -275,8 +221,6 @@
       : [store.pageNumber]
   );
 
-  // ─── Chapter loading ──────────────────────────────────────────────────────────
-
   $effect(() => {
     const ch = store.activeChapter;
     if (ch) untrack(() => loadChapter(ch.id));
@@ -288,26 +232,30 @@
     abortCtrl  = ctrl;
     loadingId  = id;
     navToken++;
-    appending    = false;
-    markedRead   = new Set();
-    hasNavigated = false;
-    loading      = true;
-    error      = null;
-    pageGroups = [];
-    pageReady  = false;
-    stripChapters = [];
+    appending        = false;
+    markedRead       = new Set();
+    hasNavigated     = false;
+    loading          = true;
+    error            = null;
+    pageGroups       = [];
+    pageReady        = false;
+    stripChapters    = [];
+    visibleChapterId = null;
     store.pageUrls   = [];
-    // Snapshot the resume page BEFORE resetting — openReader already set
-    // store.pageNumber to the saved position, but we must not clobber it here.
-    // We reset to 1 as a safe interim value while pages load, then restore
-    // after the fetch completes so the viewer jumps to the right page.
-    const resumeTo = store.pageNumber > 1 ? store.pageNumber : 1;
+
+    cacheClearExcept(id);
+
+    const bookmark   = store.bookmarks.find(b => b.chapterId === id);
+    const resumeTo   = bookmark ? bookmark.pageNumber : 0;
+    resumePage       = resumeTo > 1 ? resumeTo : 0;
+    resumeDismissed  = false;
+    stripResumeReady = false;
+
     store.pageNumber = 1;
     try {
       const urls = await fetchPages(id, ctrl.signal);
       if (ctrl.signal.aborted) return;
       store.pageUrls = urls;
-      // Clamp the resume page to actual page count (in case history is stale).
       if (resumeTo > 1) store.pageNumber = Math.min(resumeTo, urls.length || resumeTo);
       pageReady      = true;
       loading        = false;
@@ -318,28 +266,14 @@
     }
   }
 
-  // ─── Strip initialisation ─────────────────────────────────────────────────────
-  // IMPORTANT: do NOT read store.pageNumber here — it's updated by the scroll
-  // observer on every scroll event, which would re-run this effect continuously
-  // and reset stripChapters/scroll on every pixel scrolled (the "snap" bug).
-  // Resume page is read from the fixed `resumePage` $state instead, which is
-  // captured once at component init from history and never changes.
-
   $effect(() => {
     if (style === "longstrip" && store.pageUrls.length && store.activeChapter) {
       const ch    = store.activeChapter;
       const urls  = store.pageUrls;
-      // resumePage is a $state set once from history — not reactive to scroll.
       const targetPg = untrack(() => resumePage);
       appending = false;
-      // Always populate stripChapters in longstrip — it's needed for infinite
-      // scroll appending. autoNext only controls whether the chapter header
-      // and visible-chapter tracking update as you scroll between chapters.
       stripChapters    = [{ chapterId: ch.id, chapterName: ch.name, urls }];
       visibleChapterId = ch.id;
-      // Wait for Svelte to flush the new img elements into the DOM, then scroll.
-      // If resuming mid-chapter (targetPg > 1), force-load preceding images so
-      // their heights are in layout, then scrollIntoView on the target image.
       tick().then(() => {
         if (!containerEl) return;
         if (targetPg > 1) {
@@ -350,7 +284,6 @@
             );
             if (!target) { requestAnimationFrame(scrollToResumePage); return; }
 
-            // Eager-load all images up to the target so their heights are known.
             containerEl.querySelectorAll<HTMLImageElement>(`img[data-chapter="${chId}"]`)
               .forEach((img, i) => { if (i < targetPg) img.loading = "eager"; });
 
@@ -371,7 +304,24 @@
 
   $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
 
-  // ─── Forward append only ──────────────────────────────────────────────────────
+  // When scrolling into an appended chapter in longstrip, check if it has a bookmark
+  // and show the resume banner so the user can jump to their saved page.
+  $effect(() => {
+    const chId = visibleChapterId;
+    if (!chId || style !== "longstrip") return;
+    // Only fire for chapters that weren't the initial load (activeChapter handles its own resume).
+    if (chId === store.activeChapter?.id) return;
+    const bookmark = store.bookmarks.find(b => b.chapterId === chId);
+    if (bookmark && bookmark.pageNumber > 1) {
+      untrack(() => {
+        resumePage      = bookmark.pageNumber;
+        resumeDismissed = false;
+        stripResumeReady = true; // banner shows immediately on chapter entry; no scroll needed yet
+      });
+    } else {
+      untrack(() => { resumePage = 0; resumeDismissed = false; stripResumeReady = false; });
+    }
+  });
 
   function appendNextChapter() {
     if (appending || !stripChapters.length) return;
@@ -396,8 +346,6 @@
       })
       .catch(() => { appending = false; });
   }
-
-  // ─── Scroll tracking ──────────────────────────────────────────────────────────
 
   let stripChaptersRef: StripChapter[] = [];
   $effect(() => { stripChaptersRef = stripChapters; });
@@ -428,10 +376,6 @@
 
       if (activePage !== null) store.pageNumber = activePage;
       if (activeChId && activeChId !== visibleChapterId) {
-        // Crossed into a new chapter — reset the previous chapter's resume
-        // position to page 1 so reopening it starts fresh. The history entry
-        // itself is kept so it still appears in the continue-reading UI.
-        if (visibleChapterId) resetChapterProgress(visibleChapterId);
         visibleChapterId = activeChId;
       }
 
@@ -448,8 +392,6 @@
     }
 
     function onScrollAppend() {
-      // Infinite scroll always active in longstrip — autoNext only controls the
-      // nav-button chapter transition behavior, not scroll-triggered appending.
       const pct = (containerEl.scrollTop + containerEl.clientHeight) / containerEl.scrollHeight;
       if (pct >= 0.80) appendNextChapter();
     }
@@ -463,8 +405,6 @@
     };
   }
 
-  // ─── Observer lifecycle ───────────────────────────────────────────────────────
-
   let cleanupScroll: () => void = () => {};
 
   $effect(() => {
@@ -476,31 +416,23 @@
     });
   });
 
-  // ─── Prefetch + cache eviction ────────────────────────────────────────────────
-
   $effect(() => {
     if (store.activeChapter && store.activeChapterList.length) {
       const idx = store.activeChapterList.findIndex(c => c.id === store.activeChapter!.id);
       if (idx >= 0) {
-        const toPin: number[] = [store.activeChapter.id];
         for (let i = 1; i <= 3; i++) {
           const entry = store.activeChapterList[idx + i];
           if (!entry) break;
-          toPin.push(entry.id);
           fetchPages(entry.id)
             .then(urls => { const n = i === 1 ? 8 : i === 2 ? 4 : 2; urls.slice(0, n).forEach(preloadImage); })
             .catch(() => {});
         }
         if (idx > 0) {
-          toPin.push(store.activeChapterList[idx - 1].id);
           fetchPages(store.activeChapterList[idx - 1].id).catch(() => {});
         }
-        cacheEvict(new Set(toPin));
       }
     }
   });
-
-  // ─── Double-page spread computation ──────────────────────────────────────────
 
   $effect(() => {
     if (style === "double" && store.pageUrls.length) {
@@ -523,16 +455,12 @@
     } else { pageGroups = []; }
   });
 
-  // ─── Preload around current page ─────────────────────────────────────────────
-
   $effect(() => {
     const ahead = store.settings.preloadPages ?? 3;
     for (let i = 1; i <= ahead; i++) { const url = store.pageUrls[store.pageNumber - 1 + i]; if (url) decodeImage(url); }
     const behind = store.pageUrls[store.pageNumber - 2];
     if (behind) preloadImage(behind);
   });
-
-  // ─── Progress / history tracking ─────────────────────────────────────────────
 
   $effect(() => {
     const ch = displayChapter ?? store.activeChapter;
@@ -549,13 +477,15 @@
 
       untrack(() => {
         if (!hasNavigated) return;
-        addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum, readAt: Date.now() });
+        if (style === "longstrip" && visibleChapterId && chapterId !== visibleChapterId) return;
+        addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, readAt: Date.now() });
+        if (store.settings.bookmarksEnabled ?? true) {
+          addBookmark({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum });
+        }
         if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
       });
     }
   });
-
-  // ─── Mark read ────────────────────────────────────────────────────────────────
 
   function markChapterRead(id: number) {
     if (markedRead.has(id)) return;
@@ -565,7 +495,7 @@
     const minutes = Math.max(1, Math.round(pages * AVG_MIN_PER_PAGE));
     if (store.activeManga && chapter) {
       addHistory(
-        { mangaId: store.activeManga.id, mangaTitle: store.activeManga.title, thumbnailUrl: store.activeManga.thumbnailUrl, chapterId: id, chapterName: chapter.name, pageNumber: pages, readAt: Date.now() },
+        { mangaId: store.activeManga.id, mangaTitle: store.activeManga.title, thumbnailUrl: store.activeManga.thumbnailUrl, chapterId: id, chapterName: chapter.name, readAt: Date.now() },
         true, minutes,
       );
     }
@@ -583,8 +513,6 @@
     const ch = displayChapter ?? store.activeChapter;
     if (ch && markOnNext) markChapterRead(ch.id);
   }
-
-  // ─── Navigation ───────────────────────────────────────────────────────────────
 
   function advanceGroup(forward: boolean) {
     if (!pageGroups.length) return;
@@ -631,8 +559,6 @@
   const goNext = $derived(rtl ? goBack    : goForward);
   const goPrev = $derived(rtl ? goForward : goBack);
 
-  // ─── Zoom helpers ─────────────────────────────────────────────────────────────
-
   function clampZoom(z: number): number {
     return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) * 1000) / 1000;
   }
@@ -650,11 +576,12 @@
   }
 
   function toggleBookmark() {
-    const ch    = store.activeChapter;
+    const ch    = displayChapter;
     const manga = store.activeManga;
     if (!ch || !manga) return;
     if (isBookmarked) {
       removeBookmark(ch.id);
+      addToast({ kind: "info", title: "Bookmark removed", duration: 2000 });
     } else {
       addBookmark({
         mangaId:      manga.id,
@@ -664,10 +591,9 @@
         chapterName:  ch.name,
         pageNumber:   store.pageNumber,
       });
+      addToast({ kind: "success", title: "Bookmarked", body: `Page ${store.pageNumber} — ${ch.name}`, duration: 2500 });
     }
   }
-
-  // ─── Settings toggles ─────────────────────────────────────────────────────────
 
   function cycleStyle() {
     const opts = ["single", "longstrip"] as const;
@@ -680,8 +606,6 @@
     updateSettings({ fitMode: opts[(opts.indexOf(fit) + 1) % opts.length] });
   }
 
-  // ─── UI helpers ───────────────────────────────────────────────────────────────
-
   function showUi() {
     uiVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
@@ -691,7 +615,6 @@
   function onWheel(e: WheelEvent) {
     if (!e.ctrlKey) return;
     e.preventDefault();
-    // Each wheel tick adjusts by ZOOM_STEP (5%). Larger deltaY = bigger scroll = same step.
     adjustZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
   }
 
@@ -745,15 +668,12 @@
     dlBusy = false; dlOpen = false;
   }
 
-  // ─── Mount / unmount ──────────────────────────────────────────────────────────
-
   onMount(() => {
     showUi();
     window.addEventListener("keydown", onKey);
     window.addEventListener("wheel", onWheel, { passive: false });
     containerEl?.focus({ preventScroll: true });
 
-    // Track the viewer's actual paint width so zoom is always relative to it.
     const ro = new ResizeObserver(entries => {
       containerWidth = entries[0].contentRect.width;
     });
@@ -795,7 +715,6 @@
       <span class="mode-label">{fitLabel}</span>
     </button>
 
-    <!-- ── Zoom controls ────────────────────────────────────────────────────── -->
     <div class="zoom-wrap">
       <div class="zoom-inline">
         <button class="zoom-step-btn" onclick={() => adjustZoom(-ZOOM_STEP)} title="Zoom out" disabled={zoom <= ZOOM_MIN}>
@@ -850,6 +769,11 @@
     <button class="mode-btn" onclick={() => dlOpen = true}>
       <Download size={14} weight="light" />
     </button>
+    {#if store.settings.bookmarksEnabled ?? true}
+      <button class="icon-btn" class:active={isBookmarked} onclick={toggleBookmark} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"}>
+        <Bookmark size={15} weight={isBookmarked ? "fill" : "regular"} />
+      </button>
+    {/if}
   </div>
 
   <div
@@ -865,7 +789,22 @@
   >
     {#if showResumeBanner}
       <div class="resume-banner" role="status">
-        <span>Resumed from page {resumePage}</span>
+        <span>Bookmark at page {resumePage}</span>
+        {#if style === "longstrip" && visibleChapterId && visibleChapterId !== store.activeChapter?.id}
+          <button class="resume-jump" onclick={() => {
+            const chId = visibleChapterId!;
+            const targetPg = resumePage;
+            const scrollToPage = () => {
+              const target = containerEl.querySelector<HTMLImageElement>(
+                `img[data-local-page="${targetPg}"][data-chapter="${chId}"]`
+              );
+              if (!target) { requestAnimationFrame(scrollToPage); return; }
+              target.scrollIntoView({ block: "start", behavior: "smooth" });
+            };
+            scrollToPage();
+            resumeDismissed = true;
+          }}>Jump</button>
+        {/if}
         <button class="resume-dismiss" onclick={() => resumeDismissed = true}>✕</button>
       </div>
     {/if}
@@ -947,7 +886,9 @@
 </div>
 
 <style>
-  .root { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: var(--z-reader); transform: translateZ(0); will-change: transform; }
+  .root { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: var(--z-reader); transform: translateZ(0); will-change: transform;
+    zoom: calc(1 / var(--ui-zoom, 1));
+  }
   .overlay-bars { position: fixed; }
   .overlay-bars .topbar    { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
   .overlay-bars .bottombar { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; }
@@ -968,7 +909,6 @@
   .mode-btn.active { color: var(--accent-fg); background: var(--accent-muted); }
   .mode-label { text-transform: capitalize; }
 
-  /* ── Zoom controls ───────────────────────────────────────────────────────── */
   .zoom-wrap { position: relative; flex-shrink: 0; }
   .zoom-inline { display: flex; align-items: center; gap: 1px; background: var(--bg-overlay); border: 1px solid var(--border-base); border-radius: var(--radius-sm); overflow: hidden; }
   .zoom-step-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
@@ -988,23 +928,12 @@
   .zoom-reset:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-overlay); border-color: var(--border-strong); }
   .zoom-reset:disabled { opacity: 0.3; cursor: default; }
 
-  /* ── Viewer ──────────────────────────────────────────────────────────────── */
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
   .img { display: block; user-select: none; image-rendering: auto; }
   .img.optimize-contrast { image-rendering: -webkit-optimize-contrast; }
 
-  /*
-   * Fit modes — all constrain within --effective-width (the zoom-adjusted
-   * container width). effectiveWidth is set as a CSS variable on .viewer
-   * so every fit class automatically respects the current zoom level.
-   *
-   * fit-width  : fills up to effectiveWidth, never wider
-   * fit-height : constrained to viewport height; never taller, never wider than effectiveWidth
-   * fit-screen : fits within both axes (contain); never wider than effectiveWidth
-   * fit-original : natural image size, no constraint
-   */
   .fit-width    { max-width: var(--effective-width, 100%); width: 100%; height: auto; }
   .fit-height   { max-height: calc(100vh - 80px); width: auto; max-width: var(--effective-width, 100%); height: auto; }
   .fit-screen   { max-width: var(--effective-width, 100%); max-height: calc(100vh - 80px); object-fit: contain; height: auto; }
@@ -1034,7 +963,6 @@
   .dl-step-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .dl-step-btn:disabled { opacity: 0.25; cursor: default; }
   .dl-step-val { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); min-width: 24px; text-align: center; letter-spacing: var(--tracking-wide); }
-  /* ── Resume banner ───────────────────────────────────────────────────────── */
   .resume-banner {
     position: absolute; top: var(--sp-3); left: 50%; translate: -50% 0;
     display: flex; align-items: center; gap: var(--sp-2);
@@ -1053,6 +981,14 @@
     transition: color var(--t-fast), background var(--t-fast);
   }
   .resume-dismiss:hover { color: var(--text-primary); background: var(--bg-overlay); }
+  .resume-jump {
+    font-family: var(--font-ui); font-size: var(--text-xs);
+    color: var(--accent-fg); background: var(--accent-muted);
+    border: 1px solid var(--accent-dim); border-radius: var(--radius-sm);
+    padding: 2px 8px; cursor: pointer;
+    transition: filter var(--t-fast);
+  }
+  .resume-jump:hover { filter: brightness(1.15); }
 
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

@@ -1,5 +1,4 @@
 Major Revisions:
- - Contemplate Anime Support, Add Novel Support (Consumet API)
  - Moku-Share to Easily Migrate/Share Manga (Investigate Usecase/Feasibility)
 
 Minor Revisions:
@@ -9,6 +8,8 @@ Minor Revisions:
  - Add Hover Info on Library (Make sure doesn't conflict with additional clicks)
  - Revise Migration (https://github.com/Suwayomi/Suwayomi-WebUI/pull/1073)
  - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
+ - Adjustment in Settings for Theme Editor:
+    - Patch Color-Picker to Work Properly
 
 Priority Bugs:
  - Cache ALL Cover Pictures & Details for Manga in Library
@@ -25,8 +26,16 @@ In-Progress:`
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
  - Fix NSFW Parsing (Appears to not Work???)
 
- - Adjustment in Settings for Theme Editor:
-   - Patch Color-Picker to Work Properly
+ - Check & Fix Zoom System
+    - Incredibly zoomed in on Windows (Appears to work fine on 1440p)
+    - Zoom Values are Incorrect
+    - Global Zoom should only scale Reader UI, not Manga
+
+ - Fix Resume-from-Read
+    - Start on Chapter 46 -> Go all the way to Chapter 47 (Page 28)
+      - Results in Opening Chapter 46 to take to last page of Chapter (Cache not Cleared).
+      - Add Event that if different chapter is opened, cache is cleared on all previous chapters.
+    - Add into Settings
 
 
 

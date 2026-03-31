@@ -187,6 +187,23 @@ export const GET_DOWNLOADS_PATH = `
   query GetDownloadsPath {
     settings {
       downloadsPath
+      localSourcePath
+    }
+  }
+`;
+
+export const SET_DOWNLOADS_PATH = `
+  mutation SetDownloadsPath($path: String!) {
+    setSettings(input: { settings: { downloadsPath: $path } }) {
+      settings { downloadsPath }
+    }
+  }
+`;
+
+export const SET_LOCAL_SOURCE_PATH = `
+  mutation SetLocalSourcePath($path: String!) {
+    setSettings(input: { settings: { localSourcePath: $path } }) {
+      settings { localSourcePath }
     }
   }
 `;
