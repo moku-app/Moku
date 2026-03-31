@@ -1,3 +1,4 @@
+<!-- Reader.svelte -->
 <script lang="ts">
   import { onMount, untrack, tick } from "svelte";
   import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus, Bookmark } from "phosphor-svelte";
@@ -9,40 +10,23 @@
   import type { FitMode } from "../../store/state.svelte";
 
   const AVG_MIN_PER_PAGE = 0.33;
-  const MAX_CACHED       = 10;
   const READ_LINE_PCT    = 0.20;
   const ZOOM_STEP        = 0.05;
   const ZOOM_MIN         = 0.1;
-  const ZOOM_MAX         = 4.0;
+  const ZOOM_MAX         = 1.0;
 
   const pageCache  = new Map<number, string[]>();
   const inflight   = new Map<number, Promise<string[]>>();
-  const cacheOrder: number[] = [];
-
-  function cacheTouch(id: number) {
-    const i = cacheOrder.indexOf(id);
-    if (i !== -1) cacheOrder.splice(i, 1);
-    cacheOrder.push(id);
-  }
-
-  function cacheClearExcept(keepId: number) {
-    for (const id of pageCache.keys()) {
-      if (id !== keepId) pageCache.delete(id);
-    }
-    cacheOrder.length = 0;
-    if (pageCache.has(keepId)) cacheOrder.push(keepId);
-  }
 
   function fetchPages(chapterId: number, signal?: AbortSignal): Promise<string[]> {
     const cached = pageCache.get(chapterId);
-    if (cached) { cacheTouch(chapterId); return Promise.resolve(cached); }
+    if (cached) return Promise.resolve(cached);
     if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
     if (!inflight.has(chapterId)) {
       const p = gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
         .then(d => {
           const urls = d.fetchChapterPages.pages.map(thumbUrl);
           pageCache.set(chapterId, urls);
-          cacheTouch(chapterId);
           return urls;
         })
         .finally(() => inflight.delete(chapterId));
@@ -58,15 +42,6 @@
 
   const aspectCache = new Map<string, number>();
   function preloadImage(url: string) { new Image().src = url; }
-
-  function decodeImage(url: string): Promise<void> {
-    return new Promise(resolve => {
-      const img = new Image();
-      img.onload  = () => { img.decode ? img.decode().then(resolve, resolve) : resolve(); };
-      img.onerror = () => resolve();
-      img.src = url;
-    });
-  }
 
   function measureAspect(url: string): Promise<number> {
     if (aspectCache.has(url)) return Promise.resolve(aspectCache.get(url)!);
@@ -85,9 +60,7 @@
   interface StripChapter { chapterId: number; chapterName: string; urls: string[]; }
 
   let containerEl: HTMLDivElement;
-
   let containerWidth = $state(0);
-
   let zoomAnchorEl:     HTMLElement | null = null;
   let zoomAnchorOffset: number             = 0;
 
@@ -128,13 +101,13 @@
   let nextN            = $state(5);
   let dlBusy           = $state(false);
   let hideTimer:       ReturnType<typeof setTimeout> | null = null;
-
   let markedRead  = new Set<number>();
   let appending   = false;
   let abortCtrl:  AbortController | null = null;
-  let loadingId:  number | null = null;
-  let navToken    = 0;
   let hasNavigated = false;
+  let resumePage        = $state(0);
+  let resumeDismissed   = $state(false);
+  let stripResumeReady  = $state(false);
 
   const rtl         = $derived(store.settings.readingDirection === "rtl");
   const fit         = $derived((store.settings.fitMode ?? "width") as FitMode);
@@ -144,30 +117,11 @@
   const markOnNext  = $derived(store.settings.markReadOnNext ?? true);
   const overlayBars = $derived(store.settings.overlayBars ?? false);
   const lastPage    = $derived(store.pageUrls.length);
-
-  const effectiveWidth = $derived(
-    containerWidth > 0 ? Math.round(containerWidth * zoom) : undefined
-  );
-
+  const effectiveWidth = $derived(containerWidth > 0 ? Math.round(containerWidth * zoom) : undefined);
   const zoomPct = $derived(Math.round(zoom * 100));
-
-  let resumePage        = $state(0);
-  let resumeDismissed   = $state(false);
-  let stripResumeReady  = $state(false);
-  const showResumeBanner = $derived(
-    resumePage > 1 && !resumeDismissed &&
-    (style === "longstrip" ? stripResumeReady : store.pageNumber === resumePage)
-  );
-
-  const displayChapter = $derived(
-    style === "longstrip" && visibleChapterId
-      ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
-      : store.activeChapter
-  );
-
-  const currentBookmark = $derived(
-    displayChapter ? store.bookmarks.find(b => b.chapterId === displayChapter!.id) : undefined
-  );
+  const showResumeBanner = $derived(resumePage > 1 && !resumeDismissed && (style === "longstrip" ? stripResumeReady : store.pageNumber === resumePage));
+  const displayChapter = $derived(style === "longstrip" && visibleChapterId ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter) : store.activeChapter);
+  const currentBookmark = $derived(displayChapter ? store.bookmarks.find(b => b.chapterId === displayChapter!.id) : undefined);
   const isBookmarked = $derived(!!currentBookmark);
 
   $effect(() => {
@@ -206,20 +160,8 @@
   ].filter(Boolean).join(" "));
 
   const fitLabel = $derived({ width: "Fit W", height: "Fit H", screen: "Fit Screen", original: "1:1" }[fit]);
-
-  const stripToRender = $derived(
-    style === "longstrip"
-      ? (stripChapters.length > 0
-          ? stripChapters
-          : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }])
-      : []
-  );
-
-  const currentGroup = $derived(
-    style === "double" && pageGroups.length
-      ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
-      : [store.pageNumber]
-  );
+  const stripToRender = $derived(style === "longstrip" ? (stripChapters.length > 0 ? stripChapters : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }]) : []);
+  const currentGroup = $derived(style === "double" && pageGroups.length ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber]) : [store.pageNumber]);
 
   $effect(() => {
     const ch = store.activeChapter;
@@ -230,11 +172,9 @@
     abortCtrl?.abort();
     const ctrl = new AbortController();
     abortCtrl  = ctrl;
-    loadingId  = id;
-    navToken++;
+    hasNavigated = false;
     appending        = false;
     markedRead       = new Set();
-    hasNavigated     = false;
     loading          = true;
     error            = null;
     pageGroups       = [];
@@ -242,8 +182,6 @@
     stripChapters    = [];
     visibleChapterId = null;
     store.pageUrls   = [];
-
-    cacheClearExcept(id);
 
     const bookmark   = store.bookmarks.find(b => b.chapterId === id);
     const resumeTo   = bookmark ? bookmark.pageNumber : 0;
@@ -279,14 +217,9 @@
         if (targetPg > 1) {
           const chId = ch.id;
           const scrollToResumePage = () => {
-            const target = containerEl.querySelector<HTMLImageElement>(
-              `img[data-local-page="${targetPg}"][data-chapter="${chId}"]`
-            );
+            const target = containerEl.querySelector<HTMLImageElement>(`img[data-local-page="${targetPg}"][data-chapter="${chId}"]`);
             if (!target) { requestAnimationFrame(scrollToResumePage); return; }
-
-            containerEl.querySelectorAll<HTMLImageElement>(`img[data-chapter="${chId}"]`)
-              .forEach((img, i) => { if (i < targetPg) img.loading = "eager"; });
-
+            containerEl.querySelectorAll<HTMLImageElement>(`img[data-chapter="${chId}"]`).forEach((img, i) => { if (i < targetPg) img.loading = "eager"; });
             const doScroll = () => {
               target.scrollIntoView({ block: "start" });
               stripResumeReady = true;
@@ -304,19 +237,16 @@
 
   $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
 
-  // When scrolling into an appended chapter in longstrip, check if it has a bookmark
-  // and show the resume banner so the user can jump to their saved page.
   $effect(() => {
     const chId = visibleChapterId;
     if (!chId || style !== "longstrip") return;
-    // Only fire for chapters that weren't the initial load (activeChapter handles its own resume).
     if (chId === store.activeChapter?.id) return;
     const bookmark = store.bookmarks.find(b => b.chapterId === chId);
     if (bookmark && bookmark.pageNumber > 1) {
       untrack(() => {
         resumePage      = bookmark.pageNumber;
         resumeDismissed = false;
-        stripResumeReady = true; // banner shows immediately on chapter entry; no scroll needed yet
+        stripResumeReady = true;
       });
     } else {
       untrack(() => { resumePage = 0; resumeDismissed = false; stripResumeReady = false; });
@@ -457,7 +387,7 @@
 
   $effect(() => {
     const ahead = store.settings.preloadPages ?? 3;
-    for (let i = 1; i <= ahead; i++) { const url = store.pageUrls[store.pageNumber - 1 + i]; if (url) decodeImage(url); }
+    for (let i = 1; i <= ahead; i++) { const url = store.pageUrls[store.pageNumber - 1 + i]; if (url) preloadImage(url); }
     const behind = store.pageUrls[store.pageNumber - 2];
     if (behind) preloadImage(behind);
   });
@@ -533,11 +463,7 @@
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber < lastPage) {
-      const target = store.pageNumber + 1;
-      const token  = ++navToken;
-      decodeImage(store.pageUrls[target - 1]).then(() => {
-        if (navToken === token && store.pageNumber === target - 1) store.pageNumber = target;
-      });
+      store.pageNumber = store.pageNumber + 1;
     } else if (adjacent.next) { maybeMarkCurrentRead(); store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
     else closeReader();
   }
@@ -548,11 +474,7 @@
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber > 1) {
-      const target = store.pageNumber - 1;
-      const token  = ++navToken;
-      decodeImage(store.pageUrls[target - 1]).then(() => {
-        if (navToken === token && store.pageNumber === target + 1) store.pageNumber = target;
-      });
+      store.pageNumber = store.pageNumber - 1;
     } else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
   }
 
@@ -638,13 +560,15 @@
     else if (matchesKeybind(e, kb.lastPage))               { e.preventDefault(); store.pageNumber = lastPage; }
     else if (matchesKeybind(e, kb.chapterRight)) {
       e.preventDefault();
-      const list = store.activeChapterList, idx = list.findIndex(c => c.id === loadingId);
+      const list = store.activeChapterList;
+      const idx = list.findIndex(c => c.id === store.activeChapter?.id);
       const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
       if (next) { maybeMarkCurrentRead(); openReader(next, list); }
     }
     else if (matchesKeybind(e, kb.chapterLeft)) {
       e.preventDefault();
-      const list = store.activeChapterList, idx = list.findIndex(c => c.id === loadingId);
+      const list = store.activeChapterList;
+      const idx = list.findIndex(c => c.id === store.activeChapter?.id);
       const prev = idx > 0 ? list[idx - 1] : null;
       if (prev) openReader(prev, list);
     }
@@ -730,14 +654,8 @@
       {#if zoomOpen}
         <div class="zoom-popover">
           <div class="zoom-slider-row">
-            <input type="range" class="zoom-slider" min={10} max={400} step={5} value={zoomPct}
+            <input type="range" class="zoom-slider" min={10} max={100} step={5} value={zoomPct}
               oninput={(e) => { captureZoomAnchor(); updateSettings({ readerZoom: clampZoom(Number(e.currentTarget.value) / 100) }); restoreZoomAnchor(); }} />
-          </div>
-          <div class="zoom-presets">
-            {#each [50, 75, 100, 125, 150, 200] as pct}
-              <button class="zoom-preset" class:active={zoomPct === pct}
-                onclick={() => { captureZoomAnchor(); updateSettings({ readerZoom: pct / 100 }); restoreZoomAnchor(); }}>{pct}%</button>
-            {/each}
           </div>
           <button class="zoom-reset" onclick={resetZoom} disabled={zoom === 1.0}>Reset</button>
         </div>
@@ -795,9 +713,7 @@
             const chId = visibleChapterId!;
             const targetPg = resumePage;
             const scrollToPage = () => {
-              const target = containerEl.querySelector<HTMLImageElement>(
-                `img[data-local-page="${targetPg}"][data-chapter="${chId}"]`
-              );
+              const target = containerEl.querySelector<HTMLImageElement>(`img[data-local-page="${targetPg}"][data-chapter="${chId}"]`);
               if (!target) { requestAnimationFrame(scrollToPage); return; }
               target.scrollIntoView({ block: "start", behavior: "smooth" });
             };
@@ -825,7 +741,7 @@
             data-chapter={chunk.chapterId}
             data-total={chunk.urls.length}
             class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}"
-            loading={i < 3 ? "eager" : "lazy"}
+            loading={i < 5 ? "eager" : "lazy"}
             decoding="async"
           />
         {/each}
@@ -886,9 +802,7 @@
 </div>
 
 <style>
-  .root { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: var(--z-reader); transform: translateZ(0); will-change: transform;
-    zoom: calc(1 / var(--ui-zoom, 1));
-  }
+  .root { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: var(--z-reader); transform: translateZ(0); will-change: transform; }
   .overlay-bars { position: fixed; }
   .overlay-bars .topbar    { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
   .overlay-bars .bottombar { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; }
@@ -908,7 +822,6 @@
   .mode-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
   .mode-btn.active { color: var(--accent-fg); background: var(--accent-muted); }
   .mode-label { text-transform: capitalize; }
-
   .zoom-wrap { position: relative; flex-shrink: 0; }
   .zoom-inline { display: flex; align-items: center; gap: 1px; background: var(--bg-overlay); border: 1px solid var(--border-base); border-radius: var(--radius-sm); overflow: hidden; }
   .zoom-step-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
@@ -920,25 +833,18 @@
   .zoom-slider-row { display: flex; align-items: center; gap: var(--sp-2); }
   .zoom-slider { flex: 1; height: 3px; appearance: none; -webkit-appearance: none; background: var(--border-strong); border-radius: 2px; outline: none; cursor: pointer; }
   .zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent-fg); cursor: pointer; }
-  .zoom-presets { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
-  .zoom-preset { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-muted); padding: 3px 6px; border-radius: var(--radius-sm); transition: color var(--t-base), background var(--t-base); }
-  .zoom-preset:hover { color: var(--text-primary); background: var(--bg-overlay); }
-  .zoom-preset.active { color: var(--accent-fg); background: var(--accent-muted); }
   .zoom-reset { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 3px var(--sp-2); border-radius: var(--radius-sm); border: 1px solid var(--border-dim); transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
   .zoom-reset:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-overlay); border-color: var(--border-strong); }
   .zoom-reset:disabled { opacity: 0.3; cursor: default; }
-
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
   .img { display: block; user-select: none; image-rendering: auto; }
   .img.optimize-contrast { image-rendering: -webkit-optimize-contrast; }
-
   .fit-width    { max-width: var(--effective-width, 100%); width: 100%; height: auto; }
   .fit-height   { max-height: calc(100vh - 80px); width: auto; max-width: var(--effective-width, 100%); height: auto; }
   .fit-screen   { max-width: var(--effective-width, 100%); max-height: calc(100vh - 80px); object-fit: contain; height: auto; }
   .fit-original { max-width: none; width: auto; height: auto; }
-
   .strip-gap { margin-bottom: 8px; }
   .double-wrap { display: flex; align-items: flex-start; justify-content: center; max-width: calc(var(--effective-width, 100%) * 2); width: 100%; }
   .page-half { flex: 1; min-width: 0; object-fit: contain; }
@@ -963,32 +869,10 @@
   .dl-step-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .dl-step-btn:disabled { opacity: 0.25; cursor: default; }
   .dl-step-val { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); min-width: 24px; text-align: center; letter-spacing: var(--tracking-wide); }
-  .resume-banner {
-    position: absolute; top: var(--sp-3); left: 50%; translate: -50% 0;
-    display: flex; align-items: center; gap: var(--sp-2);
-    background: var(--bg-raised); border: 1px solid var(--border-base);
-    border-radius: var(--radius-lg); padding: 6px var(--sp-3);
-    font-family: var(--font-ui); font-size: var(--text-xs);
-    color: var(--text-secondary); z-index: 20;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-    animation: scaleIn 0.15s ease both;
-    white-space: nowrap;
-  }
-  .resume-dismiss {
-    display: flex; align-items: center; justify-content: center;
-    width: 16px; height: 16px; border-radius: 50%;
-    font-size: 9px; color: var(--text-faint);
-    transition: color var(--t-fast), background var(--t-fast);
-  }
+  .resume-banner { position: absolute; top: var(--sp-3); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: var(--sp-2); background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: 6px var(--sp-3); font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); z-index: 20; box-shadow: 0 4px 16px rgba(0,0,0,0.4); animation: scaleIn 0.15s ease both; white-space: nowrap; }
+  .resume-dismiss { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 9px; color: var(--text-faint); transition: color var(--t-fast), background var(--t-fast); }
   .resume-dismiss:hover { color: var(--text-primary); background: var(--bg-overlay); }
-  .resume-jump {
-    font-family: var(--font-ui); font-size: var(--text-xs);
-    color: var(--accent-fg); background: var(--accent-muted);
-    border: 1px solid var(--accent-dim); border-radius: var(--radius-sm);
-    padding: 2px 8px; cursor: pointer;
-    transition: filter var(--t-fast);
-  }
+  .resume-jump { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 2px 8px; cursor: pointer; transition: filter var(--t-fast); }
   .resume-jump:hover { filter: brightness(1.15); }
-
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

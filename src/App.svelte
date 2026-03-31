@@ -77,33 +77,19 @@
   let devSplash     = $state(false);
 
   let platformScale = $state(1.0);
-
-  // Track last applied zoom so we only touch the DOM when the value actually changes.
   let _appliedZoom = -1;
   let _vhRafId: number | null = null;
 
   function applyZoom() {
     const uiZoom = store.settings.uiZoom ?? 1.0;
-    // Only touch the DOM when the zoom value has genuinely changed.
     if (uiZoom === _appliedZoom) return;
     _appliedZoom = uiZoom;
 
     const pct = uiZoom * 100;
     document.documentElement.style.setProperty("--ui-zoom", String(uiZoom));
     document.documentElement.style.setProperty("--ui-scale", String(uiZoom));
+    document.documentElement.style.zoom = `${pct}%`;
 
-    // Only scale the non-reader shell. The reader mounts as a fixed overlay
-    // and manages its own zoom — applying document-level zoom to it would
-    // double-scale manga images.
-    const shell = document.getElementById("app-shell");
-    if (shell) {
-      (shell as HTMLElement).style.zoom = `${pct}%`;
-    } else {
-      document.documentElement.style.zoom = `${pct}%`;
-    }
-
-    // Defer --visual-vh until after the browser has re-laid-out at the new
-    // zoom level so we read a stable innerHeight, not a mid-transition value.
     if (_vhRafId !== null) cancelAnimationFrame(_vhRafId);
     _vhRafId = requestAnimationFrame(() => {
       _vhRafId = null;
@@ -154,9 +140,6 @@
   });
 
   $effect(() => {
-    // Re-run only when uiZoom actually changes. platformScale is handled
-    // directly inside onScaleChanged so it doesn't trigger spurious re-runs
-    // of this effect on unrelated reactive flushes.
     void store.settings.uiZoom;
     applyZoom();
   });
@@ -245,9 +228,6 @@
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => devSplash = true;
 
-    // We read the scale factor so onScaleChanged can re-trigger applyZoom when
-    // the window moves to a different-DPI monitor, but we do NOT fold it into
-    // the zoom math — Tauri's WebView already accounts for DPI scaling.
     platformScale = await invoke<number>("get_platform_ui_scale").catch(() => 1.0);
     applyZoom();
 
@@ -305,7 +285,6 @@
     }
   });
 
-  // When the reader closes, show idle presence.
   $effect(() => {
     if (!store.activeChapter) {
       if (store.settings.discordRpc) setIdle();
