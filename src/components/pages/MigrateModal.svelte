@@ -3,6 +3,7 @@
   import { untrack } from "svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, UPDATE_CHAPTERS_PROGRESS } from "../../lib/queries";
+  import { store } from "../../store/state.svelte";
   import type { Manga, Source, Chapter } from "../../lib/types";
 
   interface Props {
@@ -37,6 +38,46 @@
   let sources: Source[]     = $state([]);
   let loadingSources        = $state(true);
   let selectedSource: Source | null = $state(null);
+
+  // Lang filter: "en" first, then alphabetical
+  let selectedLang: string       = $state("all");
+  let langStripEl: HTMLDivElement | undefined = $state();
+  const availableLangs           = $derived.by(() => {
+    const langs = Array.from(new Set<string>(sources.map(s => s.lang))).sort();
+    const en = langs.indexOf("en");
+    if (en > 0) { langs.splice(en, 1); langs.unshift("en"); }
+    return langs;
+  });
+  const hasMultipleLangs         = $derived(availableLangs.length > 1);
+
+  function scrollLangStrip(dir: -1 | 1) {
+    if (!langStripEl) return;
+    const strip = langStripEl;
+    const chips = Array.from(strip.children) as HTMLElement[];
+    const scrollLeft = strip.scrollLeft;
+    const viewEnd = scrollLeft + strip.clientWidth;
+
+    if (dir === 1) {
+      // Find first chip that is cut off or fully outside the right edge, scroll it flush left
+      const next = chips.find(c => c.offsetLeft + c.offsetWidth > viewEnd + 2);
+      if (next) strip.scrollTo({ left: next.offsetLeft, behavior: "smooth" });
+    } else {
+      // Find last chip that is cut off or fully outside the left edge, scroll it flush right
+      const prev = [...chips].reverse().find(c => c.offsetLeft < scrollLeft - 2);
+      if (prev) strip.scrollTo({ left: prev.offsetLeft + prev.offsetWidth - strip.clientWidth, behavior: "smooth" });
+    }
+  }
+  const visibleSources           = $derived.by(() => {
+    if (selectedLang !== "all") return sources.filter(s => s.lang === selectedLang);
+    const map = new Map<string, Source>();
+    for (const s of sources) {
+      const existing = map.get(s.name);
+      if (!existing) { map.set(s.name, s); continue; }
+      if (s.lang < existing.lang) map.set(s.name, s);
+    }
+    return Array.from(map.values());
+  });
+
   let query                         = $state(untrack(() => manga.title));
   let results: { manga: Manga; similarity: number }[] = $state([]);
   let searching             = $state(false);
@@ -52,7 +93,14 @@
 
   $effect(() => {
     gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-      .then((d) => { sources = d.sources.nodes.filter((s) => s.id !== "0" && s.id !== manga.source?.id); })
+      .then((d) => {
+        const filtered = d.sources.nodes.filter((s) => s.id !== "0" && s.id !== manga.source?.id);
+        sources = filtered;
+        // Pre-select preferred lang if available and there are multiple
+        const prefLang = store?.settings?.preferredExtensionLang ?? "";
+        const langs = new Set(filtered.map(s => s.lang));
+        if (prefLang && langs.has(prefLang) && langs.size > 1) selectedLang = prefLang;
+      })
       .catch(console.error)
       .finally(() => { loadingSources = false; });
 
@@ -178,15 +226,29 @@
 
       <!-- Step 1: Pick source -->
       {#if step === "source"}
-        <div class="source-list">
-          {#if loadingSources}
-            <div class="centered">
-              <CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+        {#if loadingSources}
+          <div class="centered">
+            <CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+          </div>
+        {:else if sources.length === 0}
+          <div class="centered"><span class="hint">No other sources installed.</span></div>
+        {:else}
+          {#if hasMultipleLangs}
+            <div class="src-lang-bar">
+              <button class="src-lang-nav" onclick={() => scrollLangStrip(-1)}>‹</button>
+              <div class="src-lang-chips" bind:this={langStripEl}>
+                <button class="src-lang-chip" class:src-lang-chip-active={selectedLang === "all"} onclick={() => selectedLang = "all"}>All</button>
+                {#each availableLangs as lang}
+                  <button class="src-lang-chip" class:src-lang-chip-active={selectedLang === lang} onclick={() => selectedLang = lang}>
+                    {lang.toUpperCase()}
+                  </button>
+                {/each}
+              </div>
+              <button class="src-lang-nav" onclick={() => scrollLangStrip(1)}>›</button>
             </div>
-          {:else if sources.length === 0}
-            <div class="centered"><span class="hint">No other sources installed.</span></div>
-          {:else}
-            {#each sources as src}
+          {/if}
+          <div class="source-list">
+            {#each visibleSources as src}
               <button
                 class="source-row"
                 class:source-row-active={selectedSource?.id === src.id}
@@ -200,8 +262,8 @@
                 <ArrowRight size={13} weight="light" class="source-arrow" />
               </button>
             {/each}
-          {/if}
-        </div>
+          </div>
+        {/if}
 
       <!-- Step 2: Search & pick match -->
       {:else if step === "search"}
@@ -399,6 +461,18 @@
   .source-meta { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   :global(.source-arrow) { color: var(--text-faint); opacity: 0; transition: opacity var(--t-base); }
   .source-row:hover :global(.source-arrow) { opacity: 1; }
+
+  /* Lang filter bar */
+  .src-lang-bar { display: flex; align-items: center; gap: var(--sp-1); padding: var(--sp-2); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
+  .src-lang-nav { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex-shrink: 0; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); font-size: 15px; line-height: 1; cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .src-lang-nav:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
+  .src-lang-chips { display: flex; align-items: center; gap: var(--sp-1); flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; scroll-behavior: smooth; }
+  .src-lang-chip:last-child { margin-right: var(--sp-1); }
+  .src-lang-chips::-webkit-scrollbar { display: none; }
+  .src-lang-chip { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .src-lang-chip:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
+  .src-lang-chip-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .src-lang-chip-active:hover { color: var(--accent-fg); border-color: var(--accent); }
 
   /* Search step */
   .search-step { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); }
