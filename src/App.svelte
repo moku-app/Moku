@@ -339,7 +339,7 @@
       <SplashScreen mode="idle" showCards={store.settings.splashCards ?? true}
         onDismiss={() => { idle = false; resetIdle(); }} />
     {/if}
-    {#if !store.activeChapter && !store.isFullscreen}<TitleBar />{/if}
+    {#if !store.activeChapter}<TitleBar />{/if}
     <div class="content">
       {#if store.activeChapter}<Reader />{:else}<Layout />{/if}
     </div>

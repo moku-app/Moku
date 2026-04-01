@@ -3,7 +3,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw } from "../../lib/util";
+  import { dedupeSources, dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw, shouldHideSource } from "../../lib/util";
   import { store, setSearchPrefill, setPreviewManga } from "../../store/state.svelte";
   import type { Manga, Source } from "../../lib/types";
 
@@ -122,7 +122,7 @@
     if (kw_selectedLangs.size > 0)
       filtered = filtered.filter((s) => kw_selectedLangs.has(s.lang));
     if (!store.settings.showNsfw)
-      filtered = filtered.filter((s) => !s.isNsfw);
+      filtered = filtered.filter((s) => !shouldHideSource(s, store.settings));
     return filtered;
   }
 
@@ -385,13 +385,13 @@
   });
 
   const src_visibleSources = $derived.by(() => {
-    const nsfw = (s: Source) => !store.settings.showNsfw && s.isNsfw;
+    const hide = (s: Source) => shouldHideSource(s, store.settings);
     if (src_selectedLang !== "all") {
-      return allSources.filter((s) => s.lang === src_selectedLang && !nsfw(s));
+      return allSources.filter((s) => s.lang === src_selectedLang && !hide(s));
     }
     const map = new Map<string, Source>();
     for (const s of allSources) {
-      if (nsfw(s)) continue;
+      if (hide(s)) continue;
       const key = s.name;
       const existing = map.get(key);
       if (!existing) { map.set(key, s); continue; }

@@ -4,7 +4,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaByTitle, dedupeMangaById, shouldHideNsfw } from "../../lib/util";
+  import { dedupeSources, dedupeMangaByTitle, dedupeMangaById, shouldHideNsfw, shouldHideSource } from "../../lib/util";
   import { store, setPreviewManga, clearDiscoverCache } from "../../store/state.svelte";
   import type { Manga, Source, Category } from "../../lib/types";
   import ContextMenu from "../shared/ContextMenu.svelte";
@@ -69,7 +69,8 @@
 
   function rotatedSources(): Source[] {
     const lang = store.settings.preferredExtensionLang || "en";
-    const srcs = dedupeSources(allSources.filter(s => s.id !== "0"), lang);
+    const eligible = allSources.filter(s => s.id !== "0" && !shouldHideSource(s, store.settings));
+    const srcs = dedupeSources(eligible, lang);
     if (!srcs.length) return [];
     const off = store.discoverSrcOffset % srcs.length;
     return [...srcs.slice(off), ...srcs.slice(0, off)];

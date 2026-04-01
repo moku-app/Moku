@@ -81,6 +81,29 @@ export function shouldHideNsfw(
   return isNsfwManga(manga, settings.nsfwFilteredTags);
 }
 
+/**
+ * Gate for Source objects — parallel to shouldHideNsfw for manga.
+ *
+ * Priority:
+ *   1. Blocked list → always hidden, even when showNsfw is on.
+ *   2. Allowed list → always shown, even if isNsfw is true.
+ *   3. Fallback     → hide when showNsfw is off and source.isNsfw is true.
+ *
+ * Usage:  sources.filter(s => !shouldHideSource(s, settings))
+ */
+export function shouldHideSource(
+  source: { id: string; isNsfw: boolean },
+  settings: {
+    showNsfw:             boolean;
+    nsfwAllowedSourceIds: string[];
+    nsfwBlockedSourceIds: string[];
+  },
+): boolean {
+  if (settings.nsfwBlockedSourceIds.includes(source.id)) return true;
+  if (settings.nsfwAllowedSourceIds.includes(source.id)) return false;
+  return !settings.showNsfw && source.isNsfw;
+}
+
 // ── Source deduplication ──────────────────────────────────────────────────────
 
 export function dedupeSources(sources: Source[], preferredLang: string): Source[] {
