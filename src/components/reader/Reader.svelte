@@ -430,6 +430,7 @@
 
   $effect(() => {
     const ch = displayChapter ?? store.activeChapter;
+    const autoBookmark = store.settings.autoBookmark ?? true;
     if (ch && lastPage && store.activeManga) {
       const chapterId   = ch.id;
       const chapterName = ch.name;
@@ -443,7 +444,7 @@
         if (!hasNavigated) return;
         if (style === "longstrip" && visibleChapterId && chapterId !== visibleChapterId) return;
         addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, readAt: Date.now() });
-        if (store.settings.autoBookmark ?? true) {
+        if (autoBookmark) {
           addBookmark({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum });
         }
         if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);

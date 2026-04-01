@@ -77,6 +77,19 @@
   let clearing = $state(false);
   let cleared  = $state(false);
 
+  // ── External server detection ─────────────────────────────────────────────────
+  // A server is "external" if its URL doesn't point to localhost — in that case we
+  // cannot invoke Tauri commands against its filesystem (path validation, disk usage,
+  // migration). We can still read the server's paths via GraphQL, but we must never
+  // overwrite the server's download directory config without the user explicitly asking.
+  const isExternalServer = $derived.by(() => {
+    const url = (store.settings.serverUrl ?? "http://localhost:4567").toLowerCase().trim();
+    try {
+      const host = new URL(url).hostname;
+      return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
+    } catch { return false; }
+  });
+
   // ── Download path editing ────────────────────────────────────────────────────
   let downloadsPathInput    = $state(store.settings.serverDownloadsPath ?? "");
   let localSourcePathInput  = $state(store.settings.serverLocalSourcePath ?? "");
@@ -85,9 +98,17 @@
   let pathsFieldError: { dl?: string; loc?: string } = $state({});
   let pathsSaved            = $state(false);
 
-  // The actual resolved default path from Rust — shown as placeholder + scanned when dl path is empty
+  // The actual resolved default path from Rust — shown as placeholder + scanned when dl path is empty.
+  // Only meaningful for local servers — Tauri can't stat a remote filesystem.
+  // Re-fetches reactively when the server URL changes (e.g. user switches to local).
   let defaultDownloadsPath  = $state("");
-  invoke<string>("get_default_downloads_path").then(p => { defaultDownloadsPath = p; });
+  $effect(() => {
+    if (!isExternalServer) {
+      invoke<string>("get_default_downloads_path").then(p => { defaultDownloadsPath = p; });
+    } else {
+      defaultDownloadsPath = "";
+    }
+  });
 
   // The last confirmed server paths — used to detect a change requiring migration
   let confirmedDownloadsPath   = $state(store.settings.serverDownloadsPath ?? "");
@@ -110,6 +131,7 @@
   async function fetchStorage() {
     storageLoading = true; storageError = null;
     try {
+      // Always pull the current paths from the server via GQL — works for local and external.
       const pathData = await gql<{ settings: { downloadsPath: string; localSourcePath: string } }>(GET_DOWNLOADS_PATH);
       const dl  = pathData.settings.downloadsPath  ?? "";
       const loc = pathData.settings.localSourcePath ?? "";
@@ -119,6 +141,12 @@
       confirmedDownloadsPath   = dl;
       confirmedLocalSourcePath = loc;
       updateSettings({ serverDownloadsPath: dl, serverLocalSourcePath: loc });
+
+      // Disk usage scanning uses Tauri invoke — only possible when the server is local.
+      // For external servers we display the paths pulled above but skip the filesystem scan.
+      if (isExternalServer) {
+        multiStorageInfos = []; storageInfo = null; return;
+      }
 
       // When dl is empty the server uses the default path — scan that instead
       const effectiveDl = dl || defaultDownloadsPath;
@@ -152,9 +180,11 @@
     }
   }
 
-  /** Validate a path exists on disk. Returns error string or null. */
+  /** Validate a path exists on disk. Returns error string or null.
+   *  Only runs for local servers — we can't stat a remote filesystem via Tauri. */
   async function validatePath(path: string): Promise<string | null> {
     if (!path.trim()) return null; // empty = use default, always valid
+    if (isExternalServer) return null; // can't check remote paths locally
     try {
       const exists = await invoke<boolean>("check_path_exists", { path: path.trim() });
       return exists ? null : "Directory does not exist";
@@ -163,8 +193,9 @@
     }
   }
 
-  /** Create a directory on disk via Tauri. */
+  /** Create a directory on disk via Tauri. Only valid for local servers. */
   async function createDirectory(path: string): Promise<void> {
+    if (isExternalServer) throw new Error("Cannot create directories on an external server");
     await invoke("create_directory", { path });
   }
 
@@ -173,7 +204,8 @@
     const loc = localSourcePathInput.trim();
     pathsError = null; pathsFieldError = {};
 
-    // Validate paths exist before touching the server (empty = use default = always valid)
+    // Validate paths exist before touching the server (empty = use default = always valid).
+    // Skipped for external servers — we can't stat their filesystem.
     const [dlErr, locErr] = await Promise.all([validatePath(dl), validatePath(loc)]);
     if (dlErr || locErr) {
       pathsFieldError = { ...(dlErr ? { dl: dlErr } : {}), ...(locErr ? { loc: locErr } : {}) };
@@ -188,12 +220,14 @@
 
       updateSettings({ serverDownloadsPath: dl, serverLocalSourcePath: loc });
 
-      // If downloads path changed and old path had content, offer migration
-      const oldDl = confirmedDownloadsPath || defaultDownloadsPath;
-      const newDl = dl || defaultDownloadsPath;
-      if (newDl && oldDl && newDl !== oldDl) {
-        const hadContent = await invoke<boolean>("check_path_exists", { path: oldDl });
-        if (hadContent) { migrateFrom = oldDl; migrateTo = newDl; }
+      // Migration requires local filesystem access — skip for external servers.
+      if (!isExternalServer) {
+        const oldDl = confirmedDownloadsPath || defaultDownloadsPath;
+        const newDl = dl || defaultDownloadsPath;
+        if (newDl && oldDl && newDl !== oldDl) {
+          const hadContent = await invoke<boolean>("check_path_exists", { path: oldDl });
+          if (hadContent) { migrateFrom = oldDl; migrateTo = newDl; }
+        }
       }
 
       confirmedDownloadsPath   = dl;
@@ -1271,7 +1305,7 @@
           <div class="panel">
 
             <!-- ── Migration banner ──────────────────────────────────────── -->
-            {#if migrateFrom}
+            {#if migrateFrom && !isExternalServer}
               <div class="migrate-banner">
                 <div class="migrate-banner-body">
                   <span class="migrate-title">Manga found at previous path — move to new location?</span>
@@ -1298,11 +1332,13 @@
 
             <!-- ── Disk Usage ─────────────────────────────────────────────── -->
             <div class="section">
-              <p class="section-title">Disk Usage</p>
+              <div class="section-title-row"><p class="section-title">Disk Usage</p><button class="sec-action-btn" onclick={fetchStorage} disabled={storageLoading}>{storageLoading ? "…" : "↻"}</button></div>
               {#if storageLoading}
                 <p class="storage-loading">Reading filesystem…</p>
               {:else if storageError}
                 <p class="storage-loading" style="color:var(--color-error)">{storageError}</p>
+              {:else if isExternalServer}
+                <p class="storage-loading">Disk usage is unavailable for external servers — filesystem access requires a local connection.</p>
               {:else if multiStorageInfos.length > 0}
                 {#each multiStorageInfos as info}
                   {@const limitGb    = store.settings.storageLimitGb ?? null}
@@ -1332,12 +1368,17 @@
             <!-- ── Downloads path ─────────────────────────────────────────── -->
             <div class="section">
               <p class="section-title">Downloads Path</p>
+              {#if isExternalServer}
+                <p class="toggle-desc" style="display:block;padding:0 var(--sp-3) var(--sp-2)">
+                  Connected to an external server. The path below is read from the server — changes here will update the server's config directly. Make sure the path is valid on the server's filesystem.
+                </p>
+              {/if}
               <div class="path-row">
                 <input
                   class="text-input path-input"
                   class:path-input-error={!!pathsFieldError.dl}
                   bind:value={downloadsPathInput}
-                  placeholder={defaultDownloadsPath || "Default location"}
+                  placeholder={isExternalServer ? "Server default" : (defaultDownloadsPath || "Default location")}
                   spellcheck="false"
                   onkeydown={(e) => e.key === "Enter" && savePaths()}
                   oninput={() => { pathsFieldError = { ...pathsFieldError, dl: undefined }; }}
@@ -1345,10 +1386,12 @@
                 <div class="path-actions">
                   {#if pathsFieldError.dl}
                     <span class="path-field-error">{pathsFieldError.dl}</span>
-                    <button class="sec-action-btn" onclick={async () => {
-                      try { await createDirectory(downloadsPathInput.trim()); pathsFieldError = { ...pathsFieldError, dl: undefined }; }
-                      catch (e: any) { pathsFieldError = { ...pathsFieldError, dl: e?.message ?? "Failed" }; }
-                    }}>Create</button>
+                    {#if !isExternalServer}
+                      <button class="sec-action-btn" onclick={async () => {
+                        try { await createDirectory(downloadsPathInput.trim()); pathsFieldError = { ...pathsFieldError, dl: undefined }; }
+                        catch (e: any) { pathsFieldError = { ...pathsFieldError, dl: e?.message ?? "Failed" }; }
+                      }}>Create</button>
+                    {/if}
                   {/if}
                   {#if pathsError}<span class="path-field-error">{pathsError}</span>{/if}
                   <button class="sec-action-btn sec-action-primary" onclick={savePaths} disabled={pathsSaving}>
@@ -1413,7 +1456,7 @@
                           bind:value={localSourcePathInput} placeholder="Optional" spellcheck="false"
                           onkeydown={(e) => e.key === "Enter" && savePaths()}
                           oninput={() => { pathsFieldError = { ...pathsFieldError, loc: undefined }; }} />
-                        {#if pathsFieldError.loc}
+                        {#if pathsFieldError.loc && !isExternalServer}
                           <button class="sec-action-btn" onclick={async () => {
                             try { await createDirectory(localSourcePathInput.trim()); pathsFieldError = { ...pathsFieldError, loc: undefined }; }
                             catch (e: any) { pathsFieldError = { ...pathsFieldError, loc: e?.message ?? "Failed" }; }

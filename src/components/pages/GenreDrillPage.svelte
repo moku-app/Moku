@@ -4,7 +4,7 @@
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
-  import { dedupeSources, dedupeMangaById } from "../../lib/util";
+  import { dedupeSources, dedupeMangaById, shouldHideNsfw } from "../../lib/util";
   import { store, setGenreFilter, setPreviewManga, setNavPage } from "../../store/state.svelte";
   import type { Manga, Source, Category } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
@@ -47,9 +47,9 @@
   let abortCtrl: AbortController | null = null;
 
   const filtered = $derived.by(() => {
-    const libMatches = libraryManga.filter((m) => matchesAllTags(m, tags));
+    const libMatches = libraryManga.filter((m) => matchesAllTags(m, tags) && !shouldHideNsfw(m, store.settings));
     const libIds     = new Set(libMatches.map((m) => m.id));
-    return dedupeMangaById([...libMatches, ...sourceManga.filter((m) => !libIds.has(m.id))]);
+    return dedupeMangaById([...libMatches, ...sourceManga.filter((m) => !libIds.has(m.id) && !shouldHideNsfw(m, store.settings))]);
   });
   const visibleItems    = $derived(filtered.slice(0, visibleCount));
   const hasMoreVisible  = $derived(visibleCount < filtered.length);
