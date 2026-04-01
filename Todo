@@ -10,10 +10,21 @@ Minor Revisions:
  - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
  - Adjustment in Settings for Theme Editor:
     - Patch Color-Picker to Work Properly
+ - Investigate using AniList, etc for Moku RPC.
 
 Priority Bugs:
  - Cache ALL Cover Pictures & Details for Manga in Library
  - Investigate Zoom (Reader), Appears to have Cutoff, etc.
+
+ - Display Downloaded in Series Detail
+   - Change Chapter Individual Delete to Red Trash Icon
+   - Put Downloaded Icon somewhere in Chapter Bar
+   - Hover Effect on Downloaded Icon (Display Total Downloaded vs Total Chapter)
+   - Allow Multiclick in Grid/List View to Mass Delete, Etc.
+
+ - Fix Source Allow in Content (Doesn't even work)
+ - Fix TitleBar not Appearing on Windows in Fullscreen (Locks in User)
+
 
 General/Misc Bugs:
  - Fix Highlightable Elements
@@ -22,30 +33,6 @@ General/Misc Bugs:
  - Fix Delete-All Crash (Deletes All but Cripples App)
  - Investigate Prod vs. Dev Directory Change/Data Load (Caused by Library Algorithm Revision?)
 
-In-Progress:`
+
+In-Progress:
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
- - Fix NSFW Parsing (Appears to not Work???)
-
- - Check & Fix Zoom System
-    - Incredibly zoomed in on Windows (Appears to work fine on 1440p)
-    - Zoom Values are Incorrect
-    - Global Zoom should only scale Reader UI, not Manga
-
- - Fix Resume-from-Read
-    - Start on Chapter 46 -> Go all the way to Chapter 47 (Page 28)
-      - Results in Opening Chapter 46 to take to last page of Chapter (Cache not Cleared).
-      - Add Event that if different chapter is opened, cache is cleared on all previous chapters.
-    - Add into Settings
-
-
-
-Important Commands:
-  cd ~/Projects/Manga/Moku
-  pnpm build
-  tar -czf packaging/frontend-dist.tar.gz -C dist .
-  sha256sum packaging/frontend-dist.tar.gz | awk '{print $1}'
-
-
-  nix-shell -p "python311.withPackages(ps: [ ps.aiohttp ps.tomlkit ])" --run "python3 packaging/flatpak-cargo-generator.py src-tauri/Cargo.lock -o packaging/cargo-sources.json"
-  nix shell nixpkgs#appstream nixpkgs#flatpak-builder --command flatpak-builder --repo=repo --force-clean build-dir dev.moku.app.yml
-  flatpak build-bundle repo moku.flatpak dev.moku.app

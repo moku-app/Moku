@@ -297,6 +297,9 @@
     const chId = visibleChapterId;
     if (!chId || style !== "longstrip") return;
     if (chId === store.activeChapter?.id) return;
+    // Only resume if this chapter was opened directly, not auto-appended while reading
+    const wasAppended = untrack(() => stripChapters.findIndex(c => c.chapterId === chId)) > 0;
+    if (wasAppended) { untrack(() => { resumePage = 0; resumeVisible = false; }); return; }
     const bookmark = store.bookmarks.find(b => b.chapterId === chId);
     if (bookmark && bookmark.pageNumber > 1) {
       untrack(() => {
@@ -571,6 +574,7 @@
     if (!ch || !manga) return;
     if (isBookmarked) {
       removeBookmark(ch.id);
+      resumeVisible = false;
     } else {
       addBookmark({ mangaId: manga.id, mangaTitle: manga.title, thumbnailUrl: manga.thumbnailUrl, chapterId: ch.id, chapterName: ch.name, pageNumber: store.pageNumber });
     }
@@ -774,19 +778,7 @@
   {#if showResumeBanner}
     <div class="resume-banner" class:fading={resumeFading} role="status" onclick={() => { resumeVisible = false; resumeFading = false; }}>
       <span>Bookmark at page {resumePage}</span>
-      {#if style === "longstrip" && visibleChapterId && visibleChapterId !== store.activeChapter?.id}
-        <button class="resume-jump" onclick={() => {
-          const chId = visibleChapterId!;
-          const targetPg = resumePage;
-          const scrollToPage = () => {
-            const target = containerEl.querySelector<HTMLImageElement>(`img[data-local-page="${targetPg}"][data-chapter="${chId}"]`);
-            if (!target) { requestAnimationFrame(scrollToPage); return; }
-            target.scrollIntoView({ block: "start", behavior: "smooth" });
-          };
-          scrollToPage();
-          resumeVisible = false;
-        }}>Jump</button>
-      {/if}
+
     </div>
   {/if}
 
