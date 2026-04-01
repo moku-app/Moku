@@ -3,27 +3,19 @@ Major Revisions:
 
 Minor Revisions:
  - Improve Deduplication Algorithm with Advanced Option Settings (Implement Chapter & Author-based Comparisons, Resource Intensive)
- - Integrate Download Directory Changes (Settings)
+
  - Investigate feasibility of Multi-Page Screenshot (Reader)
  - Add Hover Info on Library (Make sure doesn't conflict with additional clicks)
  - Revise Migration (https://github.com/Suwayomi/Suwayomi-WebUI/pull/1073)
  - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
  - Adjustment in Settings for Theme Editor:
     - Patch Color-Picker to Work Properly
- - Investigate using AniList, etc for Moku RPC.
+ - Moku Discord RPC 
+  - Write a better library for Discord RPC & Tauri
+  - Integrate Download Directory Changes (Settings)
 
 Priority Bugs:
  - Cache ALL Cover Pictures & Details for Manga in Library
- - Investigate Zoom (Reader), Appears to have Cutoff, etc.
-
- - Display Downloaded in Series Detail
-   - Change Chapter Individual Delete to Red Trash Icon
-   - Put Downloaded Icon somewhere in Chapter Bar
-   - Hover Effect on Downloaded Icon (Display Total Downloaded vs Total Chapter)
-   - Allow Multiclick in Grid/List View to Mass Delete, Etc.
-
- - Fix Source Allow in Content (Doesn't even work)
- - Fix TitleBar not Appearing on Windows in Fullscreen (Locks in User)
 
 
 General/Misc Bugs:
@@ -36,3 +28,12 @@ General/Misc Bugs:
 
 In-Progress:
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
+
+
+
+
+Testing:
+
+ - Fix TitleBar not Appearing on Windows in Fullscreen (Locks in User)
+ - Integrate Download Directory Changes (Settings)
+ - Fix Source Allow in Content (Doesn't even work)

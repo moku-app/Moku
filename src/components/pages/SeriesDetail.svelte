@@ -56,6 +56,40 @@
   // Tracking modal
   let trackingOpen: boolean = $state(false);
 
+  // Multi-select
+  let selectedIds: Set<number> = $state(new Set());
+  const hasSelection = $derived(selectedIds.size > 0);
+
+  function toggleSelect(id: number, e: MouseEvent | KeyboardEvent) {
+    e.stopPropagation();
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    selectedIds = next;
+  }
+
+  function clearSelection() { selectedIds = new Set(); }
+
+  async function deleteSelected() {
+    const ids = [...selectedIds].filter(id => chapters.find(c => c.id === id)?.isDownloaded);
+    if (ids.length) {
+      await gql(DELETE_DOWNLOADED_CHAPTERS, { ids }).catch(console.error);
+      chapters = chapters.map(c => ids.includes(c.id) ? { ...c, isDownloaded: false } : c);
+      if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
+    }
+    clearSelection();
+  }
+
+  async function downloadSelected() {
+    const ids = [...selectedIds].filter(id => !chapters.find(c => c.id === id)?.isDownloaded);
+    await enqueueMultiple(ids);
+    clearSelection();
+  }
+
+  async function markSelectedRead(isRead: boolean) {
+    await markBulk([...selectedIds], isRead);
+    clearSelection();
+  }
+
   let mangaAbort:  AbortController | null = null;
   let chapterAbort: AbortController | null = null;
   let loadingFor:  number | null = null;
@@ -532,6 +566,24 @@
   <div class="list-wrap">
     <div class="list-header">
       <div class="list-header-left">
+        {#if hasSelection}
+          <span class="sel-count">{selectedIds.size} selected</span>
+          <button class="sel-action-btn" onclick={downloadSelected} title="Download selected">
+            <Download size={13} weight="light" />
+          </button>
+          <button class="sel-action-btn sel-action-danger" onclick={deleteSelected} title="Delete selected downloads">
+            <Trash size={13} weight="light" />
+          </button>
+          <button class="sel-action-btn" onclick={() => markSelectedRead(true)} title="Mark selected as read">
+            <CheckCircle size={13} weight="light" />
+          </button>
+          <button class="sel-action-btn" onclick={() => markSelectedRead(false)} title="Mark selected as unread">
+            <Circle size={13} weight="light" />
+          </button>
+          <button class="sel-action-btn" onclick={clearSelection} title="Clear selection">
+            <X size={13} weight="light" />
+          </button>
+        {:else}
         <div class="sort-wrap">
           <button class="sort-btn" onclick={() => sortMenuOpen = !sortMenuOpen}>
             {#if sortDir === "desc"}<SortDescending size={14} weight="light" />{:else}<SortAscending size={14} weight="light" />{/if}
@@ -557,6 +609,7 @@
         <button class="icon-btn" class:active={viewMode === "grid"} onclick={() => viewMode = viewMode === "list" ? "grid" : "list"} title={viewMode === "list" ? "Grid view" : "List view"}>
           {#if viewMode === "list"}<SquaresFour size={14} weight="light" />{:else}<List size={14} weight="light" />{/if}
         </button>
+        {/if}
       </div>
       <div class="list-header-right">
         <button class="icon-btn" onclick={refreshChapters} disabled={refreshing}>
@@ -601,11 +654,16 @@
         <!-- Download dropdown -->
         {#if chapters.length > 0}
           <div class="dl-wrap" bind:this={dlDropRef}>
-            <button class="icon-btn" onclick={() => dlOpen = !dlOpen}>
-              <Download size={13} weight="light" />
+            <button class="icon-btn dl-unified-btn" class:active={dlOpen} class:dl-has-count={downloadedCount > 0} onclick={() => dlOpen = !dlOpen} title="Download options">
+              <Download size={13} weight={downloadedCount > 0 ? "fill" : "light"} />
+              {#if downloadedCount > 0}<span class="dl-unified-count">{downloadedCount}</span>{/if}
             </button>
             {#if dlOpen}
               <div class="dl-dropdown">
+                {#if downloadedCount > 0}
+                  <p class="dl-section-label">{downloadedCount} / {totalCount} downloaded</p>
+                  <div class="dl-divider"></div>
+                {/if}
                 {#if continueChapter}
                   {@const contIdx = sortedChapters.indexOf(continueChapter.chapter)}
                   {#if contIdx >= 0}
@@ -653,7 +711,7 @@
           </div>
         {/if}
 
-        {#if totalPages > 1}
+        {#if totalPages >= 1}
           <div class="pagination">
             <button class="page-btn" onclick={() => chapterPage = Math.max(1, chapterPage - 1)} disabled={chapterPage === 1}>←</button>
             <span class="page-num">{chapterPage} / {totalPages}</span>
@@ -678,6 +736,7 @@
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: i }; }}
             title={ch.name}>
             <span class="grid-cell-num">{ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber}</span>
+            {#if ch.isDownloaded}<span class="grid-cell-dl" title="Downloaded"></span>{/if}
             {#if ch.isRead}<span class="grid-cell-dot"></span>{/if}
             {#if enqueueing.has(ch.id)}<span class="grid-cell-spinner"><CircleNotch size={10} weight="light" class="anim-spin" /></span>{/if}
           </button>
@@ -685,10 +744,18 @@
       {:else}
         {#each pageChapters as ch}
           {@const idxInSorted = sortedChapters.indexOf(ch)}
-          <div role="button" tabindex="0" class="ch-row" class:read={ch.isRead}
-            onclick={() => openReader(ch, chaptersAsc)}
-            onkeydown={(e) => e.key === "Enter" && openReader(ch, chaptersAsc)}
+          {@const isSelected = selectedIds.has(ch.id)}
+          <div role="button" tabindex="0"
+            class="ch-row"
+            class:read={ch.isRead}
+            class:ch-selected={isSelected}
+            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReader(ch, chaptersAsc)}
+            onkeydown={(e) => e.key === "Enter" && (hasSelection ? toggleSelect(ch.id, e) : openReader(ch, chaptersAsc))}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: idxInSorted }; }}>
+            <!-- Checkbox shown when selection active, or on hover -->
+            <button class="ch-check" class:ch-check-visible={hasSelection} onclick={(e) => toggleSelect(ch.id, e)} title="Select">
+              {#if isSelected}<CheckCircle size={15} weight="fill" />{:else}<Circle size={15} weight="light" />{/if}
+            </button>
             <div class="ch-left">
               <span class="ch-name">{ch.name}</span>
               <div class="ch-meta">
@@ -700,11 +767,16 @@
             <div class="ch-right">
               {#if ch.isRead}<CheckCircle size={14} weight="light" class="read-icon" />{/if}
               {#if ch.isDownloaded}
-                <button class="dl-btn" onclick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }}><Trash size={13} weight="light" /></button>
+                <span class="ch-dl-dot" title="Downloaded"></span>
+                <button class="dl-btn dl-btn-delete" onclick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }} title="Delete download">
+                  <Trash size={13} weight="light" />
+                </button>
               {:else if enqueueing.has(ch.id)}
                 <CircleNotch size={14} weight="light" class="anim-spin enqueue-icon" />
               {:else}
-                <button class="dl-btn" onclick={(e) => { e.stopPropagation(); enqueue(ch, e); }}><Download size={13} weight="light" /></button>
+                <button class="dl-btn" onclick={(e) => { e.stopPropagation(); enqueue(ch, e); }} title="Download">
+                  <Download size={13} weight="light" />
+                </button>
               {/if}
             </div>
           </div>
@@ -712,7 +784,7 @@
       {/if}
     </div>
 
-    {#if totalPages > 1}
+    {#if totalPages >= 1}
       <div class="pagination-bottom">
         <button class="page-btn" onclick={() => chapterPage = Math.max(1, chapterPage - 1)} disabled={chapterPage === 1}>← Prev</button>
         <span class="page-num">{chapterPage} / {totalPages}</span>
@@ -968,6 +1040,43 @@
   .grid-cell-dot { position: absolute; bottom: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--text-faint); }
   .grid-cell-spinner { position: absolute; top: 2px; right: 2px; }
   .grid-cell-skeleton { aspect-ratio: 1; border-radius: var(--radius-sm); }
+
+  /* ── Multi-select action bar ─────────────────────────────────────────────── */
+  .sel-count { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 0 var(--sp-1); }
+  .sel-action-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
+  .sel-action-btn:hover { color: var(--text-primary); background: var(--bg-raised); border-color: var(--border-strong); }
+  .sel-action-danger { color: var(--color-error) !important; }
+  .sel-action-danger:hover { background: var(--color-error-bg) !important; border-color: var(--color-error) !important; }
+
+  /* ── Download unified button ─────────────────────────────────────────────── */
+  .dl-unified-btn { gap: 5px; padding: 0 8px; width: auto; min-width: 28px; }
+  .dl-unified-count { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); transition: color var(--t-base); }
+  .dl-unified-btn:hover .dl-unified-count,
+  .dl-unified-btn.active .dl-unified-count { color: var(--text-secondary); }
+  .dl-unified-btn.dl-has-count { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .dl-unified-btn.dl-has-count .dl-unified-count { color: var(--accent-fg); opacity: 0.8; }
+  .dl-unified-btn.dl-has-count:hover { background: var(--accent-muted); border-color: var(--accent); opacity: 0.9; }
+  .dl-unified-btn.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+
+  /* ── Chapter row selection ───────────────────────────────────────────────── */
+  .ch-check { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity var(--t-fast), color var(--t-fast); padding: 0; }
+  .ch-row:hover .ch-check { opacity: 1; }
+  .ch-check-visible { opacity: 1 !important; }
+  .ch-selected { background: color-mix(in srgb, var(--accent) 8%, transparent) !important; }
+  .ch-selected .ch-check { color: var(--accent-fg); opacity: 1; }
+
+  /* ── Red trash for downloaded chapters ───────────────────────────────────── */
+  .dl-btn-delete { color: var(--color-error) !important; opacity: 0; }
+  .ch-row:hover .dl-btn-delete { opacity: 1; }
+  .dl-btn-delete:hover { background: var(--color-error-bg) !important; }
+
+  /* ── Persistent downloaded dot in list rows ──────────────────────────────── */
+  .ch-dl-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fg); flex-shrink: 0; opacity: 0.7; transition: opacity var(--t-fast); }
+  .ch-row:hover .ch-dl-dot { opacity: 0; }
+
+  /* ── Grid cell selection + downloaded dot ────────────────────────────────── */
+  .grid-selected { background: var(--accent-muted) !important; border-color: var(--accent-dim) !important; }
+  .grid-cell-dl { position: absolute; top: 3px; left: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent-fg); }
 
   @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
