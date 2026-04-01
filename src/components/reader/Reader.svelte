@@ -1,10 +1,14 @@
-<!-- Reader.svelte -->
 <script lang="ts">
   import { onMount, untrack, tick } from "svelte";
-  import { X, CaretLeft, CaretRight, ArrowLeft, ArrowRight, Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical, CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus, Bookmark } from "phosphor-svelte";
+  import {
+    X, CaretLeft, CaretRight, ArrowLeft, ArrowRight,
+    Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical,
+    CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus,
+    Bookmark, BookOpen, MonitorPlay,
+  } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
-  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, addToast } from "../../store/state.svelte";
+  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import { setReading } from "../../lib/discord";
   import type { FitMode } from "../../store/state.svelte";
@@ -15,8 +19,11 @@
   const ZOOM_MIN         = 0.1;
   const ZOOM_MAX         = 1.0;
 
-  const pageCache  = new Map<number, string[]>();
-  const inflight   = new Map<number, Promise<string[]>>();
+  const PAGE_STYLES = ["single", "fade", "double", "longstrip"] as const;
+  type PageStyle = typeof PAGE_STYLES[number];
+
+  const pageCache = new Map<number, string[]>();
+  const inflight  = new Map<number, Promise<string[]>>();
 
   function fetchPages(chapterId: number, signal?: AbortSignal): Promise<string[]> {
     const cached = pageCache.get(chapterId);
@@ -101,17 +108,32 @@
   let nextN            = $state(5);
   let dlBusy           = $state(false);
   let hideTimer:       ReturnType<typeof setTimeout> | null = null;
-  let markedRead  = new Set<number>();
-  let appending   = false;
-  let abortCtrl:  AbortController | null = null;
-  let hasNavigated = false;
+  let markedRead       = new Set<number>();
+  let appending        = false;
+  let abortCtrl:       AbortController | null = null;
+  let hasNavigated     = false;
   let resumePage        = $state(0);
   let resumeDismissed   = $state(false);
+  let resumeTimer:      ReturnType<typeof setTimeout> | null = null;
+  let resumeFadeTimer:  ReturnType<typeof setTimeout> | null = null;
+  let resumeFading      = $state(false);
+  let resumeVisible     = $state(false);
+
+  function scheduleResumeDismiss() {
+    if (resumeTimer)     clearTimeout(resumeTimer);
+    if (resumeFadeTimer) clearTimeout(resumeFadeTimer);
+    resumeFading  = false;
+    resumeFadeTimer = setTimeout(() => { resumeFading = true; },  1500);
+    resumeTimer     = setTimeout(() => { resumeVisible = false; resumeFading = false; }, 2500);
+  }
   let stripResumeReady  = $state(false);
+  let fadingOut         = $state(false);
+  let sliderDragging    = $state(false);
+  let sliderHover       = $state(false);
 
   const rtl         = $derived(store.settings.readingDirection === "rtl");
   const fit         = $derived((store.settings.fitMode ?? "width") as FitMode);
-  const style       = $derived(store.settings.pageStyle ?? "single");
+  const style       = $derived((store.settings.pageStyle ?? "single") as PageStyle);
   const zoom        = $derived(store.settings.readerZoom ?? 1.0);
   const autoNext    = $derived(store.settings.autoNextChapter ?? false);
   const markOnNext  = $derived(store.settings.markReadOnNext ?? true);
@@ -119,18 +141,19 @@
   const lastPage    = $derived(store.pageUrls.length);
   const effectiveWidth = $derived(containerWidth > 0 ? Math.round(containerWidth * zoom) : undefined);
   const zoomPct = $derived(Math.round(zoom * 100));
-  const showResumeBanner = $derived(resumePage > 1 && !resumeDismissed && (style === "longstrip" ? stripResumeReady : store.pageNumber === resumePage));
-  const displayChapter = $derived(style === "longstrip" && visibleChapterId ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter) : store.activeChapter);
-  const currentBookmark = $derived(displayChapter ? store.bookmarks.find(b => b.chapterId === displayChapter!.id) : undefined);
-  const isBookmarked = $derived(!!currentBookmark);
 
-  $effect(() => {
-    const chapter = displayChapter;
-    const manga   = store.activeManga;
-    if (store.settings.discordRpc && chapter && manga) {
-      setReading(manga, chapter);
-    }
-  });
+  const displayChapter = $derived(
+    style === "longstrip" && visibleChapterId
+      ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
+      : store.activeChapter
+  );
+  const currentBookmark = $derived(displayChapter ? store.bookmarks.find(b => b.chapterId === displayChapter!.id) : undefined);
+  const isBookmarked = $derived(!!currentBookmark && currentBookmark.pageNumber === store.pageNumber);
+
+  const showResumeBanner = $derived(
+    resumeVisible && resumePage > 1 &&
+    (style === "longstrip" ? stripResumeReady : store.pageNumber === resumePage)
+  );
 
   const adjacent = $derived.by(() => {
     const ref = displayChapter ?? store.activeChapter;
@@ -160,8 +183,41 @@
   ].filter(Boolean).join(" "));
 
   const fitLabel = $derived({ width: "Fit W", height: "Fit H", screen: "Fit Screen", original: "1:1" }[fit]);
-  const stripToRender = $derived(style === "longstrip" ? (stripChapters.length > 0 ? stripChapters : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }]) : []);
-  const currentGroup = $derived(style === "double" && pageGroups.length ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber]) : [store.pageNumber]);
+
+  const stripToRender = $derived(
+    style === "longstrip"
+      ? (stripChapters.length > 0
+          ? stripChapters
+          : [{ chapterId: store.activeChapter?.id ?? 0, chapterName: store.activeChapter?.name ?? "", urls: store.pageUrls }])
+      : []
+  );
+
+  const currentGroup = $derived(
+    style === "double" && pageGroups.length
+      ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
+      : [store.pageNumber]
+  );
+
+  const sliderPage = $derived.by(() => {
+    if (style === "double" && pageGroups.length) {
+      return pageGroups.findIndex(g => g.includes(store.pageNumber)) + 1;
+    }
+    return store.pageNumber;
+  });
+
+  const sliderMax = $derived.by(() => {
+    if (style === "double" && pageGroups.length) return pageGroups.length;
+    if (style === "longstrip") return visibleChunkLastPage || 1;
+    return lastPage || 1;
+  });
+
+  const sliderPct = $derived(sliderMax > 1 ? ((sliderPage - 1) / (sliderMax - 1)) * 100 : 0);
+
+  $effect(() => {
+    const chapter = displayChapter;
+    const manga   = store.activeManga;
+    if (store.settings.discordRpc && chapter && manga) setReading(manga, chapter);
+  });
 
   $effect(() => {
     const ch = store.activeChapter;
@@ -172,7 +228,7 @@
     abortCtrl?.abort();
     const ctrl = new AbortController();
     abortCtrl  = ctrl;
-    hasNavigated = false;
+    hasNavigated     = false;
     appending        = false;
     markedRead       = new Set();
     loading          = true;
@@ -182,11 +238,14 @@
     stripChapters    = [];
     visibleChapterId = null;
     store.pageUrls   = [];
+    fadingOut        = false;
 
-    const bookmark   = store.bookmarks.find(b => b.chapterId === id);
-    const resumeTo   = bookmark ? bookmark.pageNumber : 0;
-    resumePage       = resumeTo > 1 ? resumeTo : 0;
+    const bookmark  = store.bookmarks.find(b => b.chapterId === id);
+    const resumeTo  = bookmark ? bookmark.pageNumber : 0;
+    resumePage      = resumeTo > 1 ? resumeTo : 0;
     resumeDismissed  = false;
+    resumeVisible    = resumeTo > 1;
+    if (resumeTo > 1) scheduleResumeDismiss();
     stripResumeReady = false;
 
     store.pageNumber = 1;
@@ -195,8 +254,8 @@
       if (ctrl.signal.aborted) return;
       store.pageUrls = urls;
       if (resumeTo > 1) store.pageNumber = Math.min(resumeTo, urls.length || resumeTo);
-      pageReady      = true;
-      loading        = false;
+      pageReady = true;
+      loading   = false;
     } catch (e: any) {
       if (ctrl.signal.aborted) return;
       error   = e instanceof Error ? e.message : String(e);
@@ -206,10 +265,10 @@
 
   $effect(() => {
     if (style === "longstrip" && store.pageUrls.length && store.activeChapter) {
-      const ch    = store.activeChapter;
-      const urls  = store.pageUrls;
+      const ch       = store.activeChapter;
+      const urls     = store.pageUrls;
       const targetPg = untrack(() => resumePage);
-      appending = false;
+      appending        = false;
       stripChapters    = [{ chapterId: ch.id, chapterName: ch.name, urls }];
       visibleChapterId = ch.id;
       tick().then(() => {
@@ -220,10 +279,7 @@
             const target = containerEl.querySelector<HTMLImageElement>(`img[data-local-page="${targetPg}"][data-chapter="${chId}"]`);
             if (!target) { requestAnimationFrame(scrollToResumePage); return; }
             containerEl.querySelectorAll<HTMLImageElement>(`img[data-chapter="${chId}"]`).forEach((img, i) => { if (i < targetPg) img.loading = "eager"; });
-            const doScroll = () => {
-              target.scrollIntoView({ block: "start" });
-              stripResumeReady = true;
-            };
+            const doScroll = () => { target.scrollIntoView({ block: "start" }); stripResumeReady = true; };
             if (target.complete && target.naturalHeight > 0) { doScroll(); }
             else { target.loading = "eager"; target.addEventListener("load", doScroll, { once: true }); }
           };
@@ -244,12 +300,11 @@
     const bookmark = store.bookmarks.find(b => b.chapterId === chId);
     if (bookmark && bookmark.pageNumber > 1) {
       untrack(() => {
-        resumePage      = bookmark.pageNumber;
-        resumeDismissed = false;
-        stripResumeReady = true;
+        resumePage = bookmark.pageNumber; resumeDismissed = false; resumeVisible = true; stripResumeReady = true;
+        scheduleResumeDismiss();
       });
     } else {
-      untrack(() => { resumePage = 0; resumeDismissed = false; stripResumeReady = false; });
+      untrack(() => { resumePage = 0; resumeDismissed = false; resumeVisible = false; stripResumeReady = false; });
     }
   });
 
@@ -262,13 +317,8 @@
     const next = list[lastIdx + 1];
     if (!next || stripChapters.some(c => c.chapterId === next.id)) return;
     appending = true;
-
     fetchPages(next.id)
-      .then(urls => {
-        urls.forEach(url => measureAspect(url).catch(() => {}));
-        urls.slice(0, 6).forEach(preloadImage);
-        return urls;
-      })
+      .then(urls => { urls.forEach(url => measureAspect(url).catch(() => {})); urls.slice(0, 6).forEach(preloadImage); return urls; })
       .then(urls => {
         if (stripChapters.some(c => c.chapterId === next.id)) { appending = false; return; }
         stripChapters = [...stripChapters, { chapterId: next.id, chapterName: next.name, urls }];
@@ -286,35 +336,27 @@
     function onScroll() {
       const imgs = containerEl.querySelectorAll<HTMLElement>("img[data-local-page]");
       if (!imgs.length) return;
-
       const containerTop = containerEl.getBoundingClientRect().top;
       const readLineY    = containerTop + containerEl.clientHeight * READ_LINE_PCT;
       let activePage: number | null = null;
       let activeChId: number | null = null;
-
       for (const img of imgs) {
         if (img.getBoundingClientRect().top <= readLineY) {
           activePage = Number(img.dataset.localPage);
           activeChId = Number(img.dataset.chapter);
         } else break;
       }
-
       if (activePage === null) {
         activePage = Number(imgs[0].dataset.localPage);
         activeChId = Number(imgs[0].dataset.chapter);
       }
-
       if (activePage !== null) store.pageNumber = activePage;
-      if (activeChId && activeChId !== visibleChapterId) {
-        visibleChapterId = activeChId;
-      }
-
+      if (activeChId && activeChId !== visibleChapterId) visibleChapterId = activeChId;
       if (store.settings.autoMarkRead && activePage !== null && activeChId) {
         const chunk = stripChaptersRef.find(c => c.chapterId === activeChId);
         const total = chunk ? chunk.urls.length : store.pageUrls.length;
         if (total > 0 && activePage >= total) markChapterRead(activeChId);
       }
-
       if (containerEl.scrollTop + containerEl.clientHeight >= containerEl.scrollHeight - 40) {
         const last = stripChaptersRef[stripChaptersRef.length - 1];
         if (last && store.settings.autoMarkRead) markChapterRead(last.chapterId);
@@ -328,7 +370,6 @@
 
     containerEl.addEventListener("scroll", onScroll,       { passive: true });
     containerEl.addEventListener("scroll", onScrollAppend, { passive: true });
-
     return () => {
       containerEl.removeEventListener("scroll", onScroll);
       containerEl.removeEventListener("scroll", onScrollAppend);
@@ -340,10 +381,7 @@
   $effect(() => {
     void style;
     if (!containerEl) return;
-    untrack(() => {
-      cleanupScroll();
-      cleanupScroll = setupScrollTracking();
-    });
+    untrack(() => { cleanupScroll(); cleanupScroll = setupScrollTracking(); });
   });
 
   $effect(() => {
@@ -357,9 +395,7 @@
             .then(urls => { const n = i === 1 ? 8 : i === 2 ? 4 : 2; urls.slice(0, n).forEach(preloadImage); })
             .catch(() => {});
         }
-        if (idx > 0) {
-          fetchPages(store.activeChapterList[idx - 1].id).catch(() => {});
-        }
+        if (idx > 0) fetchPages(store.activeChapterList[idx - 1].id).catch(() => {});
       }
     }
   });
@@ -375,8 +411,8 @@
         if (offset) groups.push([2]);
         let i = offset ? 3 : 2;
         while (i <= snap.length) {
-          const a = aspects[i - 1], nextA = aspects[i] ?? 0;
-          if (a > 1.2 || i === snap.length || nextA > 1.2) { groups.push([i++]); }
+          const a = aspects[i - 1];
+          if (a > 1.2 || i === snap.length) { groups.push([i++]); }
           else { groups.push(rtl ? [i + 1, i] : [i, i + 1]); i += 2; }
         }
         pageGroups = groups;
@@ -402,14 +438,12 @@
       const thumb       = store.activeManga.thumbnailUrl;
       const pageNum     = store.pageNumber;
       const atLast      = store.pageNumber === lastPage;
-
       if (pageNum > 1) hasNavigated = true;
-
       untrack(() => {
         if (!hasNavigated) return;
         if (style === "longstrip" && visibleChapterId && chapterId !== visibleChapterId) return;
         addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, readAt: Date.now() });
-        if (store.settings.bookmarksEnabled ?? true) {
+        if (store.settings.autoBookmark ?? true) {
           addBookmark({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum });
         }
         if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
@@ -457,29 +491,62 @@
     }
   }
 
+  async function animateFade(fn: () => void) {
+    fadingOut = true;
+    await new Promise(r => setTimeout(r, 100));
+    fn();
+    fadingOut = false;
+  }
+
   function goForward() {
     if (loading) return;
-    if (style === "longstrip") { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } return; }
+    if (style === "longstrip") {
+      if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); }
+      return;
+    }
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber < lastPage) {
-      store.pageNumber = store.pageNumber + 1;
-    } else if (adjacent.next) { maybeMarkCurrentRead(); store.pageNumber = 1; openReader(adjacent.next, store.activeChapterList); }
-    else closeReader();
+      if (style === "fade") { animateFade(() => { store.pageNumber++; }); }
+      else { store.pageNumber++; }
+    } else if (adjacent.next) {
+      maybeMarkCurrentRead();
+      store.pageNumber = 1;
+      openReader(adjacent.next, store.activeChapterList);
+    } else { closeReader(); }
   }
 
   function goBack() {
     if (loading) return;
-    if (style === "longstrip") { if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList); return; }
+    if (style === "longstrip") {
+      if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
+      return;
+    }
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber > 1) {
-      store.pageNumber = store.pageNumber - 1;
-    } else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
+      if (style === "fade") { animateFade(() => { store.pageNumber--; }); }
+      else { store.pageNumber--; }
+    } else if (adjacent.prev) { openReader(adjacent.prev, store.activeChapterList); }
   }
 
   const goNext = $derived(rtl ? goBack    : goForward);
   const goPrev = $derived(rtl ? goForward : goBack);
+
+  function jumpToPage(page: number) {
+    if (style === "longstrip") {
+      const chId = visibleChapterId ?? store.activeChapter?.id;
+      const target = containerEl?.querySelector<HTMLImageElement>(`img[data-local-page="${page}"][data-chapter="${chId}"]`);
+      target?.scrollIntoView({ block: "start" });
+      return;
+    }
+    if (style === "double" && pageGroups.length) {
+      const group = pageGroups[page - 1];
+      if (group) store.pageNumber = group[0];
+    } else {
+      store.pageNumber = Math.max(1, Math.min(lastPage, page));
+    }
+  }
 
   function clampZoom(z: number): number {
     return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) * 1000) / 1000;
@@ -503,24 +570,14 @@
     if (!ch || !manga) return;
     if (isBookmarked) {
       removeBookmark(ch.id);
-      addToast({ kind: "info", title: "Bookmark removed", duration: 2000 });
     } else {
-      addBookmark({
-        mangaId:      manga.id,
-        mangaTitle:   manga.title,
-        thumbnailUrl: manga.thumbnailUrl,
-        chapterId:    ch.id,
-        chapterName:  ch.name,
-        pageNumber:   store.pageNumber,
-      });
-      addToast({ kind: "success", title: "Bookmarked", body: `Page ${store.pageNumber} — ${ch.name}`, duration: 2500 });
+      addBookmark({ mangaId: manga.id, mangaTitle: manga.title, thumbnailUrl: manga.thumbnailUrl, chapterId: ch.id, chapterName: ch.name, pageNumber: store.pageNumber });
     }
   }
 
   function cycleStyle() {
-    const opts = ["single", "longstrip"] as const;
-    const cur  = style === "double" ? "single" : style;
-    updateSettings({ pageStyle: opts[(opts.indexOf(cur as typeof opts[number]) + 1) % opts.length] });
+    const idx = PAGE_STYLES.indexOf(style);
+    updateSettings({ pageStyle: PAGE_STYLES[(idx + 1) % PAGE_STYLES.length] });
   }
 
   function cycleFit() {
@@ -538,6 +595,10 @@
     if (!e.ctrlKey) return;
     e.preventDefault();
     adjustZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+  }
+
+  function onSliderInput(e: Event) {
+    jumpToPage(Number((e.currentTarget as HTMLInputElement).value));
   }
 
   function onKey(e: KeyboardEvent) {
@@ -561,14 +622,14 @@
     else if (matchesKeybind(e, kb.chapterRight)) {
       e.preventDefault();
       const list = store.activeChapterList;
-      const idx = list.findIndex(c => c.id === store.activeChapter?.id);
+      const idx  = list.findIndex(c => c.id === store.activeChapter?.id);
       const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
       if (next) { maybeMarkCurrentRead(); openReader(next, list); }
     }
     else if (matchesKeybind(e, kb.chapterLeft)) {
       e.preventDefault();
       const list = store.activeChapterList;
-      const idx = list.findIndex(c => c.id === store.activeChapter?.id);
+      const idx  = list.findIndex(c => c.id === store.activeChapter?.id);
       const prev = idx > 0 ? list[idx - 1] : null;
       if (prev) openReader(prev, list);
     }
@@ -598,9 +659,7 @@
     window.addEventListener("wheel", onWheel, { passive: false });
     containerEl?.focus({ preventScroll: true });
 
-    const ro = new ResizeObserver(entries => {
-      containerWidth = entries[0].contentRect.width;
-    });
+    const ro = new ResizeObserver(entries => { containerWidth = entries[0].contentRect.width; });
     ro.observe(containerEl);
 
     return () => {
@@ -617,82 +676,118 @@
 <div class="root" class:overlay-bars={overlayBars} role="presentation" onmousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
 
   <div class="topbar" class:hidden={!uiVisible}>
-    <button class="icon-btn" onclick={closeReader} title="Close reader"><X size={15} weight="light" /></button>
-    <button class="icon-btn" onclick={() => { if (adjacent.prev) { maybeMarkCurrentRead(); openReader(adjacent.prev, store.activeChapterList); } }} disabled={!adjacent.prev}>
-      <CaretLeft size={14} weight="light" />
-    </button>
-    <span class="ch-label">
-      <span class="ch-title">{store.activeManga?.title}</span>
-      <span class="ch-sep">/</span>
-      <span>{displayChapter?.name}</span>
-    </span>
-    <span class="page-label">{store.pageNumber} / {visibleChunkLastPage || "…"}</span>
-    <button class="icon-btn" onclick={() => { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } }} disabled={!adjacent.next}>
-      <CaretRight size={14} weight="light" />
-    </button>
-    <div class="top-sep"></div>
-    <button class="mode-btn" onclick={cycleFit}>
-      {#if fit === "width"}<ArrowsLeftRight size={14} weight="light" />
-      {:else if fit === "height"}<ArrowsVertical size={14} weight="light" />
-      {:else if fit === "screen"}<ArrowsIn size={14} weight="light" />
-      {:else}<ArrowsOut size={14} weight="light" />{/if}
-      <span class="mode-label">{fitLabel}</span>
-    </button>
 
-    <div class="zoom-wrap">
-      <div class="zoom-inline">
-        <button class="zoom-step-btn" onclick={() => adjustZoom(-ZOOM_STEP)} title="Zoom out" disabled={zoom <= ZOOM_MIN}>
-          <MagnifyingGlassMinus size={13} weight="light" />
-        </button>
-        <button class="zoom-pct-btn" onclick={() => zoomOpen = !zoomOpen} title="Click to adjust zoom">
-          {zoomPct}%
-        </button>
-        <button class="zoom-step-btn" onclick={() => adjustZoom(ZOOM_STEP)} title="Zoom in" disabled={zoom >= ZOOM_MAX}>
-          <MagnifyingGlassPlus size={13} weight="light" />
-        </button>
-      </div>
-      {#if zoomOpen}
-        <div class="zoom-popover">
-          <div class="zoom-slider-row">
-            <input type="range" class="zoom-slider" min={10} max={100} step={5} value={zoomPct}
-              oninput={(e) => { captureZoomAnchor(); updateSettings({ readerZoom: clampZoom(Number(e.currentTarget.value) / 100) }); restoreZoomAnchor(); }} />
-          </div>
-          <button class="zoom-reset" onclick={resetZoom} disabled={zoom === 1.0}>Reset</button>
-        </div>
-      {/if}
+    <div class="topbar-left">
+      <button class="icon-btn" onclick={closeReader} title="Close reader"><X size={15} weight="light" /></button>
+      <button class="icon-btn" onclick={() => { if (adjacent.prev) { maybeMarkCurrentRead(); openReader(adjacent.prev, store.activeChapterList); } }} disabled={!adjacent.prev}>
+        <CaretLeft size={14} weight="light" />
+      </button>
+      <span class="ch-label">
+        <span class="ch-title">{store.activeManga?.title}</span>
+        <span class="ch-sep">/</span>
+        <span>{displayChapter?.name}</span>
+      </span>
+      <button class="icon-btn" onclick={() => { if (adjacent.next) { maybeMarkCurrentRead(); openReader(adjacent.next, store.activeChapterList); } }} disabled={!adjacent.next}>
+        <CaretRight size={14} weight="light" />
+      </button>
+      <span class="page-label">{store.pageNumber} / {visibleChunkLastPage || "…"}</span>
     </div>
 
-    <button class="mode-btn" class:active={rtl} onclick={() => updateSettings({ readingDirection: rtl ? "ltr" : "rtl" })}>
-      <ArrowsLeftRight size={14} weight="light" /><span class="mode-label">{rtl ? "RTL" : "LTR"}</span>
-    </button>
-    <button class="mode-btn" onclick={cycleStyle}>
-      {#if style === "single"}<Square size={14} weight="light" />{:else}<Rows size={14} weight="light" />{/if}
-      <span class="mode-label">{style}</span>
-    </button>
-    {#if style !== "single"}
-      <button class="mode-btn" class:active={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}>
-        <span class="mode-label">Gap</span>
+    <div class="topbar-right">
+      <div class="top-sep"></div>
+
+      <button class="mode-btn" onclick={cycleFit}>
+        {#if fit === "width"}<ArrowsLeftRight size={14} weight="light" />
+        {:else if fit === "height"}<ArrowsVertical size={14} weight="light" />
+        {:else if fit === "screen"}<ArrowsIn size={14} weight="light" />
+        {:else}<ArrowsOut size={14} weight="light" />{/if}
+        <span class="mode-label">{fitLabel}</span>
       </button>
-    {/if}
-    {#if style === "longstrip"}
-      <button class="mode-btn" class:active={autoNext} onclick={() => updateSettings({ autoNextChapter: !autoNext })}>
-        <span class="mode-label">Auto</span>
+
+      <div class="zoom-wrap">
+        <div class="zoom-inline">
+          <button class="zoom-step-btn" onclick={() => adjustZoom(-ZOOM_STEP)} title="Zoom out" disabled={zoom <= ZOOM_MIN}>
+            <MagnifyingGlassMinus size={13} weight="light" />
+          </button>
+          <button class="zoom-pct-btn" onclick={() => zoomOpen = !zoomOpen} title="Click to adjust zoom">
+            {zoomPct}%
+          </button>
+          <button class="zoom-step-btn" onclick={() => adjustZoom(ZOOM_STEP)} title="Zoom in" disabled={zoom >= ZOOM_MAX}>
+            <MagnifyingGlassPlus size={13} weight="light" />
+          </button>
+        </div>
+        {#if zoomOpen}
+          <div class="zoom-popover">
+            <div class="zoom-slider-row">
+              <input type="range" class="zoom-slider" min={10} max={100} step={5} value={zoomPct}
+                oninput={(e) => { captureZoomAnchor(); updateSettings({ readerZoom: clampZoom(Number(e.currentTarget.value) / 100) }); restoreZoomAnchor(); }} />
+            </div>
+            <button class="zoom-reset" onclick={resetZoom} disabled={zoom === 1.0}>Reset</button>
+          </div>
+        {/if}
+      </div>
+
+      <button class="mode-btn" class:active={rtl} onclick={() => updateSettings({ readingDirection: rtl ? "ltr" : "rtl" })}>
+        <ArrowsLeftRight size={14} weight="light" /><span class="mode-label">{rtl ? "RTL" : "LTR"}</span>
       </button>
-    {/if}
-    {#if !autoNext}
-      <button class="mode-btn" class:active={markOnNext} onclick={() => updateSettings({ markReadOnNext: !markOnNext })}>
-        <span class="mode-label">Mk.Read</span>
+
+      <button class="mode-btn" onclick={cycleStyle} title="Cycle view mode">
+        {#if style === "single"}<Square size={14} weight="light" />
+        {:else if style === "fade"}<MonitorPlay size={14} weight="light" />
+        {:else if style === "double"}<BookOpen size={14} weight="light" />
+        {:else}<Rows size={14} weight="light" />{/if}
+        <span class="mode-label">{style}</span>
       </button>
-    {/if}
-    <button class="mode-btn" onclick={() => dlOpen = true}>
-      <Download size={14} weight="light" />
-    </button>
-    {#if store.settings.bookmarksEnabled ?? true}
+
+      <div class="mode-extras">
+        {#if style === "double"}
+          <button class="mode-btn" class:active={store.settings.offsetDoubleSpreads} onclick={() => updateSettings({ offsetDoubleSpreads: !store.settings.offsetDoubleSpreads })}>
+            <span class="mode-label">Offset</span>
+          </button>
+        {/if}
+        {#if style === "longstrip"}
+          <button class="mode-btn" class:active={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}>
+            <span class="mode-label">Gap</span>
+          </button>
+          <button class="mode-btn" class:active={autoNext} onclick={() => updateSettings({ autoNextChapter: !autoNext })}>
+            <span class="mode-label">Auto</span>
+          </button>
+        {/if}
+        {#if !autoNext}
+          <button class="mode-btn" class:active={markOnNext} onclick={() => updateSettings({ markReadOnNext: !markOnNext })}>
+            <span class="mode-label">Mk.Read</span>
+          </button>
+        {/if}
+      </div>
+
+      <button class="mode-btn" onclick={() => dlOpen = true}>
+        <Download size={14} weight="light" />
+      </button>
+
       <button class="icon-btn" class:active={isBookmarked} onclick={toggleBookmark} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"}>
-        <Bookmark size={15} weight={isBookmarked ? "fill" : "regular"} />
-      </button>
-    {/if}
+          <Bookmark size={15} weight={isBookmarked ? "fill" : "regular"} />
+        </button>
+    </div>
   </div>
+
+  {#if showResumeBanner}
+    <div class="resume-banner" class:fading={resumeFading} role="status" onclick={() => { resumeVisible = false; resumeFading = false; }}>
+      <span>Bookmark at page {resumePage}</span>
+      {#if style === "longstrip" && visibleChapterId && visibleChapterId !== store.activeChapter?.id}
+        <button class="resume-jump" onclick={() => {
+          const chId = visibleChapterId!;
+          const targetPg = resumePage;
+          const scrollToPage = () => {
+            const target = containerEl.querySelector<HTMLImageElement>(`img[data-local-page="${targetPg}"][data-chapter="${chId}"]`);
+            if (!target) { requestAnimationFrame(scrollToPage); return; }
+            target.scrollIntoView({ block: "start", behavior: "smooth" });
+          };
+          scrollToPage();
+          resumeVisible = false;
+        }}>Jump</button>
+      {/if}
+    </div>
+  {/if}
 
   <div
     bind:this={containerEl}
@@ -705,25 +800,7 @@
     onwheel={(e) => { if (e.ctrlKey) e.preventDefault(); }}
     onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); containerEl?.scrollBy({ top: containerEl.clientHeight * 0.85, behavior: "smooth" }); } }}
   >
-    {#if showResumeBanner}
-      <div class="resume-banner" role="status">
-        <span>Bookmark at page {resumePage}</span>
-        {#if style === "longstrip" && visibleChapterId && visibleChapterId !== store.activeChapter?.id}
-          <button class="resume-jump" onclick={() => {
-            const chId = visibleChapterId!;
-            const targetPg = resumePage;
-            const scrollToPage = () => {
-              const target = containerEl.querySelector<HTMLImageElement>(`img[data-local-page="${targetPg}"][data-chapter="${chId}"]`);
-              if (!target) { requestAnimationFrame(scrollToPage); return; }
-              target.scrollIntoView({ block: "start", behavior: "smooth" });
-            };
-            scrollToPage();
-            resumeDismissed = true;
-          }}>Jump</button>
-        {/if}
-        <button class="resume-dismiss" onclick={() => resumeDismissed = true}>✕</button>
-      </div>
-    {/if}
+
     {#if loading}
       <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
     {/if}
@@ -747,25 +824,86 @@
         {/each}
       {/each}
       <div style="height:1px;flex-shrink:0"></div>
-    {:else if pageReady}
-      {#if style === "double" && pageGroups.length}
+
+    {:else if style === "fade" && pageReady}
+      <img
+        src={store.pageUrls[store.pageNumber - 1]}
+        alt="Page {store.pageNumber}"
+        class={imgCls}
+        decoding="async"
+        style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;"
+      />
+
+    {:else if style === "double" && pageReady}
+      {#if pageGroups.length}
         <div class="double-wrap">
-          {#each currentGroup as pg}
-            <img src={store.pageUrls[pg - 1]} alt="Page {pg}" class="{imgCls} page-half {pg === currentGroup[0] ? 'gap-left' : 'gap-right'}" decoding="async" />
+          {#each currentGroup as pg, i}
+            <img
+              src={store.pageUrls[pg - 1]}
+              alt="Page {pg}"
+              class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}"
+              decoding="async"
+            />
           {/each}
         </div>
       {:else}
-        <img src={store.pageUrls[store.pageNumber - 1]} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="transition:opacity 0.1s ease" />
+        <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
       {/if}
+
+    {:else if pageReady}
+      <img src={store.pageUrls[store.pageNumber - 1]} alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
     {/if}
   </div>
 
   <div class="bottombar" class:hidden={!uiVisible}>
-    <button class="nav-btn" onclick={goBack} disabled={loading || (style === "longstrip" ? !adjacent.prev : (store.pageNumber === 1 && !adjacent.prev))}>
-      {#if rtl}<ArrowRight size={13} weight="light" />{:else}<ArrowLeft size={13} weight="light" />{/if}
+    <button class="nav-btn" onclick={goPrev} disabled={loading || (style === "longstrip" ? !adjacent.prev : (store.pageNumber === 1 && !adjacent.prev))}>
+      <ArrowLeft size={13} weight="light" />
     </button>
-    <button class="nav-btn" onclick={goForward} disabled={loading || (style === "longstrip" ? !adjacent.next : (store.pageNumber === lastPage && !adjacent.next))}>
-      {#if rtl}<ArrowLeft size={13} weight="light" />{:else}<ArrowRight size={13} weight="light" />{/if}
+
+    {#if sliderMax > 1}
+      <div
+        class="slider-wrap"
+        class:dragging={sliderDragging}
+        onmouseenter={() => sliderHover = true}
+        onmouseleave={() => { sliderHover = false; }}
+        role="presentation"
+      >
+        <div class="slider-track-bg">
+          <div class="slider-fill" style="width: {rtl ? 100 - sliderPct : sliderPct}%"></div>
+        </div>
+        {#if isBookmarked && currentBookmark}
+          {@const bPct = sliderMax > 1 ? ((currentBookmark.pageNumber - 1) / (sliderMax - 1)) * 100 : 0}
+          <div
+            class="slider-checkpoint bookmark-checkpoint"
+            style="left: {rtl ? 100 - bPct : bPct}%"
+            title="Bookmark: Page {currentBookmark.pageNumber}"
+          ></div>
+        {/if}
+        <input
+          type="range"
+          class="slider-input"
+          min={1}
+          max={sliderMax}
+          step={1}
+          value={sliderPage}
+          dir={rtl ? "rtl" : "ltr"}
+          oninput={onSliderInput}
+          onmousedown={() => sliderDragging = true}
+          onmouseup={() => sliderDragging = false}
+          ontouchstart={() => sliderDragging = true}
+          ontouchend={() => sliderDragging = false}
+          aria-label="Page {sliderPage} of {sliderMax}"
+        />
+        {#if sliderHover || sliderDragging}
+          <div class="slider-tooltip" style="left: {rtl ? 100 - sliderPct : sliderPct}%">
+            {sliderPage} / {sliderMax}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <button class="nav-btn" onclick={goNext} disabled={loading || (style === "longstrip" ? !adjacent.next : (store.pageNumber === lastPage && !adjacent.next))}>
+      <ArrowRight size={13} weight="light" />
     </button>
   </div>
 
@@ -807,21 +945,30 @@
   .overlay-bars .topbar    { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
   .overlay-bars .bottombar { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; }
   .overlay-bars .viewer    { height: 100%; }
-  .topbar { display: flex; align-items: center; gap: var(--sp-1); padding: 0 var(--sp-3); height: 40px; background: var(--bg-void); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; position: relative; z-index: 2; transition: opacity 0.25s ease; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-1); padding: 0 var(--sp-3); height: 40px; background: var(--bg-void); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; position: relative; z-index: 2; transition: opacity 0.25s ease; }
   .topbar.hidden, .bottombar.hidden { opacity: 0; pointer-events: none; }
+
+  .topbar-left { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; flex: 1; overflow: hidden; }
+  .topbar-right { display: flex; align-items: center; gap: var(--sp-1); flex-shrink: 0; }
+  .mode-extras { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-muted); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .icon-btn:disabled { opacity: 0.2; cursor: default; }
   .icon-btn.active { color: var(--accent-fg); }
-  .ch-label { flex: 1; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); }
-  .ch-sep   { color: var(--text-faint); }
+
+  .ch-label { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ch-sep   { color: var(--text-faint); flex-shrink: 0; }
   .page-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
   .top-sep { width: 1px; height: 16px; background: var(--border-dim); flex-shrink: 0; margin: 0 var(--sp-1); }
+
   .mode-btn { display: flex; align-items: center; gap: 4px; padding: 4px var(--sp-2); border-radius: var(--radius-sm); color: var(--text-muted); flex-shrink: 0; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); transition: color var(--t-base), background var(--t-base); }
   .mode-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
   .mode-btn.active { color: var(--accent-fg); background: var(--accent-muted); }
   .mode-label { text-transform: capitalize; }
+
   .zoom-wrap { position: relative; flex-shrink: 0; }
   .zoom-inline { display: flex; align-items: center; gap: 1px; background: var(--bg-overlay); border: 1px solid var(--border-base); border-radius: var(--radius-sm); overflow: hidden; }
   .zoom-step-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
@@ -836,26 +983,48 @@
   .zoom-reset { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 3px var(--sp-2); border-radius: var(--radius-sm); border: 1px solid var(--border-dim); transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
   .zoom-reset:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-overlay); border-color: var(--border-strong); }
   .zoom-reset:disabled { opacity: 0.3; cursor: default; }
+
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
+
   .img { display: block; user-select: none; image-rendering: auto; }
   .img.optimize-contrast { image-rendering: -webkit-optimize-contrast; }
   .fit-width    { max-width: var(--effective-width, 100%); width: 100%; height: auto; }
   .fit-height   { max-height: calc(100vh - 80px); width: auto; max-width: var(--effective-width, 100%); height: auto; }
   .fit-screen   { max-width: var(--effective-width, 100%); max-height: calc(100vh - 80px); object-fit: contain; height: auto; }
-  .fit-original { max-width: none; width: auto; height: auto; }
+  .fit-original { max-width: 100%; width: auto; height: auto; }
   .strip-gap { margin-bottom: 8px; }
+
   .double-wrap { display: flex; align-items: flex-start; justify-content: center; max-width: calc(var(--effective-width, 100%) * 2); width: 100%; }
   .page-half { flex: 1; min-width: 0; object-fit: contain; }
   .gap-left  { margin-right: 2px; }
   .gap-right { margin-left: 2px; }
+
   .center-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
   .error-msg { color: var(--color-error); font-size: var(--text-base); }
-  .bottombar { display: flex; align-items: center; justify-content: center; gap: var(--sp-4); padding: var(--sp-3); border-top: 1px solid var(--border-dim); background: var(--bg-void); flex-shrink: 0; transition: opacity 0.25s ease; }
-  .nav-btn { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: var(--radius-md); border: 1px solid var(--border-strong); color: var(--text-muted); transition: background var(--t-base), color var(--t-base); }
+
+  .bottombar { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-dim); background: var(--bg-void); flex-shrink: 0; transition: opacity 0.25s ease; }
+  .nav-btn { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: var(--radius-md); border: 1px solid var(--border-strong); color: var(--text-muted); transition: background var(--t-base), color var(--t-base); }
   .nav-btn:hover:not(:disabled) { background: var(--bg-raised); color: var(--text-primary); }
   .nav-btn:disabled { opacity: 0.25; cursor: default; }
+
+  .slider-wrap { flex: 1; position: relative; display: flex; align-items: center; height: 34px; cursor: pointer; }
+  .slider-track-bg { position: absolute; left: 0; right: 0; height: 3px; background: var(--border-strong); border-radius: 2px; overflow: hidden; pointer-events: none; }
+  .slider-fill { height: 100%; background: var(--accent-fg); border-radius: 2px; transition: width 0.05s linear; }
+  .slider-input { position: absolute; left: 0; right: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; z-index: 2; }
+  .slider-checkpoint { position: absolute; top: 50%; width: 4px; height: 10px; border-radius: 2px; transform: translate(-50%, -50%); pointer-events: none; z-index: 1; }
+  .bookmark-checkpoint { background: var(--accent-fg); opacity: 0.7; }
+  .slider-tooltip { position: absolute; bottom: calc(100% + 2px); transform: translateX(-50%); background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-sm); padding: 2px 6px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-secondary); white-space: nowrap; pointer-events: none; z-index: 10; letter-spacing: var(--tracking-wide); }
+  .slider-wrap:hover .slider-track-bg, .slider-wrap.dragging .slider-track-bg { height: 5px; }
+
+  .resume-banner { position: fixed; top: 48px; left: 50%; display: flex; align-items: center; gap: var(--sp-2); background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: 6px var(--sp-3); font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); z-index: 20; box-shadow: 0 4px 16px rgba(0,0,0,0.4); animation: bannerIn 0.2s cubic-bezier(0.16,1,0.3,1) both; white-space: nowrap; cursor: pointer; }
+  .resume-banner.fading { animation: bannerOut 1s ease forwards; }
+  @keyframes bannerIn  { from { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+  @keyframes bannerOut { from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } to { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.97); } }
+  .resume-jump { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 2px 8px; cursor: pointer; transition: filter var(--t-fast); }
+  .resume-jump:hover { filter: brightness(1.15); }
+
   .dl-backdrop { position: fixed; inset: 0; z-index: calc(var(--z-reader) + 10); display: flex; align-items: flex-start; justify-content: flex-end; padding: 48px var(--sp-4) 0; }
   .dl-modal { background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-xl); padding: var(--sp-3); min-width: 210px; display: flex; flex-direction: column; gap: var(--sp-1); box-shadow: 0 8px 32px rgba(0,0,0,0.6); animation: scaleIn 0.12s ease both; transform-origin: top right; }
   .dl-title { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: 2px var(--sp-2) var(--sp-2); border-bottom: 1px solid var(--border-dim); margin-bottom: var(--sp-1); }
@@ -869,10 +1038,6 @@
   .dl-step-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .dl-step-btn:disabled { opacity: 0.25; cursor: default; }
   .dl-step-val { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); min-width: 24px; text-align: center; letter-spacing: var(--tracking-wide); }
-  .resume-banner { position: absolute; top: var(--sp-3); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: var(--sp-2); background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: 6px var(--sp-3); font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); z-index: 20; box-shadow: 0 4px 16px rgba(0,0,0,0.4); animation: scaleIn 0.15s ease both; white-space: nowrap; }
-  .resume-dismiss { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 9px; color: var(--text-faint); transition: color var(--t-fast), background var(--t-fast); }
-  .resume-dismiss:hover { color: var(--text-primary); background: var(--bg-overlay); }
-  .resume-jump { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 2px 8px; cursor: pointer; transition: filter var(--t-fast); }
-  .resume-jump:hover { filter: brightness(1.15); }
+
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

@@ -9,7 +9,7 @@
   import { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER, GET_SOURCES } from "../../lib/queries";
   import { GET_DOWNLOADS_PATH, SET_DOWNLOADS_PATH, SET_LOCAL_SOURCE_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
   import type { Category, Source } from "../../lib/types";
-  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories, clearBookmarks } from "../../store/state.svelte";
+  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories } from "../../store/state.svelte";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
@@ -1111,11 +1111,9 @@
                 </label>
               {/if}
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Bookmarks</span><span class="toggle-desc">One per manga — acts like a physical bookmark</span></div>
-                <button role="switch" aria-checked={store.settings.bookmarksEnabled ?? true} aria-label="Enable bookmarks" class="toggle" class:on={store.settings.bookmarksEnabled ?? true} onclick={() => {
-                    const next = !(store.settings.bookmarksEnabled ?? true);
-                    updateSettings({ bookmarksEnabled: next });
-                    if (!next) clearBookmarks();
+                <div class="toggle-info"><span class="toggle-label">Auto-bookmark</span><span class="toggle-desc">Automatically saves your page position as you read</span></div>
+                <button role="switch" aria-checked={store.settings.autoBookmark ?? true} aria-label="Enable auto-bookmark" class="toggle" class:on={store.settings.autoBookmark ?? true} onclick={() => {
+                    updateSettings({ autoBookmark: !(store.settings.autoBookmark ?? true) });
                   }}><span class="toggle-thumb"></span></button>
               </label>
               <div class="step-row">

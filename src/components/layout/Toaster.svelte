@@ -17,8 +17,8 @@
   });
 
   const icons: Record<Toast["kind"], string> = {
-    success:  "M9 12l2 2 4-4M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z",
-    error:    "M12 9v4M12 17h.01M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z",
+    success:  "M20 6L9 17l-5-5",
+    error:    "M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z",
     info:     "M12 16v-4M12 8h.01M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z",
     download: "M12 3v13M7 11l5 5 5-5M5 21h14",
   };
@@ -27,10 +27,15 @@
 {#if store.toasts.length}
   <div class="toaster" aria-live="polite">
     {#each store.toasts as t (t.id)}
-      <div class="toast toast-{t.kind}" role="alert">
+      <div
+        class="toast toast-{t.kind}"
+        role="alert"
+        onclick={() => dismissToast(t.id)}
+      >
+        <div class="accent-bar"></div>
         <span class="icon">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d={icons[t.kind]} />
           </svg>
         </span>
@@ -38,12 +43,6 @@
           <p class="title">{t.title}</p>
           {#if t.body}<p class="sub">{t.body}</p>{/if}
         </div>
-        <button class="close" onclick={() => dismissToast(t.id)} title="Dismiss">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>
       </div>
     {/each}
   </div>
@@ -51,41 +50,91 @@
 
 <style>
   .toaster {
-    position: fixed; bottom: var(--sp-5); right: var(--sp-5);
-    z-index: 9999; display: flex; flex-direction: column;
-    gap: var(--sp-2); pointer-events: none; max-width: 320px;
+    position: fixed;
+    bottom: var(--sp-5);
+    right: var(--sp-5);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+    max-width: 300px;
   }
+
   .toast {
-    display: flex; align-items: flex-start; gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-3);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-base);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 10px var(--sp-3) 10px 0;
+    border-radius: var(--radius-md);
     background: var(--bg-raised);
-    box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08);
-    pointer-events: all; min-width: 220px;
-    animation: toastIn 0.18s cubic-bezier(0.16,1,0.3,1) both;
+    border: 1px solid var(--border-dim);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.04) inset;
+    pointer-events: all;
+    min-width: 200px;
+    overflow: hidden;
+    cursor: pointer;
+    animation: slideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: opacity 0.15s ease, transform 0.15s ease;
   }
-  @keyframes toastIn {
-    from { opacity: 0; transform: translateX(24px) scale(0.96); }
-    to   { opacity: 1; transform: translateX(0) scale(1); }
+
+  .toast:hover  { opacity: 0.85; transform: translateX(-2px); }
+  .toast:active { transform: translateX(0) scale(0.98); }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(16px) scale(0.98); }
+    to   { opacity: 1; transform: translateX(0)    scale(1); }
   }
-  .toast-success { border-color: var(--accent-dim); }
-  .toast-success .icon { color: var(--accent-fg); }
-  .toast-error { border-color: var(--color-error); }
-  .toast-error .icon { color: var(--color-error); }
-  .toast-download .icon, .toast-info .icon { color: var(--accent-fg); }
-  .icon { flex-shrink: 0; margin-top: 2px; color: var(--text-faint); }
-  .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .title { font-size: var(--text-sm); color: var(--text-secondary); font-weight: var(--weight-medium); line-height: 1.3; }
+
+  .accent-bar {
+    width: 3px;
+    align-self: stretch;
+    flex-shrink: 0;
+    border-radius: 0 2px 2px 0;
+    margin-right: 2px;
+  }
+
+  .toast-success  .accent-bar { background: var(--accent-fg); }
+  .toast-error    .accent-bar { background: var(--color-error); }
+  .toast-info     .accent-bar { background: var(--text-faint); }
+  .toast-download .accent-bar { background: var(--accent-fg); }
+
+  .icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .toast-success  .icon { color: var(--accent-fg); }
+  .toast-error    .icon { color: var(--color-error); }
+  .toast-info     .icon { color: var(--text-muted); }
+  .toast-download .icon { color: var(--accent-fg); }
+
+  .body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .title {
+    font-size: var(--text-xs);
+    font-family: var(--font-ui);
+    color: var(--text-secondary);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-wide);
+    line-height: 1.3;
+  }
+
   .sub {
-    font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint);
-    letter-spacing: var(--tracking-wide); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    letter-spacing: var(--tracking-wide);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .close {
-    display: flex; align-items: center; justify-content: center;
-    width: 18px; height: 18px; border-radius: var(--radius-sm);
-    color: var(--text-faint); flex-shrink: 0; margin-top: 1px;
-    transition: color var(--t-base), background var(--t-base);
-  }
-  .close:hover { color: var(--text-muted); background: var(--bg-overlay); }
 </style>

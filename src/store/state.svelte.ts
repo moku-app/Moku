@@ -213,7 +213,7 @@ export interface Settings {
   storageLimitGb:          number | null;
   markReadOnNext:          boolean;
   readerDebounceMs:        number;
-  bookmarksEnabled:        boolean;
+  autoBookmark:            boolean;
   theme:                   Theme;
   libraryBranches:         boolean;
   renderLimit:             number;
@@ -297,7 +297,7 @@ export const DEFAULT_SETTINGS: Settings = {
   storageLimitGb:         null,
   markReadOnNext:         true,
   readerDebounceMs:       120,
-  bookmarksEnabled:       true,
+  autoBookmark:           true,
   theme:                  "dark",
   libraryBranches:        true,
   renderLimit:            48,
@@ -569,7 +569,6 @@ class Store {
    * per chapter is kept — adding a second one replaces the first.
    */
   addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) {
-    if (!(this.settings.bookmarksEnabled ?? true)) return;
     const bookmark: BookmarkEntry = { ...entry, savedAt: Date.now(), label };
     this.bookmarks = [
       bookmark,
