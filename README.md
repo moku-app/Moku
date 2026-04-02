@@ -7,7 +7,7 @@
 [![release](https://img.shields.io/github/v/release/Youwes09/Moku?style=flat&color=a8c4a8&labelColor=151515)](https://github.com/Youwes09/Moku/releases/latest)
 [![downloads](https://img.shields.io/github/downloads/Youwes09/Moku/total?style=flat&color=a8c4a8&labelColor=151515)](https://github.com/Youwes09/Moku/releases/latest)
 [![license](https://img.shields.io/github/license/Youwes09/Moku?style=flat&color=a8c4a8&labelColor=151515)](./LICENSE)
-[![discord](https://img.shields.io/discord/1485151759511978077?style=flat&color=a8c4a8&labelColor=151515&label=discord)](https://discord.gg/cfncTbJ2)
+[![discord](https://img.shields.io/discord/1485151759511978077?style=flat&color=a8c4a8&labelColor=151515&label=discord)](https://discord.gg/x97hj8zR72)
 
 </div>
 
@@ -131,7 +131,7 @@ pnpm tauri:dev
 
 Questions, feedback, or just want to hang out — join the Discord.
 
-[![Discord](https://img.shields.io/discord/1485151759511978077?style=for-the-badge&color=a8c4a8&labelColor=151515&label=Join+the+Discord)](https://discord.gg/cfncTbJ2)
+[![Discord](https://img.shields.io/discord/1485151759511978077?style=for-the-badge&color=a8c4a8&labelColor=151515&label=Join+the+Discord)](https://discord.gg/x97hj8zR72)
 
 ---
 
