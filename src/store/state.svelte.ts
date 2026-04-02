@@ -27,6 +27,13 @@ export type LibraryStatusFilter =
   | "CANCELLED"
   | "HIATUS"
   | "UNKNOWN";
+
+/** Checkbox-style content filters — multiple can be active at once per tab. */
+export type LibraryContentFilter =
+  | "unread"
+  | "started"
+  | "downloaded"
+  | "bookmarked";
 export type BuiltinTheme     = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
 export type Theme            = BuiltinTheme | string; // custom themes have string IDs like "custom:abc123"
 
@@ -251,7 +258,9 @@ export interface Settings {
   nsfwBlockedSourceIds:  string[];
   /** Per-tab sort/filter state — keyed by libraryFilter value (e.g. "library", "downloaded", "42"). */
   libraryTabSort:   Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
-  libraryTabStatus: Record<string, LibraryStatusFilter>;
+  libraryTabStatus:  Record<string, LibraryStatusFilter>;
+  /** Per-tab active content filters — keys are LibraryContentFilter, value is true when active. */
+  libraryTabFilters: Record<string, Partial<Record<LibraryContentFilter, boolean>>>;
   // Legacy fields kept for migration reads only — never written after v3.
   /** @deprecated use readerZoom */
   maxPageWidth?:           number;
@@ -328,6 +337,7 @@ export const DEFAULT_SETTINGS: Settings = {
   nsfwBlockedSourceIds:  [],
   libraryTabSort:         {},
   libraryTabStatus:       {},
+  libraryTabFilters:      {},
   extraScanDirs:          [],
   serverDownloadsPath:    "",
   serverLocalSourcePath:  "",
@@ -393,6 +403,7 @@ function mergeSettings(saved: any): Settings {
     hiddenCategoryIds: saved?.settings?.hiddenCategoryIds ?? [],
     libraryTabSort:    saved?.settings?.libraryTabSort    ?? {},
     libraryTabStatus:  saved?.settings?.libraryTabStatus  ?? {},
+    libraryTabFilters: saved?.settings?.libraryTabFilters ?? {},
     nsfwFilteredTags:     saved?.settings?.nsfwFilteredTags     ?? ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
     nsfwAllowedSourceIds: saved?.settings?.nsfwAllowedSourceIds ?? [],
     nsfwBlockedSourceIds: saved?.settings?.nsfwBlockedSourceIds ?? [],

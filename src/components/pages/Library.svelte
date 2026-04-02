@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut, SortAscending, Funnel, CaretUp, CaretDown } from "phosphor-svelte";
+  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut, SortAscending, Funnel, CaretUp, CaretDown, Check } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw } from "../../lib/util";
   import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings, setCategories } from "../../store/state.svelte";
-  import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter } from "../../store/state.svelte";
+  import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter, LibraryContentFilter } from "../../store/state.svelte";
   import type { Manga, Category, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
@@ -73,6 +73,12 @@
   const tabStatus = $derived(
     store.settings.libraryTabStatus[store.libraryFilter] ?? "ALL" as LibraryStatusFilter
   );
+  const tabFilters = $derived(
+    store.settings.libraryTabFilters?.[store.libraryFilter] ?? {} as Partial<Record<LibraryContentFilter, boolean>>
+  );
+  const hasActiveFilters = $derived(
+    tabStatus !== "ALL" || Object.values(tabFilters).some(Boolean)
+  );
 
   function setTabSort(mode: LibrarySortMode, dir?: LibrarySortDir) {
     const prev   = store.settings.libraryTabSort[store.libraryFilter];
@@ -96,7 +102,32 @@
         [store.libraryFilter]: status,
       },
     });
-    filterPanelOpen = false;
+  }
+
+  function toggleTabFilter(filter: LibraryContentFilter) {
+    const current = store.settings.libraryTabFilters?.[store.libraryFilter] ?? {};
+    updateSettings({
+      libraryTabFilters: {
+        ...(store.settings.libraryTabFilters ?? {}),
+        [store.libraryFilter]: {
+          ...current,
+          [filter]: !current[filter],
+        },
+      },
+    });
+  }
+
+  function clearAllFilters() {
+    updateSettings({
+      libraryTabStatus: {
+        ...store.settings.libraryTabStatus,
+        [store.libraryFilter]: "ALL",
+      },
+      libraryTabFilters: {
+        ...(store.settings.libraryTabFilters ?? {}),
+        [store.libraryFilter]: {},
+      },
+    });
   }
 
   let allManga:       Manga[]      = $state([]);
@@ -332,6 +363,13 @@
         return s === status;
       });
     }
+
+    // 4b. Content filters (additive — each active filter further narrows the list)
+    const filters = store.settings.libraryTabFilters?.[store.libraryFilter] ?? {};
+    if (filters.unread)     items = items.filter(m => (m.unreadCount ?? 0) > 0);
+    if (filters.started)    items = items.filter(m => (m.unreadCount ?? 0) > 0 && (m.chapterCount ?? 0) > (m.unreadCount ?? 0));
+    if (filters.downloaded) items = items.filter(m => (m.downloadCount ?? 0) > 0);
+    if (filters.bookmarked) items = items.filter(m => !!(m as any).hasBookmark);
 
     // 5. Sort
     const recentlyReadMap = new Map<number, number>();
@@ -712,7 +750,11 @@
           </button>
           {#if sortPanelOpen}
             <div class="dropdown-panel sort-panel" role="menu">
-              <p class="panel-label">Sort by</p>
+              <div class="panel-header">
+                <span class="panel-heading">Sort</span>
+              </div>
+              <div class="panel-divider"></div>
+              <p class="panel-label">Order by</p>
               {#each ALL_SORT_MODES as m}
                 <button
                   class="panel-item"
@@ -750,22 +792,47 @@
         <div class="filter-panel-wrap">
           <button
             class="icon-btn"
-            class:icon-btn-active={tabStatus !== "ALL"}
-            title="Filter by status"
+            class:icon-btn-active={hasActiveFilters}
+            title="Filter"
             onclick={openFilterPanel}
           >
-            <Funnel size={15} weight={tabStatus !== "ALL" ? "fill" : "bold"} />
+            <Funnel size={15} weight={hasActiveFilters ? "fill" : "bold"} />
           </button>
           {#if filterPanelOpen}
             <div class="dropdown-panel filter-panel" role="menu">
-              <p class="panel-label">Filter by status</p>
-              {#each ALL_STATUS_FILTERS as s}
+              <div class="panel-header">
+                <span class="panel-heading">Filter</span>
+                {#if hasActiveFilters}
+                  <button class="panel-clear-btn" onclick={clearAllFilters}>Clear all</button>
+                {/if}
+              </div>
+              <div class="panel-divider"></div>
+              <p class="panel-label">Content</p>
+              {#each ([["unread","Unread"],["started","Started"],["downloaded","Downloaded"],["bookmarked","Bookmarked"]] as const) as [f, label]}
                 <button
-                  class="panel-item"
+                  class="panel-item panel-item-check"
+                  class:panel-item-active={tabFilters[f]}
+                  role="menuitem"
+                  onclick={() => toggleTabFilter(f)}
+                >
+                  <span class="panel-check" class:panel-check-on={tabFilters[f]}>
+                    {#if tabFilters[f]}<Check size={9} weight="bold" />{/if}
+                  </span>
+                  {label}
+                </button>
+              {/each}
+              <div class="panel-divider"></div>
+              <p class="panel-label">Status</p>
+              {#each ALL_STATUS_FILTERS.filter(s => s !== "ALL") as s}
+                <button
+                  class="panel-item panel-item-check"
                   class:panel-item-active={tabStatus === s}
                   role="menuitem"
-                  onclick={() => setTabStatus(s)}
+                  onclick={() => setTabStatus(tabStatus === s ? "ALL" : s)}
                 >
+                  <span class="panel-check" class:panel-check-on={tabStatus === s}>
+                    {#if tabStatus === s}<Check size={9} weight="bold" />{/if}
+                  </span>
                   {STATUS_LABELS[s]}
                 </button>
               {/each}
@@ -934,6 +1001,15 @@
   .panel-item-active { color: var(--accent-fg); background: var(--accent-muted); font-weight: var(--weight-medium, 500); }
   .panel-item-active:hover { background: var(--accent-dim); }
   .panel-divider { height: 1px; background: var(--border-dim); margin: 4px 2px; }
+  /* Panel header row — shared by sort + filter panels */
+  .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px 4px; }
+  .panel-heading { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-secondary); font-weight: var(--weight-medium, 500); }
+  .panel-clear-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 0; transition: color var(--t-base); }
+  .panel-clear-btn:hover { color: var(--color-error); }
+  /* Check items */
+  .panel-item-check { justify-content: flex-start; gap: var(--sp-2); }
+  .panel-check { width: 13px; height: 13px; border-radius: 2px; border: 1px solid var(--border-strong); background: transparent; flex-shrink: 0; transition: background var(--t-base), border-color var(--t-base); display: flex; align-items: center; justify-content: center; color: var(--bg-base); }
+  .panel-check-on { background: var(--accent); border-color: var(--accent); }
   .dir-toggle { color: var(--text-secondary); justify-content: flex-start; gap: var(--sp-2); border-top: 1px solid var(--border-dim); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: 2px; padding-top: 9px; }
   .sort-caret { flex-shrink: 0; }
 
