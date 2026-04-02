@@ -441,8 +441,8 @@ export const GET_SOURCES = `
 `;
 
 export const FETCH_SOURCE_MANGA = `
-  mutation FetchSourceManga($source: LongString!, $type: FetchSourceMangaType!, $page: Int!, $query: String) {
-    fetchSourceManga(input: { source: $source, type: $type, page: $page, query: $query }) {
+  mutation FetchSourceManga($source: LongString!, $type: FetchSourceMangaType!, $page: Int!, $query: String, $filters: [FilterChangeInput!]) {
+    fetchSourceManga(input: { source: $source, type: $type, page: $page, query: $query, filters: $filters }) {
       mangas {
         id
         title
