@@ -28,41 +28,36 @@ export type LibraryStatusFilter =
   | "HIATUS"
   | "UNKNOWN";
 
-/** Checkbox-style content filters — multiple can be active at once per tab. */
 export type LibraryContentFilter =
   | "unread"
   | "started"
   | "downloaded"
   | "bookmarked";
-export type BuiltinTheme     = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
-export type Theme            = BuiltinTheme | string; // custom themes have string IDs like "custom:abc123"
+
+export type BuiltinTheme = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
+export type Theme        = BuiltinTheme | string;
 
 export interface ThemeTokens {
-  /* Backgrounds */
   "bg-void":    string;
   "bg-base":    string;
   "bg-surface": string;
   "bg-raised":  string;
   "bg-overlay": string;
   "bg-subtle":  string;
-  /* Borders */
   "border-dim":    string;
   "border-base":   string;
   "border-strong": string;
   "border-focus":  string;
-  /* Text */
   "text-primary":   string;
   "text-secondary": string;
   "text-muted":     string;
   "text-faint":     string;
   "text-disabled":  string;
-  /* Accent */
   "accent":        string;
   "accent-dim":    string;
   "accent-muted":  string;
   "accent-fg":     string;
   "accent-bright": string;
-  /* Semantic */
   "color-error":    string;
   "color-error-bg": string;
   "color-success":  string;
@@ -71,7 +66,7 @@ export interface ThemeTokens {
 }
 
 export interface CustomTheme {
-  id:     string; // "custom:abc123"
+  id:     string;
   name:   string;
   tokens: ThemeTokens;
 }
@@ -104,7 +99,6 @@ export const DEFAULT_THEME_TOKENS: ThemeTokens = {
   "color-info-bg":  "#121a1f",
 };
 
-
 export interface HistoryEntry {
   mangaId:      number;
   mangaTitle:   string;
@@ -122,21 +116,13 @@ export interface BookmarkEntry {
   chapterName:  string;
   pageNumber:   number;
   savedAt:      number;
-  /** Optional user label, e.g. "before the fight scene" */
   label?:       string;
 }
 
-/**
- * ReadLogEntry — append-only record of every chapter-completion event.
- * Unlike HistoryEntry (which dedupes per chapter for the "continue" UI),
- * this log never overwrites existing entries. It is the source of truth
- * for all reading stats.
- */
 export interface ReadLogEntry {
   mangaId:   number;
   chapterId: number;
   readAt:    number;
-  /** Minutes spent on this chapter (estimated from page count or default). */
   minutes:   number;
 }
 
@@ -151,7 +137,7 @@ export interface ReadingStats {
   lastStreakDate:    string;
 }
 
-const AVG_MIN_PER_CHAPTER = 5; // fallback when no page count is available
+const AVG_MIN_PER_CHAPTER = 5;
 
 export const DEFAULT_READING_STATS: ReadingStats = {
   totalChaptersRead: 0,
@@ -178,16 +164,32 @@ export interface ActiveDownload {
   progress:  number;
 }
 
+export interface MangaPrefs {
+  autoDownload:       boolean;
+  downloadAhead:      number;
+  deleteOnRead:       boolean;
+  deleteDelayHours:   number;
+  maxKeepChapters:    number;
+  pauseUpdates:       boolean;
+  refreshInterval:    "global" | "daily" | "weekly" | "manual";
+  preferredScanlator: string;
+}
+
+export const DEFAULT_MANGA_PREFS: MangaPrefs = {
+  autoDownload:       false,
+  downloadAhead:      0,
+  deleteOnRead:       false,
+  deleteDelayHours:   0,
+  maxKeepChapters:    0,
+  pauseUpdates:       false,
+  refreshInterval:    "global",
+  preferredScanlator: "",
+};
 
 export interface Settings {
   pageStyle:               PageStyle;
   readingDirection:        ReadingDirection;
   fitMode:                 FitMode;
-  /**
-   * Reader zoom level — unitless float multiplier relative to the viewer
-   * container width. 1.0 = image fills the viewer, 1.5 = 150%, 0.8 = 80%.
-   * Replaces the old `maxPageWidth` pixel value.
-   */
   readerZoom:              number;
   pageGap:                 boolean;
   optimizeContrast:        boolean;
@@ -202,11 +204,6 @@ export interface Settings {
   chapterSortDir:          ChapterSortDir;
   chapterSortMode:         ChapterSortMode;
   chapterPageSize:         number;
-  /**
-   * UI zoom level — unitless float multiplier applied on top of the
-   * platform scale factor from the OS/monitor. 1.0 = no user adjustment.
-   * Replaces the old `uiScale` percentage integer.
-   */
   uiZoom:                  number;
   compactSidebar:          boolean;
   gpuAcceleration:         boolean;
@@ -226,6 +223,7 @@ export interface Settings {
   renderLimit:             number;
   heroSlots:               (number | null)[];
   mangaLinks:              Record<number, number[]>;
+  mangaPrefs:              Record<number, Partial<MangaPrefs>>;
   serverAuthUser:          string;
   serverAuthPass:          string;
   serverAuthEnabled:       boolean;
@@ -245,35 +243,19 @@ export interface Settings {
   appLockPin:              string;
   customThemes:            CustomTheme[];
   hiddenCategoryIds:       number[];
-  /** Category ID that opens by default when the Library tab is first visited. null = no default (shows Saved). */
   defaultLibraryCategoryId: number | null;
-  /**
-   * Content filtering — managed via the Content tab in Settings.
-   * nsfwFilteredTags:      substrings matched against genre tags (case-insensitive).
-   * nsfwAllowedSourceIds:  sources explicitly permitted even though isNsfw = true.
-   * nsfwBlockedSourceIds:  sources always blocked regardless of tag content.
-   */
-  nsfwFilteredTags:      string[];
-  nsfwAllowedSourceIds:  string[];
-  nsfwBlockedSourceIds:  string[];
-  /** Per-tab sort/filter state — keyed by libraryFilter value (e.g. "library", "downloaded", "42"). */
-  libraryTabSort:   Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
-  libraryTabStatus:  Record<string, LibraryStatusFilter>;
-  /** Per-tab active content filters — keys are LibraryContentFilter, value is true when active. */
-  libraryTabFilters: Record<string, Partial<Record<LibraryContentFilter, boolean>>>;
-  // Legacy fields kept for migration reads only — never written after v3.
-  /** @deprecated use readerZoom */
+  nsfwFilteredTags:        string[];
+  nsfwAllowedSourceIds:    string[];
+  nsfwBlockedSourceIds:    string[];
+  libraryTabSort:          Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
+  libraryTabStatus:        Record<string, LibraryStatusFilter>;
+  libraryTabFilters:       Record<string, Partial<Record<LibraryContentFilter, boolean>>>;
   maxPageWidth?:           number;
-  /** @deprecated use uiZoom */
   uiScale?:                number;
-  /** User-added extra directories to include when scanning storage usage. */
   extraScanDirs:           string[];
-  /** Cached downloads path from Suwayomi, kept in sync on storage tab load. */
   serverDownloadsPath:     string;
-  /** Cached local source path from Suwayomi, kept in sync on storage tab load. */
   serverLocalSourcePath:   string;
 }
-
 
 export const DEFAULT_SETTINGS: Settings = {
   pageStyle:              "longstrip",
@@ -312,6 +294,7 @@ export const DEFAULT_SETTINGS: Settings = {
   renderLimit:            48,
   heroSlots:              [null, null, null, null],
   mangaLinks:             {},
+  mangaPrefs:             {},
   serverAuthUser:         "",
   serverAuthPass:         "",
   serverAuthEnabled:      false,
@@ -343,12 +326,8 @@ export const DEFAULT_SETTINGS: Settings = {
   serverLocalSourcePath:  "",
 };
 
-// ── Persistence ───────────────────────────────────────────────────────────────
-
 const STORE_VERSION = 3;
 
-// Fields reset to their DEFAULT_SETTINGS value on each version bump.
-// Add a key here whenever its default changes meaning between releases.
 const RESET_ON_UPGRADE: (keyof Settings)[] = [
   "serverBinary",
   "readerZoom",
@@ -396,10 +375,11 @@ function mergeSettings(saved: any): Settings {
   return {
     ...DEFAULT_SETTINGS,
     ...saved?.settings,
-    keybinds:     { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
-    heroSlots:    saved?.settings?.heroSlots ?? [null, null, null, null],
-    mangaLinks:   saved?.settings?.mangaLinks ?? {},
-    customThemes: saved?.settings?.customThemes ?? [],
+    keybinds:          { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
+    heroSlots:         saved?.settings?.heroSlots         ?? [null, null, null, null],
+    mangaLinks:        saved?.settings?.mangaLinks        ?? {},
+    mangaPrefs:        saved?.settings?.mangaPrefs        ?? {},
+    customThemes:      saved?.settings?.customThemes      ?? [],
     hiddenCategoryIds: saved?.settings?.hiddenCategoryIds ?? [],
     libraryTabSort:    saved?.settings?.libraryTabSort    ?? {},
     libraryTabStatus:  saved?.settings?.libraryTabStatus  ?? {},
@@ -421,32 +401,15 @@ function todayStr(): string {
 
 const genId = () => Math.random().toString(36).slice(2, 10);
 
-// ── Store ─────────────────────────────────────────────────────────────────────
-
 class Store {
-  navPage:           NavPage          = $state(saved?.navPage       ?? "home");
+  navPage:           NavPage          = $state(saved?.navPage   ?? "home");
   libraryFilter:     LibraryFilter    = $state("library");
-  history:           HistoryEntry[]   = $state(saved?.history       ?? []);
-  /**
-   * readLog — append-only, never deduped. Every chapter completion/progress
-   * event lands here. This is the authoritative source for all reading stats.
-   * Capped at 5 000 entries; oldest are trimmed first.
-   */
-  readLog:           ReadLogEntry[]   = $state(saved?.readLog       ?? []);
-  /**
-   * bookmarks — user-placed markers at a specific page in a chapter.
-   * Capped at 200 entries; oldest are trimmed first when the cap is hit.
-   */
-  bookmarks:         BookmarkEntry[]  = $state(saved?.bookmarks     ?? []);
+  history:           HistoryEntry[]   = $state(saved?.history   ?? []);
+  readLog:           ReadLogEntry[]   = $state(saved?.readLog   ?? []);
+  bookmarks:         BookmarkEntry[]  = $state(saved?.bookmarks ?? []);
   readingStats:      ReadingStats     = $state(mergeStats(saved));
   settings:          Settings         = $state(mergeSettings(saved));
-
-  /**
-   * Bumped each time the reader closes. Home.svelte watches this to know
-   * when to re-fetch library data and refresh the hero section.
-   */
   readerSessionId:   number           = $state(0);
-
   genreFilter:       string           = $state("");
   searchPrefill:     string           = $state("");
   activeManga:       Manga | null     = $state(null);
@@ -460,25 +423,15 @@ class Store {
   toasts:            Toast[]          = $state([]);
   activeChapter:     Chapter | null   = $state(null);
   activeChapterList: Chapter[]        = $state([]);
-  // UI-only: synced from Tauri window events in App.svelte. Not persisted.
   isFullscreen:      boolean          = $state(false);
-
-  // ── Shared category list ──────────────────────────────────────────────────
-  // Single source of truth for the category list, shared between Library and
-  // Settings. Library owns fetching; Settings reads and mutates in-place.
-  // No pub/sub or guard flags needed — both components share this $state ref.
-  categories: Category[] = $state([]);
-
-  // ── Discover session cache ────────────────────────────────────────────────
-  // Survives navigation within a session but is never persisted to localStorage.
-  // Key format: "<sourceId>|<type>|<genre>" or "local|<genre>"
+  categories:        Category[]       = $state([]);
   discoverCache:      Map<string, Manga[]> = $state(new Map());
   discoverLibraryIds: Set<number>          = $state(new Set());
   discoverSrcOffset:  number               = $state(0);
 
   constructor() {
     $effect.root(() => {
-      $effect(() => { persist({ storeVersion:  STORE_VERSION            }); });
+      $effect(() => { persist({ storeVersion:  STORE_VERSION      }); });
       $effect(() => { persist({ navPage:       this.navPage       }); });
       $effect(() => { persist({ libraryFilter: this.libraryFilter }); });
       $effect(() => { persist({ history:       this.history       }); });
@@ -490,9 +443,6 @@ class Store {
   }
 
   openReader(chapter: Chapter, chapterList: Chapter[], manga?: Manga | null) {
-    // Always set activeManga when provided so the Reader has full manga
-    // context for Discord RPC (setReading) and any other manga-aware logic.
-    // Callers that already set store.activeManga directly may omit this arg.
     if (manga) this.activeManga = manga;
     this.activeChapter     = chapter;
     this.activeChapterList = chapterList;
@@ -501,36 +451,20 @@ class Store {
   }
 
   closeReader() {
-    // Null activeChapter FIRST so the history $effect in Reader can't fire
-    // one last time with stale chapter + pageNumber=1, overwriting the real
-    // last-read position with page 1.
     this.activeChapter     = null;
     this.activeChapterList = [];
     this.pageUrls          = [];
     this.pageNumber        = 1;
-    this.readerSessionId  += 1;   // signals Home to refresh
+    this.readerSessionId  += 1;
   }
 
-  /**
-   * Record a reading event.
-   *
-   * @param entry     - The history entry for the "continue reading" UI.
-   * @param completed - True when the chapter was fully read (triggers stat
-   *                    accrual). False for mid-chapter progress updates.
-   * @param minutes   - Actual minutes to credit; defaults to AVG_MIN_PER_CHAPTER.
-   */
   addHistory(entry: HistoryEntry, completed = false, minutes = AVG_MIN_PER_CHAPTER) {
-    // ── 1. Update the deduped "continue reading" history ──────────────────
-    // Always keep the latest position for each chapter at the top.
     if (this.history[0]?.chapterId === entry.chapterId) {
       this.history[0] = { ...this.history[0], readAt: entry.readAt };
     } else {
       this.history = [entry, ...this.history.filter(x => x.chapterId !== entry.chapterId)].slice(0, 300);
     }
 
-    // ── 2. Append to the read log (only on completion) ────────────────────
-    // This is append-only — every completed chapter read lands here,
-    // including re-reads. We cap at 5 000 to keep storage bounded.
     if (completed) {
       const logEntry: ReadLogEntry = {
         mangaId:   entry.mangaId,
@@ -541,12 +475,7 @@ class Store {
       this.readLog = [...this.readLog, logEntry].slice(-5000);
     }
 
-    // ── 3. Recompute stats from the read log ──────────────────────────────
-    // Use the log as ground truth so stats are always accurate even after
-    // history is cleared or entries are back-filled.
-    const log = completed
-      ? [...this.readLog] // already updated above
-      : this.readLog;
+    const log = completed ? [...this.readLog] : this.readLog;
 
     const uniqueChapters = new Set(log.map(e => e.chapterId));
     const uniqueManga    = new Set(log.map(e => e.mangaId));
@@ -575,15 +504,10 @@ class Store {
     };
   }
 
-  /**
-   * Add or update a bookmark for the given chapter/page. Only one bookmark
-   * per chapter is kept — adding a second one replaces the first.
-   */
   addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) {
     const bookmark: BookmarkEntry = { ...entry, savedAt: Date.now(), label };
     this.bookmarks = [
       bookmark,
-      // Keep bookmarks from other manga only — one bookmark per manga at a time
       ...this.bookmarks.filter(b => b.mangaId !== entry.mangaId),
     ].slice(0, 200);
   }
@@ -600,11 +524,11 @@ class Store {
     return this.bookmarks.find(b => b.chapterId === chapterId);
   }
 
-  clearHistory()                        { this.history = []; this.readLog = []; }
+  clearHistory() { this.history = []; this.readLog = []; }
+
   clearHistoryForManga(mangaId: number) {
     this.history = this.history.filter(x => x.mangaId !== mangaId);
-    this.readLog  = this.readLog.filter(x => x.mangaId !== mangaId);
-    // Recompute stats after removal
+    this.readLog = this.readLog.filter(x => x.mangaId !== mangaId);
     const uniqueChapters = new Set(this.readLog.map(e => e.chapterId));
     const uniqueManga    = new Set(this.readLog.map(e => e.mangaId));
     const totalMinutes   = this.readLog.reduce((sum, e) => sum + e.minutes, 0);
@@ -623,7 +547,6 @@ class Store {
     this.settings     = { ...this.settings, heroSlots: [null, null, null, null], mangaLinks: {} };
   }
 
-
   linkManga(idA: number, idB: number) {
     if (idA === idB) return;
     const links = { ...this.settings.mangaLinks };
@@ -641,7 +564,7 @@ class Store {
     this.settings = { ...this.settings, mangaLinks: links };
   }
 
-  getLinkedMangaIds(mangaId: number): number[]  { return this.settings.mangaLinks[mangaId] ?? []; }
+  getLinkedMangaIds(mangaId: number): number[] { return this.settings.mangaLinks[mangaId] ?? []; }
 
   setHeroSlot(index: 1 | 2 | 3, mangaId: number | null) {
     const slots = [...(this.settings.heroSlots ?? [null, null, null, null])];
@@ -653,23 +576,22 @@ class Store {
     this.toasts = [...this.toasts, { ...toast, id: Math.random().toString(36).slice(2) }].slice(-5);
   }
 
-  dismissToast(id: string)                      { this.toasts = this.toasts.filter(x => x.id !== id); }
-  setCategories(cats: Category[])              { this.categories       = cats; }
-  setActiveDownloads(next: ActiveDownload[])     { this.activeDownloads  = next; }
-  setNavPage(next: NavPage)                      { this.navPage          = next; }
-  setLibraryFilter(next: LibraryFilter)          { this.libraryFilter    = next; }
-  setGenreFilter(next: string)                   { this.genreFilter      = next; }
-  setSearchPrefill(next: string)                 { this.searchPrefill    = next; }
-  setActiveManga(next: Manga | null)             { this.activeManga      = next; }
-  setPreviewManga(next: Manga | null)            { this.previewManga     = next; }
-  setActiveSource(next: Source | null)           { this.activeSource     = next; }
-  setPageUrls(next: string[])                    { this.pageUrls         = next; }
-  setPageNumber(next: number)                    { this.pageNumber       = next; }
-  setLibraryTagFilter(next: string[])            { this.libraryTagFilter = next; }
-  setSettingsOpen(next: boolean)                 { this.settingsOpen     = next; }
-  updateSettings(patch: Partial<Settings>)       { this.settings = { ...this.settings, ...patch }; }
-  resetKeybinds()                                { this.settings = { ...this.settings, keybinds: DEFAULT_KEYBINDS }; }
-
+  dismissToast(id: string)                    { this.toasts          = this.toasts.filter(x => x.id !== id); }
+  setCategories(cats: Category[])             { this.categories       = cats; }
+  setActiveDownloads(next: ActiveDownload[])  { this.activeDownloads  = next; }
+  setNavPage(next: NavPage)                   { this.navPage          = next; }
+  setLibraryFilter(next: LibraryFilter)       { this.libraryFilter    = next; }
+  setGenreFilter(next: string)                { this.genreFilter      = next; }
+  setSearchPrefill(next: string)              { this.searchPrefill    = next; }
+  setActiveManga(next: Manga | null)          { this.activeManga      = next; }
+  setPreviewManga(next: Manga | null)         { this.previewManga     = next; }
+  setActiveSource(next: Source | null)        { this.activeSource     = next; }
+  setPageUrls(next: string[])                 { this.pageUrls         = next; }
+  setPageNumber(next: number)                 { this.pageNumber       = next; }
+  setLibraryTagFilter(next: string[])         { this.libraryTagFilter = next; }
+  setSettingsOpen(next: boolean)              { this.settingsOpen     = next; }
+  updateSettings(patch: Partial<Settings>)    { this.settings = { ...this.settings, ...patch }; }
+  resetKeybinds()                             { this.settings = { ...this.settings, keybinds: DEFAULT_KEYBINDS }; }
 
   saveCustomTheme(theme: CustomTheme) {
     const existing = this.settings.customThemes.findIndex(t => t.id === theme.id);
@@ -685,13 +607,6 @@ class Store {
     this.settings = { ...this.settings, customThemes: next, theme: wasActive ? "dark" : this.settings.theme };
   }
 
-  /**
-   * Auto-assign or remove the "Completed" category for a manga based on
-   * whether all chapters are read. Pass the `gql` executor to avoid a
-   * circular import between state.svelte.ts and client.ts.
-   *
-   * Call after any batch mark-read/unread operation.
-   */
   async checkAndMarkCompleted(
     mangaId:    number,
     chaps:      Chapter[],
@@ -706,7 +621,6 @@ class Store {
     if (!completed) return;
     if (allRead) {
       await gqlFn(UPDATE_MANGA_CATEGORIES, { mangaId, addTo: [completed.id], removeFrom: [] }).catch(console.error);
-      // Ensure the manga is in the library so it shows up in the Saved tab
       if (UPDATE_MANGA) {
         await gqlFn(UPDATE_MANGA, { id: mangaId, inLibrary: true }).catch(console.error);
       }
@@ -730,43 +644,41 @@ class Store {
 
 export const store = new Store();
 
-// ── Function re-exports — zero call-site changes for actions ──────────────────
-
 export function openReader(chapter: Chapter, chapterList: Chapter[], manga?: Manga | null) { store.openReader(chapter, chapterList, manga); }
-export function closeReader()                                            { store.closeReader(); }
+export function closeReader()                                              { store.closeReader(); }
 export function addHistory(entry: HistoryEntry, completed?: boolean, minutes?: number) { store.addHistory(entry, completed, minutes); }
-export function clearHistory()                                           { store.clearHistory(); }
-export function clearHistoryForManga(mangaId: number)                    { store.clearHistoryForManga(mangaId); }
-export function wipeAllData()                                            { store.wipeAllData(); }
-export function linkManga(idA: number, idB: number)                      { store.linkManga(idA, idB); }
-export function unlinkManga(idA: number, idB: number)                    { store.unlinkManga(idA, idB); }
-export function getLinkedMangaIds(mangaId: number)                       { return store.getLinkedMangaIds(mangaId); }
-export function setHeroSlot(i: 1|2|3, mangaId: number | null)            { store.setHeroSlot(i, mangaId); }
-export function addToast(toast: Omit<Toast, "id">)                       { store.addToast(toast); }
-export function dismissToast(id: string)                                 { store.dismissToast(id); }
-export function setCategories(cats: Category[])                           { store.setCategories(cats); }
-export function setActiveDownloads(next: ActiveDownload[])               { store.setActiveDownloads(next); }
-export function setNavPage(next: NavPage)                                { store.setNavPage(next); }
-export function setLibraryFilter(next: LibraryFilter)                    { store.setLibraryFilter(next); }
-export function setGenreFilter(next: string)                             { store.setGenreFilter(next); }
-export function setSearchPrefill(next: string)                           { store.setSearchPrefill(next); }
-export function setActiveManga(next: Manga | null)                       { store.setActiveManga(next); }
-export function setPreviewManga(next: Manga | null)                      { store.setPreviewManga(next); }
-export function setActiveSource(next: Source | null)                     { store.setActiveSource(next); }
-export function setPageUrls(next: string[])                              { store.setPageUrls(next); }
-export function setPageNumber(next: number)                              { store.setPageNumber(next); }
-export function setLibraryTagFilter(next: string[])                      { store.setLibraryTagFilter(next); }
-export function setSettingsOpen(next: boolean)                           { store.setSettingsOpen(next); }
-export function updateSettings(patch: Partial<Settings>)                 { store.updateSettings(patch); }
-export function resetKeybinds()                                          { store.resetKeybinds(); }
-export function clearDiscoverCache()                                       { store.clearDiscoverCache(); }
+export function clearHistory()                                             { store.clearHistory(); }
+export function clearHistoryForManga(mangaId: number)                      { store.clearHistoryForManga(mangaId); }
+export function wipeAllData()                                              { store.wipeAllData(); }
+export function linkManga(idA: number, idB: number)                        { store.linkManga(idA, idB); }
+export function unlinkManga(idA: number, idB: number)                      { store.unlinkManga(idA, idB); }
+export function getLinkedMangaIds(mangaId: number)                         { return store.getLinkedMangaIds(mangaId); }
+export function setHeroSlot(i: 1|2|3, mangaId: number | null)              { store.setHeroSlot(i, mangaId); }
+export function addToast(toast: Omit<Toast, "id">)                         { store.addToast(toast); }
+export function dismissToast(id: string)                                   { store.dismissToast(id); }
+export function setCategories(cats: Category[])                             { store.setCategories(cats); }
+export function setActiveDownloads(next: ActiveDownload[])                 { store.setActiveDownloads(next); }
+export function setNavPage(next: NavPage)                                  { store.setNavPage(next); }
+export function setLibraryFilter(next: LibraryFilter)                      { store.setLibraryFilter(next); }
+export function setGenreFilter(next: string)                               { store.setGenreFilter(next); }
+export function setSearchPrefill(next: string)                             { store.setSearchPrefill(next); }
+export function setActiveManga(next: Manga | null)                         { store.setActiveManga(next); }
+export function setPreviewManga(next: Manga | null)                        { store.setPreviewManga(next); }
+export function setActiveSource(next: Source | null)                       { store.setActiveSource(next); }
+export function setPageUrls(next: string[])                                { store.setPageUrls(next); }
+export function setPageNumber(next: number)                                { store.setPageNumber(next); }
+export function setLibraryTagFilter(next: string[])                        { store.setLibraryTagFilter(next); }
+export function setSettingsOpen(next: boolean)                             { store.setSettingsOpen(next); }
+export function updateSettings(patch: Partial<Settings>)                   { store.updateSettings(patch); }
+export function resetKeybinds()                                            { store.resetKeybinds(); }
+export function clearDiscoverCache()                                         { store.clearDiscoverCache(); }
 export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) { store.addBookmark(entry, label); }
-export function removeBookmark(chapterId: number)                            { store.removeBookmark(chapterId); }
-export function clearBookmarks()                                             { store.clearBookmarks(); }
-export function getBookmark(chapterId: number)                               { return store.getBookmark(chapterId); }
-export function toggleHiddenCategory(id: number)                           { store.toggleHiddenCategory(id); }
-export function saveCustomTheme(theme: CustomTheme)                        { store.saveCustomTheme(theme); }
-export function deleteCustomTheme(id: string)                              { store.deleteCustomTheme(id); }
+export function removeBookmark(chapterId: number)                              { store.removeBookmark(chapterId); }
+export function clearBookmarks()                                               { store.clearBookmarks(); }
+export function getBookmark(chapterId: number)                                 { return store.getBookmark(chapterId); }
+export function toggleHiddenCategory(id: number)                             { store.toggleHiddenCategory(id); }
+export function saveCustomTheme(theme: CustomTheme)                          { store.saveCustomTheme(theme); }
+export function deleteCustomTheme(id: string)                                { store.deleteCustomTheme(id); }
 export async function checkAndMarkCompleted(
   mangaId:    number,
   chaps:      Chapter[],

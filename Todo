@@ -16,6 +16,7 @@ Minor Revisions:
 
 Priority Bugs:
  - Cache ALL Cover Pictures & Details for Manga in Library
+ - Fix Library Build not Updating
 
 
 General/Misc Bugs:
@@ -28,6 +29,8 @@ General/Misc Bugs:
 
 In-Progress:
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
+
+ - Patch Migrate Modal to Fill Language Options, not Limit to 7-9.
 
 
 

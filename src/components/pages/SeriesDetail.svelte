@@ -1,15 +1,18 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp } from "phosphor-svelte";
+  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp, MagnifyingGlass, Gear, Eye } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, checkAndMarkCompleted as storeCheckAndMarkCompleted } from "../../store/state.svelte";
+  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, setPreviewManga, checkAndMarkCompleted as storeCheckAndMarkCompleted } from "../../store/state.svelte";
+  import type { MangaPrefs } from "../../store/state.svelte";
+  import { DEFAULT_MANGA_PREFS } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
   import MigrateModal from "./MigrateModal.svelte";
   import TrackingPanel from "../shared/TrackingPanel.svelte";
+  import AutomationPanel from "../shared/AutomationPanel.svelte";
 
   const CHAPTERS_PER_PAGE = 25;
   const MANGA_TTL_MS      = 5 * 60 * 1000;
@@ -18,124 +21,81 @@
   const mangaStore:   Map<number, { data: Manga;     fetchedAt: number }> = new Map();
   const chapterStore: Map<number, { data: Chapter[]; fetchedAt: number }> = new Map();
 
-  let manga:           Manga | null     = $state(null);
-  let chapters:        Chapter[]        = $state([]);
-  let loadingManga:    boolean          = $state(false);
-  let loadingChapters: boolean          = $state(true);
-  let enqueueing:      Set<number>      = $state(new Set());
-  let dlOpen:          boolean          = $state(false);
-  let detailsOpen:     boolean          = $state(false);
-  let togglingLibrary: boolean          = $state(false);
-  let chapterPage:     number           = $state(1);
+  let manga:            Manga | null    = $state(null);
+  let chapters:         Chapter[]       = $state([]);
+  let loadingManga:     boolean         = $state(false);
+  let loadingChapters:  boolean         = $state(true);
+  let enqueueing:       Set<number>     = $state(new Set());
+  let dlOpen:           boolean         = $state(false);
+  let manageOpen:       boolean         = $state(false);
+  let togglingLibrary:  boolean         = $state(false);
+  let chapterPage:      number          = $state(1);
   let ctx: { x: number; y: number; chapter: Chapter; idx: number } | null = $state(null);
-  let jumpOpen:        boolean          = $state(false);
-  let jumpInput:       string           = $state("");
+  let jumpOpen:         boolean         = $state(false);
+  let jumpInput:        string          = $state("");
   let viewMode: "list" | "grid"         = $state("list");
-  let deletingAll:     boolean          = $state(false);
-  let refreshing:      boolean          = $state(false);
-  let genresExpanded:  boolean          = $state(false);
+  let deletingAll:      boolean         = $state(false);
+  let refreshing:       boolean         = $state(false);
+  let genresExpanded:   boolean         = $state(false);
   let folderPickerOpen: boolean         = $state(false);
-  let folderCreating:  boolean          = $state(false);
-  let folderNewName:   string           = $state("");
-  let mangaCategories: Category[]       = $state([]);
-  let allCategories:   Category[]       = $state([]);
-  let catsLoading:     boolean          = $state(false);
-  let rangeFrom:       string           = $state("");
-  let rangeTo:         string           = $state("");
-  let showRange:       boolean          = $state(false);
-  let migrateOpen:     boolean          = $state(false);
-  let dlDropRef:       HTMLDivElement | undefined = $state();
-  let folderPickerRef: HTMLDivElement | undefined = $state();
+  let folderCreating:   boolean         = $state(false);
+  let folderNewName:    string          = $state("");
+  let mangaCategories:  Category[]      = $state([]);
+  let allCategories:    Category[]      = $state([]);
+  let catsLoading:      boolean         = $state(false);
+  let rangeFrom:        string          = $state("");
+  let rangeTo:          string          = $state("");
+  let showRange:        boolean         = $state(false);
+  let migrateOpen:      boolean         = $state(false);
+  let autoOpen:         boolean         = $state(false);
+  let trackingOpen:     boolean         = $state(false);
+  let linkPickerOpen:   boolean         = $state(false);
+  let linkSearch:       string          = $state("");
+  let allMangaForLink:  Manga[]         = $state([]);
+  let loadingLinkList:  boolean         = $state(false);
+  let selectedIds:      Set<number>     = $state(new Set());
+  let sortMenuOpen:     boolean         = $state(false);
+  let dlDropRef:        HTMLDivElement | undefined = $state();
+  let folderPickerRef:  HTMLDivElement | undefined = $state();
+  let mangaAbort:       AbortController | null = null;
+  let chapterAbort:     AbortController | null = null;
+  let loadingFor:       number | null   = null;
+  let _prevChapterIds:  Set<number>     = new Set();
 
-  // Series link state
-  let linkPickerOpen:   boolean   = $state(false);
-  let linkSearch:       string    = $state("");
-  let allMangaForLink:  Manga[]   = $state([]);
-  let loadingLinkList:  boolean   = $state(false);
+  function focusOnMount(node: HTMLElement) { node.focus(); }
 
-  // Tracking modal
-  let trackingOpen: boolean = $state(false);
+  const mangaPrefs = $derived.by((): Partial<MangaPrefs> => {
+    if (!store.activeManga) return {};
+    return store.settings.mangaPrefs?.[store.activeManga.id] ?? {};
+  });
 
-  // Multi-select
-  let selectedIds: Set<number> = $state(new Set());
+  function getPref<K extends keyof MangaPrefs>(key: K): MangaPrefs[K] {
+    return (mangaPrefs[key] ?? DEFAULT_MANGA_PREFS[key]) as MangaPrefs[K];
+  }
+
   const hasSelection = $derived(selectedIds.size > 0);
 
-  function toggleSelect(id: number, e: MouseEvent | KeyboardEvent) {
-    e.stopPropagation();
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    selectedIds = next;
-  }
-
-  function clearSelection() { selectedIds = new Set(); }
-
-  async function deleteSelected() {
-    const ids = [...selectedIds].filter(id => chapters.find(c => c.id === id)?.isDownloaded);
-    if (ids.length) {
-      await gql(DELETE_DOWNLOADED_CHAPTERS, { ids }).catch(console.error);
-      chapters = chapters.map(c => ids.includes(c.id) ? { ...c, isDownloaded: false } : c);
-      if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
-    }
-    clearSelection();
-  }
-
-  async function downloadSelected() {
-    const ids = [...selectedIds].filter(id => !chapters.find(c => c.id === id)?.isDownloaded);
-    await enqueueMultiple(ids);
-    clearSelection();
-  }
-
-  async function markSelectedRead(isRead: boolean) {
-    await markBulk([...selectedIds], isRead);
-    clearSelection();
-  }
-
-  let mangaAbort:  AbortController | null = null;
-  let chapterAbort: AbortController | null = null;
-  let loadingFor:  number | null = null;
-
-  function formatDate(ts: string | null | undefined): string {
-    if (!ts) return "";
-    const n = Number(ts);
-    const d = new Date(n > 1e10 ? n : n * 1000);
-    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  }
-
-  function applyChapters(nodes: Chapter[]) {
-    chapters = nodes;
-    if (store.activeManga && nodes.length > 0) checkAndMarkCompleted(store.activeManga.id, nodes);
-  }
-
-  const sortDir        = $derived(store.settings.chapterSortDir);
-  const sortMode       = $derived(store.settings.chapterSortMode ?? "source");
-  let sortMenuOpen     = $state(false);
+  const sortDir  = $derived(store.settings.chapterSortDir);
+  const sortMode = $derived(store.settings.chapterSortMode ?? "source");
 
   const sortedChapters = $derived.by(() => {
     const base = [...chapters];
-    if (sortMode === "chapterNumber") {
-      base.sort((a, b) => a.chapterNumber - b.chapterNumber);
-    } else if (sortMode === "uploadDate") {
-      base.sort((a, b) => Number(a.uploadDate ?? 0) - Number(b.uploadDate ?? 0));
-    } else {
-      base.sort((a, b) => a.sourceOrder - b.sourceOrder);
-    }
+    if (sortMode === "chapterNumber") base.sort((a, b) => a.chapterNumber - b.chapterNumber);
+    else if (sortMode === "uploadDate") base.sort((a, b) => Number(a.uploadDate ?? 0) - Number(b.uploadDate ?? 0));
+    else base.sort((a, b) => a.sourceOrder - b.sourceOrder);
     return sortDir === "desc" ? base.reverse() : base;
   });
 
-  /**
-   * Chapter list in canonical reading order (ch1 -> ch2 -> ch3).
-   * Always passed to openReader so the Reader's idx-based prev/next
-   * navigation is direction-independent of the user's display sort.
-   */
-  const chaptersAsc = $derived(
-    [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder)
-  );
-  const totalPages     = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
-  const pageChapters   = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
-  const readCount      = $derived(chapters.filter(c => c.isRead).length);
-  const totalCount     = $derived(chapters.length);
-  const progressPct    = $derived(totalCount > 0 ? (readCount / totalCount) * 100 : 0);
+  const chaptersAsc     = $derived([...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder));
+  const totalPages      = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
+  const pageChapters    = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
+  const readCount       = $derived(chapters.filter(c => c.isRead).length);
+  const totalCount      = $derived(chapters.length);
+  const progressPct     = $derived(totalCount > 0 ? (readCount / totalCount) * 100 : 0);
   const downloadedCount = $derived(chapters.filter(c => c.isDownloaded).length);
+  const statusLabel     = $derived(manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null);
+  const assignedFolders = $derived(mangaCategories.filter(c => c.id !== 0));
+  const hasFolders      = $derived(assignedFolders.length > 0);
 
   const continueChapter = $derived((() => {
     if (!chapters.length) return null;
@@ -148,9 +108,71 @@
     return { chapter: asc[0], type: "reread" as const };
   })());
 
-  const statusLabel     = $derived(manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null);
-  const assignedFolders = $derived(mangaCategories.filter(c => c.id !== 0));
-  const hasFolders      = $derived(assignedFolders.length > 0);
+  const jumpChapter = $derived.by(() => {
+    const q = jumpInput.trim().toLowerCase();
+    if (!q) return null;
+    const num = parseFloat(q);
+    if (!isNaN(num)) return sortedChapters.find(c => c.chapterNumber === num) ?? null;
+    return sortedChapters.find(c => c.name.toLowerCase().includes(q)) ?? null;
+  });
+
+  const hasAnyAutomation = $derived(
+    getPref("autoDownload")        ||
+    getPref("downloadAhead") > 0   ||
+    getPref("maxKeepChapters") > 0 ||
+    getPref("deleteOnRead")        ||
+    getPref("pauseUpdates")        ||
+    getPref("refreshInterval") !== "global" ||
+    !!getPref("preferredScanlator")
+  );
+
+  const linkedIds = $derived(
+    store.activeManga ? (store.settings.mangaLinks?.[store.activeManga.id] ?? []) : []
+  );
+
+  const linkPickerResults = $derived.by(() => {
+    const id       = store.activeManga?.id;
+    const others   = allMangaForLink.filter(m => m.id !== id);
+    const q        = linkSearch.trim().toLowerCase();
+    const filtered = q ? others.filter(m => m.title.toLowerCase().includes(q)) : others;
+    const linked   = filtered.filter(m => linkedIds.includes(m.id));
+    const rest     = filtered.filter(m => !linkedIds.includes(m.id)).slice(0, 30);
+    return [...linked, ...rest];
+  });
+
+  function doJump() {
+    if (!jumpChapter) return;
+    const pageIdx = sortedChapters.indexOf(jumpChapter);
+    if (pageIdx >= 0) chapterPage = Math.floor(pageIdx / CHAPTERS_PER_PAGE) + 1;
+    jumpOpen = false;
+    jumpInput = "";
+  }
+
+  function toggleSelect(id: number, e: MouseEvent | KeyboardEvent) {
+    e.stopPropagation();
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    selectedIds = next;
+  }
+
+  function clearSelection() { selectedIds = new Set(); }
+
+  function formatDate(ts: string | null | undefined): string {
+    if (!ts) return "";
+    const n = Number(ts);
+    const d = new Date(n > 1e10 ? n : n * 1000);
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function applyChapters(nodes: Chapter[]) {
+    if (getPref("autoDownload") && _prevChapterIds.size > 0) {
+      const newChapters = nodes.filter(c => !_prevChapterIds.has(c.id) && !c.isDownloaded);
+      if (newChapters.length) enqueueMultiple(newChapters.map(c => c.id));
+    }
+    _prevChapterIds = new Set(nodes.map(c => c.id));
+    chapters = nodes;
+    if (store.activeManga && nodes.length > 0) checkAndMarkCompleted(store.activeManga.id, nodes);
+  }
 
   function loadCategories(mangaId: number) {
     catsLoading = true;
@@ -165,7 +187,6 @@
 
   async function checkAndMarkCompleted(mangaId: number, chaps: Chapter[]) {
     await storeCheckAndMarkCompleted(mangaId, chaps, allCategories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
-    // Sync local mangaCategories state after the mutation
     if (chaps.length) {
       const allRead   = chaps.every(c => c.isRead);
       const completed = allCategories.find(c => c.name === "Completed");
@@ -249,6 +270,18 @@
     }
   });
 
+  $effect(() => {
+    if (dlOpen) { setTimeout(() => document.addEventListener("mousedown", handleDlOutside, true), 0); }
+    else document.removeEventListener("mousedown", handleDlOutside, true);
+  });
+  $effect(() => {
+    if (folderPickerOpen) { setTimeout(() => document.addEventListener("mousedown", handleFolderOutside, true), 0); }
+    else document.removeEventListener("mousedown", handleFolderOutside, true);
+  });
+
+  function handleDlOutside(e: MouseEvent) { if (dlDropRef && !dlDropRef.contains(e.target as Node)) dlOpen = false; }
+  function handleFolderOutside(e: MouseEvent) { if (folderPickerRef && !folderPickerRef.contains(e.target as Node)) { folderPickerOpen = false; folderCreating = false; folderNewName = ""; } }
+
   async function toggleLibrary() {
     if (!manga) return;
     togglingLibrary = true;
@@ -286,6 +319,14 @@
     await gql(MARK_CHAPTER_READ, { id: chapterId, isRead }).catch(console.error);
     chapters = chapters.map(c => c.id === chapterId ? { ...c, isRead } : c);
     if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
+    if (isRead && getPref("deleteOnRead")) {
+      const ch = chapters.find(c => c.id === chapterId);
+      if (ch?.isDownloaded) {
+        const delayMs = getPref("deleteDelayHours") * 60 * 60 * 1000;
+        if (delayMs === 0) deleteDownloaded(chapterId);
+        else setTimeout(() => deleteDownloaded(chapterId), delayMs);
+      }
+    }
   }
 
   async function markBulk(ids: number[], isRead: boolean) {
@@ -294,6 +335,40 @@
     const idSet = new Set(ids);
     chapters = chapters.map(c => idSet.has(c.id) ? { ...c, isRead } : c);
     if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
+    if (isRead && getPref("deleteOnRead")) {
+      const toDelete = ids.filter(id => chapters.find(c => c.id === id)?.isDownloaded);
+      if (toDelete.length) {
+        const delayMs = getPref("deleteDelayHours") * 60 * 60 * 1000;
+        const doDelete = async () => {
+          await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: toDelete }).catch(console.error);
+          chapters = chapters.map(c => toDelete.includes(c.id) ? { ...c, isDownloaded: false } : c);
+          if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
+        };
+        if (delayMs === 0) doDelete();
+        else setTimeout(doDelete, delayMs);
+      }
+    }
+  }
+
+  async function deleteSelected() {
+    const ids = [...selectedIds].filter(id => chapters.find(c => c.id === id)?.isDownloaded);
+    if (ids.length) {
+      await gql(DELETE_DOWNLOADED_CHAPTERS, { ids }).catch(console.error);
+      chapters = chapters.map(c => ids.includes(c.id) ? { ...c, isDownloaded: false } : c);
+      if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
+    }
+    clearSelection();
+  }
+
+  async function downloadSelected() {
+    const ids = [...selectedIds].filter(id => !chapters.find(c => c.id === id)?.isDownloaded);
+    await enqueueMultiple(ids);
+    clearSelection();
+  }
+
+  async function markSelectedRead(isRead: boolean) {
+    await markBulk([...selectedIds], isRead);
+    clearSelection();
   }
 
   const markAboveRead   = (i: number) => markBulk(sortedChapters.slice(0, i + 1).filter(c => !c.isRead).map(c => c.id), true);
@@ -346,18 +421,6 @@
     ];
   }
 
-  function handleDlOutside(e: MouseEvent) { if (dlDropRef && !dlDropRef.contains(e.target as Node)) dlOpen = false; }
-  function handleFolderOutside(e: MouseEvent) { if (folderPickerRef && !folderPickerRef.contains(e.target as Node)) { folderPickerOpen = false; folderCreating = false; folderNewName = ""; } }
-
-  $effect(() => {
-    if (dlOpen) { setTimeout(() => document.addEventListener("mousedown", handleDlOutside, true), 0); }
-    else document.removeEventListener("mousedown", handleDlOutside, true);
-  });
-  $effect(() => {
-    if (folderPickerOpen) { setTimeout(() => document.addEventListener("mousedown", handleFolderOutside, true), 0); }
-    else document.removeEventListener("mousedown", handleFolderOutside, true);
-  });
-
   function enqueueNext(n: number) {
     if (!continueChapter) return;
     const idx = sortedChapters.indexOf(continueChapter.chapter);
@@ -394,29 +457,21 @@
         addTo:      inCat ? [] : [cat.id],
         removeFrom: inCat ? [cat.id] : [],
       });
-      mangaCategories = inCat
-        ? mangaCategories.filter(c => c.id !== cat.id)
-        : [...mangaCategories, cat];
+      mangaCategories = inCat ? mangaCategories.filter(c => c.id !== cat.id) : [...mangaCategories, cat];
     } catch (e) { console.error(e); }
   }
 
-  onMount(() => () => { mangaAbort?.abort(); chapterAbort?.abort(); });
-
-  // ── Series link ────────────────────────────────────────────────────────────
-
-  const linkedIds = $derived(
-    store.activeManga ? (store.settings.mangaLinks?.[store.activeManga.id] ?? []) : []
-  );
-
-  const linkPickerResults = $derived.by(() => {
-    const id       = store.activeManga?.id;
-    const others   = allMangaForLink.filter(m => m.id !== id);
-    const q        = linkSearch.trim().toLowerCase();
-    const filtered = q ? others.filter(m => m.title.toLowerCase().includes(q)) : others;
-    const linked   = filtered.filter(m => linkedIds.includes(m.id));
-    const rest     = filtered.filter(m => !linkedIds.includes(m.id)).slice(0, 30);
-    return [...linked, ...rest];
-  });
+  function openReaderWithAhead(ch: Chapter, list: Chapter[]) {
+    const ahead = getPref("downloadAhead");
+    if (ahead > 0) {
+      const idx = list.indexOf(ch);
+      if (idx >= 0) {
+        const toQueue = list.slice(idx + 1, idx + 1 + ahead).filter(c => !c.isDownloaded).map(c => c.id);
+        if (toQueue.length) enqueueMultiple(toQueue);
+      }
+    }
+    openReader(ch, list);
+  }
 
   async function openLinkPicker() {
     linkPickerOpen = true; linkSearch = "";
@@ -435,23 +490,22 @@
     if (linkedIds.includes(other.id)) unlinkManga(store.activeManga.id, other.id);
     else linkManga(store.activeManga.id, other.id);
   }
+
+  onMount(() => () => { mangaAbort?.abort(); chapterAbort?.abort(); });
 </script>
 
 {#if store.activeManga}
 <div class="root" role="presentation" oncontextmenu={(e) => e.preventDefault()}>
 
-  <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
   <div class="sidebar">
     <button class="back" onclick={() => setActiveManga(null)}>
       <ArrowLeft size={13} weight="light" /> Back
     </button>
 
-    <!-- Zone 1: Cover -->
     <div class="cover-wrap">
       <img src={thumbUrl(store.activeManga.thumbnailUrl)} alt={store.activeManga.title} class="cover" />
     </div>
 
-    <!-- Zone 2: Meta -->
     {#if loadingManga}
       <div class="meta-skeleton">
         <div class="skeleton sk-line" style="width:90%;height:14px"></div>
@@ -484,10 +538,9 @@
       </div>
     {/if}
 
-    <!-- Zone 3: Primary CTA + library action -->
     <div class="cta-section">
       {#if continueChapter}
-        <button class="read-btn" onclick={() => openReader(continueChapter!.chapter, chaptersAsc)}>
+        <button class="read-btn" onclick={() => openReaderWithAhead(continueChapter!.chapter, chaptersAsc)}>
           <Play size={12} weight="fill" />
           {continueChapter.type === "continue"
             ? `Continue · Ch.${continueChapter.chapter.chapterNumber}${(continueChapter.chapter.lastPageRead ?? 0) > 0 ? ` p.${continueChapter.chapter.lastPageRead}` : ""}`
@@ -507,7 +560,6 @@
       </div>
     </div>
 
-    <!-- Zone 4: Progress -->
     {#if totalCount > 0}
       <div class="progress-section">
         <div class="progress-header">
@@ -518,38 +570,33 @@
       </div>
     {/if}
 
-    <!-- Zone 5: Details accordion (source info + all secondary actions) -->
-    {#if !loadingManga && manga?.source}
+    {#if !loadingManga && manga}
       <div class="details-section">
-        <button class="details-toggle" onclick={() => detailsOpen = !detailsOpen}>
-          <span>Details</span>
-          <CaretDown size={11} weight="light" style="transform:{detailsOpen ? 'rotate(180deg)' : 'rotate(0)'};transition:transform 0.15s ease" />
+        <button class="details-toggle" onclick={() => manageOpen = !manageOpen}>
+          <span>Manage</span>
+          <CaretDown size={11} weight="light" style="transform:{manageOpen ? 'rotate(180deg)' : 'rotate(0)'};transition:transform 0.15s ease" />
         </button>
-        {#if detailsOpen}
+        {#if manageOpen}
           <div class="details-body">
-            <div class="detail-row"><span class="detail-key">Source</span><span class="detail-val">{manga.source.displayName}</span></div>
-            {#if manga.status}<div class="detail-row"><span class="detail-key">Status</span><span class="detail-val">{statusLabel}</span></div>{/if}
-            {#if manga.author}<div class="detail-row"><span class="detail-key">Author</span><span class="detail-val">{manga.author}</span></div>{/if}
-            {#if manga.artist && manga.artist !== manga.author}<div class="detail-row"><span class="detail-key">Artist</span><span class="detail-val">{manga.artist}</span></div>{/if}
-
             <div class="detail-actions">
+              <button class="detail-action-btn" onclick={() => setPreviewManga(manga)}>
+                <Eye size={12} weight="light" /> Preview
+              </button>
               <button class="detail-action-btn" onclick={() => migrateOpen = true}>
                 <ArrowsClockwise size={12} weight="light" /> Switch Source
               </button>
-              <button
-                class="detail-action-btn"
-                class:detail-action-active={linkedIds.length > 0}
-                onclick={openLinkPicker}
-              >
+              <button class="detail-action-btn" class:detail-action-active={linkedIds.length > 0} onclick={openLinkPicker}>
                 <LinkSimpleHorizontalBreak size={12} weight={linkedIds.length > 0 ? "fill" : "light"} />
                 Series Link{linkedIds.length > 0 ? ` (${linkedIds.length})` : ""}
               </button>
-              <button
-                class="detail-action-btn"
-                onclick={() => trackingOpen = true}
-              >
+              <button class="detail-action-btn" onclick={() => trackingOpen = true}>
                 <ChartLineUp size={12} weight="light" /> Tracking
               </button>
+              {#if manga?.inLibrary}
+                <button class="detail-action-btn" class:detail-action-active={hasAnyAutomation} onclick={() => autoOpen = true}>
+                  <Gear size={12} weight={hasAnyAutomation ? "fill" : "light"} /> Automation
+                </button>
+              {/if}
               {#if downloadedCount > 0}
                 <button class="detail-action-btn detail-action-danger" onclick={deleteAllDownloads} disabled={deletingAll}>
                   <Trash size={12} weight="light" /> {deletingAll ? "Deleting…" : `Delete Downloads (${downloadedCount})`}
@@ -562,61 +609,65 @@
     {/if}
   </div>
 
-  <!-- ── Chapter list ───────────────────────────────────────────────────── -->
   <div class="list-wrap">
     <div class="list-header">
       <div class="list-header-left">
         {#if hasSelection}
           <span class="sel-count">{selectedIds.size} selected</span>
-          <button class="sel-action-btn" onclick={downloadSelected} title="Download selected">
-            <Download size={13} weight="light" />
-          </button>
-          <button class="sel-action-btn sel-action-danger" onclick={deleteSelected} title="Delete selected downloads">
-            <Trash size={13} weight="light" />
-          </button>
-          <button class="sel-action-btn" onclick={() => markSelectedRead(true)} title="Mark selected as read">
-            <CheckCircle size={13} weight="light" />
-          </button>
-          <button class="sel-action-btn" onclick={() => markSelectedRead(false)} title="Mark selected as unread">
-            <Circle size={13} weight="light" />
-          </button>
-          <button class="sel-action-btn" onclick={clearSelection} title="Clear selection">
-            <X size={13} weight="light" />
-          </button>
+          <button class="sel-action-btn" onclick={downloadSelected} title="Download selected"><Download size={13} weight="light" /></button>
+          <button class="sel-action-btn sel-action-danger" onclick={deleteSelected} title="Delete selected downloads"><Trash size={13} weight="light" /></button>
+          <button class="sel-action-btn" onclick={() => markSelectedRead(true)} title="Mark selected as read"><CheckCircle size={13} weight="light" /></button>
+          <button class="sel-action-btn" onclick={() => markSelectedRead(false)} title="Mark selected as unread"><Circle size={13} weight="light" /></button>
+          <button class="sel-action-btn" onclick={clearSelection} title="Clear selection"><X size={13} weight="light" /></button>
         {:else}
-        <div class="sort-wrap">
-          <button class="sort-btn" onclick={() => sortMenuOpen = !sortMenuOpen}>
-            {#if sortDir === "desc"}<SortDescending size={14} weight="light" />{:else}<SortAscending size={14} weight="light" />{/if}
-            {{ source: "Source order", chapterNumber: "Ch. number", uploadDate: "Upload date" }[sortMode]}
-            <CaretDown size={10} weight="light" />
-          </button>
-          {#if sortMenuOpen}
-            <div class="sort-menu" role="presentation" onmouseleave={() => sortMenuOpen = false}>
-              {#each [["source","Source order"],["chapterNumber","Chapter number"],["uploadDate","Upload date"]] as [val, label]}
-                <button class="sort-option" class:active={sortMode === val}
-                  onclick={() => { updateSettings({ chapterSortMode: val as any }); chapterPage = 1; sortMenuOpen = false; }}>
-                  {label}
+          <div class="sort-wrap">
+            <button class="sort-btn" onclick={() => sortMenuOpen = !sortMenuOpen}>
+              {#if sortDir === "desc"}<SortDescending size={14} weight="light" />{:else}<SortAscending size={14} weight="light" />{/if}
+              {{ source: "Source order", chapterNumber: "Ch. number", uploadDate: "Upload date" }[sortMode]}
+              <CaretDown size={10} weight="light" />
+            </button>
+            {#if sortMenuOpen}
+              <div class="sort-menu" role="presentation" onmouseleave={() => sortMenuOpen = false}>
+                {#each [["source","Source order"],["chapterNumber","Chapter number"],["uploadDate","Upload date"]] as [val, label]}
+                  <button class="sort-option" class:active={sortMode === val}
+                    onclick={() => { updateSettings({ chapterSortMode: val as any }); chapterPage = 1; sortMenuOpen = false; }}>
+                    {label}
+                  </button>
+                {/each}
+                <div class="sort-divider"></div>
+                <button class="sort-option" onclick={() => { updateSettings({ chapterSortDir: sortDir === "desc" ? "asc" : "desc" }); chapterPage = 1; sortMenuOpen = false; }}>
+                  {sortDir === "desc" ? "↑ Ascending" : "↓ Descending"}
                 </button>
-              {/each}
-              <div class="sort-divider"></div>
-              <button class="sort-option" onclick={() => { updateSettings({ chapterSortDir: sortDir === "desc" ? "asc" : "desc" }); chapterPage = 1; sortMenuOpen = false; }}>
-                {sortDir === "desc" ? "↑ Ascending" : "↓ Descending"}
-              </button>
-            </div>
-          {/if}
-        </div>
-        <!-- View toggle: icon reflects current state -->
-        <button class="icon-btn" class:active={viewMode === "grid"} onclick={() => viewMode = viewMode === "list" ? "grid" : "list"} title={viewMode === "list" ? "Grid view" : "List view"}>
-          {#if viewMode === "list"}<SquaresFour size={14} weight="light" />{:else}<List size={14} weight="light" />{/if}
-        </button>
+              </div>
+            {/if}
+          </div>
+          <button class="icon-btn" class:active={viewMode === "grid"} onclick={() => viewMode = viewMode === "list" ? "grid" : "list"} title={viewMode === "list" ? "Grid view" : "List view"}>
+            {#if viewMode === "list"}<SquaresFour size={14} weight="light" />{:else}<List size={14} weight="light" />{/if}
+          </button>
         {/if}
       </div>
       <div class="list-header-right">
+        <div class="jump-wrap">
+          <button class="icon-btn" class:active={jumpOpen} onclick={() => { jumpOpen = !jumpOpen; jumpInput = ""; }} title="Jump to chapter">
+            <MagnifyingGlass size={14} weight="light" />
+          </button>
+          {#if jumpOpen}
+            <div class="jump-popover">
+              <input class="jump-input" placeholder="Chapter # or name…" bind:value={jumpInput} use:focusOnMount
+                onkeydown={(e) => { if (e.key === "Enter") doJump(); if (e.key === "Escape") { jumpOpen = false; jumpInput = ""; } }} />
+              {#if jumpChapter}
+                <button class="jump-go" onclick={doJump}>Go · {jumpChapter.name}</button>
+              {:else if jumpInput.trim()}
+                <p class="jump-none">No match</p>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
         <button class="icon-btn" onclick={refreshChapters} disabled={refreshing}>
           <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
         </button>
 
-        <!-- Category picker -->
         <div class="fp-wrap" bind:this={folderPickerRef}>
           <button class="icon-btn" class:active={hasFolders} onclick={() => folderPickerOpen = !folderPickerOpen}>
             <FolderSimplePlus size={14} weight={hasFolders ? "fill" : "light"} />
@@ -637,12 +688,10 @@
               <div class="fp-div"></div>
               {#if folderCreating}
                 <div class="fp-create">
-                  <input class="fp-input" placeholder="Folder name…" bind:value={folderNewName}
-                    onkeydown={(e) => { if (e.key === "Enter") createCategory(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }} use:focusOnMount />
+                  <input class="fp-input" placeholder="Folder name…" bind:value={folderNewName} use:focusOnMount
+                    onkeydown={(e) => { if (e.key === "Enter") createCategory(); if (e.key === "Escape") { folderCreating = false; folderNewName = ""; } }} />
                   <button class="fp-confirm" onclick={createCategory} disabled={!folderNewName.trim()}>Add</button>
-                  <button class="fp-cancel" onclick={() => { folderCreating = false; folderNewName = ""; }}>
-                    <X size={12} weight="light" />
-                  </button>
+                  <button class="fp-cancel" onclick={() => { folderCreating = false; folderNewName = ""; }}><X size={12} weight="light" /></button>
                 </div>
               {:else}
                 <button class="fp-new" onclick={() => folderCreating = true}>+ New folder</button>
@@ -651,7 +700,6 @@
           {/if}
         </div>
 
-        <!-- Download dropdown -->
         {#if chapters.length > 0}
           <div class="dl-wrap" bind:this={dlDropRef}>
             <button class="icon-btn dl-unified-btn" class:active={dlOpen} class:dl-has-count={downloadedCount > 0} onclick={() => dlOpen = !dlOpen} title="Download options">
@@ -711,7 +759,7 @@
           </div>
         {/if}
 
-        {#if totalPages >= 1}
+        {#if totalPages > 1}
           <div class="pagination">
             <button class="page-btn" onclick={() => chapterPage = Math.max(1, chapterPage - 1)} disabled={chapterPage === 1}>←</button>
             <span class="page-num">{chapterPage} / {totalPages}</span>
@@ -731,8 +779,9 @@
       {:else if viewMode === "grid"}
         {#each sortedChapters as ch, i}
           {@const inProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
-          <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress}
-            onclick={() => openReader(ch, chaptersAsc)}
+          {@const isGridSelected = selectedIds.has(ch.id)}
+          <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress} class:grid-selected={isGridSelected}
+            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, chaptersAsc)}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: i }; }}
             title={ch.name}>
             <span class="grid-cell-num">{ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber}</span>
@@ -745,14 +794,10 @@
         {#each pageChapters as ch}
           {@const idxInSorted = sortedChapters.indexOf(ch)}
           {@const isSelected = selectedIds.has(ch.id)}
-          <div role="button" tabindex="0"
-            class="ch-row"
-            class:read={ch.isRead}
-            class:ch-selected={isSelected}
-            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReader(ch, chaptersAsc)}
-            onkeydown={(e) => e.key === "Enter" && (hasSelection ? toggleSelect(ch.id, e) : openReader(ch, chaptersAsc))}
+          <div role="button" tabindex="0" class="ch-row" class:read={ch.isRead} class:ch-selected={isSelected}
+            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, chaptersAsc)}
+            onkeydown={(e) => e.key === "Enter" && (hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, chaptersAsc))}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: idxInSorted }; }}>
-            <!-- Checkbox shown when selection active, or on hover -->
             <button class="ch-check" class:ch-check-visible={hasSelection} onclick={(e) => toggleSelect(ch.id, e)} title="Select">
               {#if isSelected}<CheckCircle size={15} weight="fill" />{:else}<Circle size={15} weight="light" />{/if}
             </button>
@@ -768,15 +813,11 @@
               {#if ch.isRead}<CheckCircle size={14} weight="light" class="read-icon" />{/if}
               {#if ch.isDownloaded}
                 <span class="ch-dl-dot" title="Downloaded"></span>
-                <button class="dl-btn dl-btn-delete" onclick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }} title="Delete download">
-                  <Trash size={13} weight="light" />
-                </button>
+                <button class="dl-btn dl-btn-delete" onclick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }} title="Delete download"><Trash size={13} weight="light" /></button>
               {:else if enqueueing.has(ch.id)}
                 <CircleNotch size={14} weight="light" class="anim-spin enqueue-icon" />
               {:else}
-                <button class="dl-btn" onclick={(e) => { e.stopPropagation(); enqueue(ch, e); }} title="Download">
-                  <Download size={13} weight="light" />
-                </button>
+                <button class="dl-btn" onclick={(e) => { e.stopPropagation(); enqueue(ch, e); }} title="Download"><Download size={13} weight="light" /></button>
               {/if}
             </div>
           </div>
@@ -784,7 +825,7 @@
       {/if}
     </div>
 
-    {#if totalPages >= 1}
+    {#if totalPages > 1}
       <div class="pagination-bottom">
         <button class="page-btn" onclick={() => chapterPage = Math.max(1, chapterPage - 1)} disabled={chapterPage === 1}>← Prev</button>
         <span class="page-num">{chapterPage} / {totalPages}</span>
@@ -808,20 +849,17 @@
 {/if}
 
 {#if trackingOpen && store.activeManga}
-  <TrackingPanel
-    mangaId={store.activeManga.id}
-    mangaTitle={store.activeManga.title}
-    onClose={() => trackingOpen = false}
-  />
+  <TrackingPanel mangaId={store.activeManga.id} mangaTitle={store.activeManga.title} onClose={() => trackingOpen = false} />
+{/if}
+
+{#if autoOpen && store.activeManga}
+  <AutomationPanel mangaId={store.activeManga.id} {chapters} onClose={() => autoOpen = false} />
 {/if}
 
 {#if linkPickerOpen}
-  <div
-    class="link-backdrop"
-    role="presentation"
+  <div class="link-backdrop" role="presentation"
     onclick={(e) => { if (e.target === e.currentTarget) closeLinkPicker(); }}
-    onkeydown={(e) => e.key === "Escape" && closeLinkPicker()}
-  >
+    onkeydown={(e) => e.key === "Escape" && closeLinkPicker()}>
     <div class="link-modal">
       <div class="link-header">
         <span class="link-title">Link as same series</span>
@@ -859,16 +897,13 @@
 <style>
   .root { display: flex; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
 
-  /* ── Sidebar ─────────────────────────────────────────────────────────────── */
   .sidebar { width: 240px; flex-shrink: 0; padding: var(--sp-5); border-right: 1px solid var(--border-dim); overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-4); background: var(--bg-base); }
   .back { display: flex; align-items: center; gap: var(--sp-2); color: var(--text-muted); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); text-transform: uppercase; transition: color var(--t-base); }
   .back:hover { color: var(--text-secondary); }
 
-  /* Zone 1: Cover */
   .cover-wrap { width: 100%; aspect-ratio: 2/3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); flex-shrink: 0; }
   .cover { width: 100%; height: 100%; object-fit: cover; }
 
-  /* Zone 2: Meta */
   .meta-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); }
   .sk-line { border-radius: var(--radius-sm); }
   .meta { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -882,10 +917,8 @@
   .genre:hover { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .genre-toggle { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 1px 6px; letter-spacing: var(--tracking-wide); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
   .genre-toggle:hover { color: var(--accent-fg); border-color: var(--accent-dim); }
-  /* Description clamped — no expand in 240px sidebar */
   .desc { font-size: var(--text-xs); color: var(--text-muted); line-height: var(--leading-base); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 
-  /* Zone 3: CTA */
   .cta-section { display: flex; flex-direction: column; gap: var(--sp-2); }
   .read-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; padding: 9px var(--sp-3); border-radius: var(--radius-md); background: var(--accent); border: 1px solid var(--accent); color: var(--accent-contrast, #fff); font-size: var(--text-xs); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); cursor: pointer; transition: opacity var(--t-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .read-btn:hover { opacity: 0.88; }
@@ -897,7 +930,6 @@
   .external-link { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .external-link:hover { color: var(--text-muted); border-color: var(--border-strong); }
 
-  /* Zone 4: Progress */
   .progress-section { display: flex; flex-direction: column; gap: var(--sp-1); }
   .progress-header { display: flex; justify-content: space-between; align-items: center; }
   .progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
@@ -905,14 +937,10 @@
   .progress-track { height: 3px; background: var(--border-base); border-radius: var(--radius-full); overflow: hidden; }
   .progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.4s ease; }
 
-  /* Zone 5: Details accordion */
   .details-section { display: flex; flex-direction: column; gap: 2px; }
   .details-toggle { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: 4px 0; transition: color var(--t-base); }
   .details-toggle:hover { color: var(--text-muted); }
   .details-body { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-2); }
-  .detail-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); }
-  .detail-key { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .detail-val { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); text-align: right; }
   .detail-actions { display: flex; flex-direction: column; gap: var(--sp-1); padding-top: var(--sp-1); }
   .detail-action-btn { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 6px var(--sp-2); border-radius: var(--radius-md); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: 1px solid var(--border-dim); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .detail-action-btn:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
@@ -922,7 +950,6 @@
   .detail-action-danger:hover:not(:disabled) { background: var(--color-error-bg); border-color: var(--color-error); color: var(--color-error); }
   .detail-action-danger:disabled { opacity: 0.4; cursor: default; }
 
-  /* ── Series link modal ───────────────────────────────────────────────────── */
   .link-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.72); z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); animation: fadeIn 0.12s ease both; }
   .link-modal { width: min(460px, calc(100vw - 48px)); max-height: 70vh; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); animation: scaleIn 0.14s ease both; }
   .link-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
@@ -946,7 +973,6 @@
   .link-status { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); flex-shrink: 0; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); }
   .link-row-linked .link-status { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
-  /* ── Chapter list ────────────────────────────────────────────────────────── */
   .list-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .list-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; gap: var(--sp-2); flex-wrap: wrap; }
   .list-header-left, .list-header-right { display: flex; align-items: center; gap: var(--sp-1); }
@@ -963,7 +989,14 @@
   .icon-btn.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
 
-  /* ── Folder picker ───────────────────────────────────────────────────────── */
+  .jump-wrap { position: relative; }
+  .jump-popover { position: absolute; top: calc(100% + 4px); right: 0; width: 220px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: var(--sp-2); z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: scaleIn 0.1s ease both; transform-origin: top right; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .jump-input { width: 100%; background: var(--bg-overlay); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 9px; font-size: var(--text-xs); color: var(--text-secondary); outline: none; transition: border-color var(--t-base); }
+  .jump-input:focus { border-color: var(--border-focus); }
+  .jump-go { width: 100%; padding: 6px var(--sp-2); border-radius: var(--radius-sm); background: var(--accent-muted); border: 1px solid var(--accent-dim); color: var(--accent-fg); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background var(--t-fast), border-color var(--t-fast); }
+  .jump-go:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast, #fff); }
+  .jump-none { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); padding: 4px var(--sp-1); letter-spacing: var(--tracking-wide); }
+
   .fp-wrap { position: relative; }
   .fp-menu { position: absolute; top: calc(100% + 4px); right: 0; min-width: 180px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: var(--sp-1); z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: scaleIn 0.1s ease both; transform-origin: top right; }
   .fp-empty { padding: var(--sp-2) var(--sp-3); font-size: var(--text-xs); color: var(--text-faint); }
@@ -982,7 +1015,6 @@
   .fp-new { width: 100%; padding: 6px var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--text-faint); background: none; border: none; cursor: pointer; text-align: left; transition: color var(--t-fast), background var(--t-fast); }
   .fp-new:hover { color: var(--text-secondary); background: var(--bg-overlay); }
 
-  /* ── Download dropdown ───────────────────────────────────────────────────── */
   .dl-wrap { position: relative; }
   .dl-dropdown { position: absolute; top: calc(100% + 4px); right: 0; min-width: 220px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); z-index: 200; box-shadow: 0 8px 32px rgba(0,0,0,0.5); animation: scaleIn 0.1s ease both; transform-origin: top right; }
   .dl-section-label { padding: 6px var(--sp-3) 4px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
@@ -1007,7 +1039,6 @@
   .dl-range-go { padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--accent-dim); background: var(--accent-muted); color: var(--accent-fg); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; }
   .dl-range-go:disabled { opacity: 0.3; cursor: default; }
 
-  /* ── Pagination ──────────────────────────────────────────────────────────── */
   .pagination, .pagination-bottom { display: flex; align-items: center; gap: var(--sp-2); }
   .pagination-bottom { justify-content: center; padding: var(--sp-3); border-top: 1px solid var(--border-dim); flex-shrink: 0; }
   .page-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }
@@ -1015,7 +1046,6 @@
   .page-btn:disabled { opacity: 0.3; cursor: default; }
   .page-num { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
 
-  /* ── Chapter rows ────────────────────────────────────────────────────────── */
   .ch-list { flex: 1; overflow-y: auto; }
   .ch-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 4px; padding: var(--sp-3); align-content: start; }
   .ch-row { display: flex; align-items: center; padding: 10px var(--sp-4); border-bottom: 1px solid var(--border-dim); cursor: pointer; transition: background var(--t-fast); gap: var(--sp-3); }
@@ -1041,14 +1071,12 @@
   .grid-cell-spinner { position: absolute; top: 2px; right: 2px; }
   .grid-cell-skeleton { aspect-ratio: 1; border-radius: var(--radius-sm); }
 
-  /* ── Multi-select action bar ─────────────────────────────────────────────── */
   .sel-count { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 0 var(--sp-1); }
   .sel-action-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
   .sel-action-btn:hover { color: var(--text-primary); background: var(--bg-raised); border-color: var(--border-strong); }
   .sel-action-danger { color: var(--color-error) !important; }
   .sel-action-danger:hover { background: var(--color-error-bg) !important; border-color: var(--color-error) !important; }
 
-  /* ── Download unified button ─────────────────────────────────────────────── */
   .dl-unified-btn { gap: 5px; padding: 0 8px; width: auto; min-width: 28px; }
   .dl-unified-count { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); transition: color var(--t-base); }
   .dl-unified-btn:hover .dl-unified-count,
@@ -1058,30 +1086,22 @@
   .dl-unified-btn.dl-has-count:hover { background: var(--accent-muted); border-color: var(--accent); opacity: 0.9; }
   .dl-unified-btn.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
-  /* ── Chapter row selection ───────────────────────────────────────────────── */
   .ch-check { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity var(--t-fast), color var(--t-fast); padding: 0; }
   .ch-row:hover .ch-check { opacity: 1; }
   .ch-check-visible { opacity: 1 !important; }
   .ch-selected { background: color-mix(in srgb, var(--accent) 8%, transparent) !important; }
   .ch-selected .ch-check { color: var(--accent-fg); opacity: 1; }
 
-  /* ── Red trash for downloaded chapters ───────────────────────────────────── */
   .dl-btn-delete { color: var(--color-error) !important; opacity: 0; }
   .ch-row:hover .dl-btn-delete { opacity: 1; }
   .dl-btn-delete:hover { background: var(--color-error-bg) !important; }
 
-  /* ── Persistent downloaded dot in list rows ──────────────────────────────── */
   .ch-dl-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fg); flex-shrink: 0; opacity: 0.7; transition: opacity var(--t-fast); }
   .ch-row:hover .ch-dl-dot { opacity: 0; }
 
-  /* ── Grid cell selection + downloaded dot ────────────────────────────────── */
   .grid-selected { background: var(--accent-muted) !important; border-color: var(--accent-dim) !important; }
   .grid-cell-dl { position: absolute; top: 3px; left: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent-fg); }
 
   @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>
-
-<script module>
-  function focusOnMount(node: HTMLElement) { node.focus(); }
-</script>

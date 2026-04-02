@@ -27,6 +27,14 @@
     "Magic","Music","Cooking","Medical","Military","Harem","Ecchi",
   ];
 
+  const MANGA_STATUSES: { value: string; label: string }[] = [
+    { value: "ONGOING",   label: "Ongoing"   },
+    { value: "COMPLETED", label: "Completed" },
+    { value: "HIATUS",    label: "Hiatus"    },
+    { value: "ABANDONED", label: "Abandoned" },
+    { value: "UNKNOWN",   label: "Unknown"   },
+  ];
+
   async function runConcurrent<T>(items: T[], fn: (item: T) => Promise<void>, signal: AbortSignal): Promise<void> {
     let i = 0;
     async function worker() {
@@ -44,10 +52,27 @@
     return tags.every((t) => genres.includes(t.toLowerCase()));
   }
 
-  function buildGenreFilter(tags: string[], mode: TagMode): Record<string, unknown> {
-    if (tags.length === 0) return {};
-    if (mode === "AND") return { and: tags.map((t) => ({ genre: { includesInsensitive: t } })) };
-    return { or: tags.map((t) => ({ genre: { includesInsensitive: t } })) };
+  function buildTagFilter(
+    tags: string[],
+    mode: TagMode,
+    statuses: string[],
+  ): Record<string, unknown> {
+    const genrePart: Record<string, unknown> | null =
+      tags.length === 0 ? null :
+      mode === "AND"
+        ? { and: tags.map((t) => ({ genre: { includesInsensitive: t } })) }
+        : { or:  tags.map((t) => ({ genre: { includesInsensitive: t } })) };
+
+    const statusPart: Record<string, unknown> | null =
+      statuses.length === 0 ? null :
+      statuses.length === 1
+        ? { status: { equalTo: statuses[0] } }
+        : { or: statuses.map((s) => ({ status: { equalTo: s } })) };
+
+    if (!genrePart && !statusPart) return {};
+    if (genrePart && !statusPart)  return genrePart;
+    if (!genrePart && statusPart)  return statusPart;
+    return { and: [genrePart, statusPart] };
   }
 
   const MANGAS_BY_GENRE = `
@@ -168,6 +193,7 @@
   const kw_allDone      = $derived(kw_results.length > 0 && kw_results.every((r) => !r.loading));
 
   let tag_activeTags:       string[] = $state([]);
+  let tag_activeStatuses:   string[] = $state([]);
   let tag_tagMode:          TagMode  = $state("AND");
   let tag_tagFilter                  = $state("");
 
@@ -191,7 +217,7 @@
     return q ? COMMON_GENRES.filter((g) => g.toLowerCase().includes(q)) : COMMON_GENRES;
   });
 
-  const tag_hasActiveTags = $derived(tag_activeTags.length > 0);
+  const tag_hasActiveTags = $derived(tag_activeTags.length > 0 || tag_activeStatuses.length > 0);
   const tag_localIds      = $derived(new Set(tag_localResults.map((m) => m.id)));
   const tag_mergedResults = $derived(dedupeMangaByTitle(dedupeMangaById(
     tag_searchSources
@@ -202,9 +228,10 @@
   const tag_sourceHasMore = $derived(tag_searchSources && [...tag_srcNextPage.values()].some((p) => p > 0));
 
   $effect(() => {
-    const _activeTags = tag_activeTags;
-    const _tagMode    = tag_tagMode;
-    untrack(() => tagFetchLocal(_activeTags, _tagMode));
+    const _activeTags     = tag_activeTags;
+    const _tagMode        = tag_tagMode;
+    const _activeStatuses = tag_activeStatuses;
+    untrack(() => tagFetchLocal(_activeTags, _tagMode, _activeStatuses));
   });
 
   let tag_autoSearchFired = $state(false);
@@ -223,8 +250,8 @@
     }
   });
 
-  async function tagFetchLocal(activeTags: string[], tagMode: TagMode) {
-    if (activeTags.length === 0) {
+  async function tagFetchLocal(activeTags: string[], tagMode: TagMode, activeStatuses: string[]) {
+    if (activeTags.length === 0 && activeStatuses.length === 0) {
       tag_localResults = []; tag_totalCount = 0; tag_localHasNext = false; tag_localOffset = 0;
       return;
     }
@@ -235,7 +262,7 @@
     tag_loadingLocal = true;
     gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean }; totalCount: number } }>(
       MANGAS_BY_GENRE,
-      { filter: buildGenreFilter(activeTags, tagMode), first: (store.settings.renderLimit ?? 48), offset: 0 },
+      { filter: buildTagFilter(activeTags, tagMode, activeStatuses), first: (store.settings.renderLimit ?? 48), offset: 0 },
       ctrl.signal,
     ).then((d) => {
       if (ctrl.signal.aborted) return;
@@ -279,7 +306,8 @@
       const matching = (activeTags.length > 1
         ? result.mangas.filter((m) => matchesAllTags(m, activeTags))
         : result.mangas
-      ).filter((m) => !shouldHideNsfw(m, store.settings));
+      ).filter((m) => !shouldHideNsfw(m, store.settings))
+       .filter((m) => tag_activeStatuses.length === 0 || tag_activeStatuses.includes(m.status ?? "UNKNOWN"));
       if (matching.length > 0) {
         tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         tag_loadingSourceSearch = false;
@@ -298,11 +326,12 @@
     try {
       const d = await gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean } } }>(
         MANGAS_BY_GENRE,
-        { filter: buildGenreFilter(tag_activeTags, tag_tagMode), first: (store.settings.renderLimit ?? 48), offset: tag_localOffset },
+        { filter: buildTagFilter(tag_activeTags, tag_tagMode, tag_activeStatuses), first: (store.settings.renderLimit ?? 48), offset: tag_localOffset },
         ctrl.signal,
       );
       if (ctrl.signal.aborted) return;
       const nsfwFilter = (m: Manga) => !shouldHideNsfw(m, store.settings);
+      tag_localResults  = [...tag_localResults, ...d.mangas.nodes.filter(nsfwFilter)];
       tag_localHasNext  = d.mangas.pageInfo.hasNextPage;
       tag_localOffset  += (store.settings.renderLimit ?? 48);
     } catch (e: any) {
@@ -341,7 +370,8 @@
         const matching = (tag_activeTags.length > 1
           ? result.mangas.filter((m) => matchesAllTags(m, tag_activeTags))
           : result.mangas
-        ).filter((m) => !shouldHideNsfw(m, store.settings));
+        ).filter((m) => !shouldHideNsfw(m, store.settings))
+         .filter((m) => tag_activeStatuses.length === 0 || tag_activeStatuses.includes(m.status ?? "UNKNOWN"));
         if (matching.length > 0) {
           tag_sourceResults = dedupeMangaByTitle(dedupeMangaById([...tag_sourceResults, ...matching]), store.settings.mangaLinks);
         }
@@ -357,6 +387,14 @@
     tag_activeTags    = tag_activeTags.includes(tag)
       ? tag_activeTags.filter((t) => t !== tag)
       : [...tag_activeTags, tag];
+  }
+
+  function tagToggleStatus(status: string) {
+    tag_srcNextPage    = new Map();
+    tag_sourceResults  = [];
+    tag_activeStatuses = tag_activeStatuses.includes(status)
+      ? tag_activeStatuses.filter((s) => s !== status)
+      : [...tag_activeStatuses, status];
   }
 
   function tagToggleSearchSources() {
@@ -678,13 +716,26 @@
           <input
             bind:value={tag_tagFilter}
             class="splitSearchInput"
-            placeholder="Filter tags…"
+            placeholder="Filter genres…"
           />
           {#if tag_tagFilter}
             <button class="splitSearchClear" title="Clear" onclick={() => (tag_tagFilter = "")}>×</button>
           {/if}
         </div>
         <div class="splitList">
+          <div class="splitSectionLabel">Status</div>
+          {#each MANGA_STATUSES as { value, label } (value)}
+            <button
+              class="splitItem"
+              class:splitItemActive={tag_activeStatuses.includes(value)}
+              onclick={() => tagToggleStatus(value)}
+            >
+              <span class="splitItemLabel">{label}</span>
+              {#if tag_activeStatuses.includes(value)}<span class="tagCheckMark">✓</span>{/if}
+            </button>
+          {/each}
+
+          <div class="splitSectionLabel splitSectionLabelSpaced">Genre</div>
           {#each tag_filteredGenres as tag (tag)}
             <button
               class="splitItem"
@@ -696,7 +747,7 @@
             </button>
           {/each}
           {#if tag_filteredGenres.length === 0}
-            <p class="splitEmpty">No matching tags</p>
+            <p class="splitEmpty">No matching genres</p>
           {/if}
         </div>
       </div>
@@ -709,12 +760,18 @@
               <path d="M224,104H200l8-48a8,8,0,0,0-15.79-2.67L183.79,104H136l8-48a8,8,0,0,0-15.79-2.67L119.79,104H72a8,8,0,0,0,0,16h45.33L105.6,200H56a8,8,0,0,0,0,16H103l-8,48a8,8,0,0,0,15.79,2.67L119.21,216H168l-8,48a8,8,0,0,0,15.79,2.67L184.21,216H232a8,8,0,0,0,0-16H186.67l11.73-80H224a8,8,0,0,0,0-16Zm-69.33,96H101.6L113.33,120h53.07Z"/>
             </svg>
             <p class="emptyText">Browse by tag</p>
-            <p class="emptyHint">Select one or more genre tags to find matching manga.</p>
+            <p class="emptyHint">Select a status or genre to find matching manga.</p>
           </div>
         {:else}
           
           <div class="tagActiveBar">
             <div class="tagPillRow">
+              {#each tag_activeStatuses as status (status)}
+                <span class="tagPill tagPillStatus">
+                  {MANGA_STATUSES.find((s) => s.value === status)?.label ?? status}
+                  <button class="tagPillRemove" title="Remove {status}" onclick={() => tagToggleStatus(status)}>×</button>
+                </span>
+              {/each}
               {#each tag_activeTags as tag (tag)}
                 <span class="tagPill">
                   {tag}
@@ -752,13 +809,27 @@
                 </svg>
                 Sources
               </button>
-              <button class="tagClearAll" onclick={() => (tag_activeTags = [])}>Clear all</button>
+              <button
+                class="tagClearAll"
+                onclick={() => {
+                  tag_activeTags = [];
+                  tag_activeStatuses = [];
+                  tag_srcNextPage = new Map();
+                  tag_sourceResults = [];
+                }}
+              >Clear all</button>
             </div>
           </div>
 
           <div class="splitContentHeader">
             <span class="splitContentTitle">
-              {tag_activeTags.length === 1 ? tag_activeTags[0] : `${tag_activeTags.length} tags (${tag_tagMode})`}
+              {#if tag_activeStatuses.length > 0 && tag_activeTags.length === 0}
+                {tag_activeStatuses.map((s) => MANGA_STATUSES.find((x) => x.value === s)?.label ?? s).join(" · ")}
+              {:else if tag_activeTags.length === 1 && tag_activeStatuses.length === 0}
+                {tag_activeTags[0]}
+              {:else}
+                {[...tag_activeStatuses.map((s) => MANGA_STATUSES.find((x) => x.value === s)?.label ?? s), ...tag_activeTags].join(` ${tag_tagMode} `)}
+              {/if}
               {#if tag_searchSources}
                 <span style="margin-left:6px;font-weight:400;opacity:0.55;font-size:0.9em">+ sources</span>
               {/if}
@@ -834,7 +905,7 @@
             </div>
           {:else}
             <div class="empty">
-              <p class="emptyText">No results for {tag_activeTags.join(` ${tag_tagMode} `)}</p>
+              <p class="emptyText">No results</p>
               <p class="emptyHint">
                 {#if tag_searchSources}
                   Try OR mode or broader tags.
@@ -1429,6 +1500,21 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border-dim) transparent;
   }
+  .splitSectionLabel {
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+    color: var(--text-faint);
+    padding: var(--sp-2) var(--sp-3) var(--sp-1);
+    pointer-events: none;
+    user-select: none;
+  }
+  .splitSectionLabelSpaced {
+    margin-top: var(--sp-2);
+    border-top: 1px solid var(--border-dim);
+    padding-top: var(--sp-3);
+  }
   .splitItem {
     display: flex;
     align-items: center;
@@ -1547,8 +1633,13 @@
     letter-spacing: var(--tracking-wide);
     color: var(--accent-fg);
   }
+  .tagPillStatus {
+    background: color-mix(in srgb, var(--color-info, #4a90d9) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-info, #4a90d9) 30%, transparent);
+    color: var(--color-info, #4a90d9);
+  }
   .tagPillRemove {
-    color: var(--accent-fg);
+    color: currentColor;
     opacity: 0.6;
     font-size: 13px;
     line-height: 1;

@@ -393,19 +393,18 @@
 
         {#if !loadingDetail}
           <div class="meta-table">
-            {#if displayManga?.author}<div class="meta-row"><span class="meta-key">Author</span><span class="meta-val">{displayManga.author}</span></div>{/if}
-            {#if displayManga?.artist && displayManga.artist !== displayManga.author}<div class="meta-row"><span class="meta-key">Artist</span><span class="meta-val">{displayManga.artist}</span></div>{/if}
-            {#if statusLabel}<div class="meta-row"><span class="meta-key">Status</span><span class="meta-val">{statusLabel}</span></div>{/if}
-            {#if displayManga?.source}<div class="meta-row"><span class="meta-key">Source</span><span class="meta-val">{displayManga.source.displayName}</span></div>{/if}
-            {#if !loadingChapters && scanlators.length > 0}<div class="meta-row"><span class="meta-key">{scanlators.length === 1 ? "Scanlator" : "Scanlators"}</span><span class="meta-val">{scanlators.join(", ")}</span></div>{/if}
-            {#if !loadingChapters && firstUpload && lastUpload}
-              <div class="meta-row">
-                <span class="meta-key">Published</span>
-                <span class="meta-val">{firstUpload.getTime() === lastUpload.getTime() ? formatDate(firstUpload) : `${formatDate(firstUpload)} – ${formatDate(lastUpload)}`}</span>
+            <div class="meta-grid">
+              <div class="meta-col">
+                <div class="meta-row"><span class="meta-key">Status</span><span class="meta-val">{statusLabel ?? "N/A"}</span></div>
+                <div class="meta-row"><span class="meta-key">Source</span><span class="meta-val">{displayManga?.source?.displayName ?? "N/A"}</span></div>
+                <div class="meta-row"><span class="meta-key">Link</span>{#if displayManga?.realUrl}<a href={displayManga.realUrl} target="_blank" rel="noreferrer" class="meta-link">Open <ArrowSquareOut size={11} weight="light" /></a>{:else}<span class="meta-val">N/A</span>{/if}</div>
               </div>
-            {/if}
-            {#if !loadingChapters && downloadedCount > 0}<div class="meta-row"><span class="meta-key">Downloaded</span><span class="meta-val">{downloadedCount} / {totalCount} chapters</span></div>{/if}
-            {#if displayManga?.realUrl}<div class="meta-row"><span class="meta-key">Link</span><a href={displayManga.realUrl} target="_blank" rel="noreferrer" class="meta-link">Open <ArrowSquareOut size={11} weight="light" /></a></div>{/if}
+              <div class="meta-col">
+                <div class="meta-row"><span class="meta-key">Author</span><span class="meta-val">{displayManga?.author ?? "N/A"}</span></div>
+                <div class="meta-row"><span class="meta-key">Artist</span><span class="meta-val">{displayManga?.artist && displayManga.artist !== displayManga.author ? displayManga.artist : (displayManga?.author ?? "N/A")}</span></div>
+                <div class="meta-row"><span class="meta-key">Scanlator</span><span class="meta-val">{!loadingChapters && scanlators.length > 0 ? scanlators[0] : "N/A"}</span></div>
+              </div>
+            </div>
           </div>
         {/if}
       </div>
@@ -528,9 +527,11 @@
   .genre-tag { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .genre-tag:hover { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .meta-table { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid var(--border-dim); padding-top: var(--sp-3); }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--sp-4); }
+  .meta-col { display: flex; flex-direction: column; }
   .meta-row { display: flex; align-items: baseline; gap: var(--sp-3); padding: 5px 0; }
   .meta-key { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); text-transform: uppercase; min-width: 56px; flex-shrink: 0; }
-  .meta-val { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); }
+  .meta-val { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); color: var(--accent-fg); text-decoration: none; transition: opacity var(--t-base); }
   .meta-link:hover { opacity: 0.75; }
   .link-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: calc(var(--z-settings) + 1); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); animation: fadeIn 0.1s ease both; }
