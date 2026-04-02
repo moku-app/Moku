@@ -13,6 +13,7 @@ export interface Keybinds {
   toggleFullscreen:       string;
   openSettings:           string;
   toggleBookmark:         string;
+  toggleMarker:           string;
 }
 
 export const DEFAULT_KEYBINDS: Keybinds = {
@@ -28,6 +29,7 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   toggleFullscreen:       "f",
   openSettings:           "o",
   toggleBookmark:         "m",
+  toggleMarker:           "n",
 };
 
 export const KEYBIND_LABELS: Record<keyof Keybinds, string> = {
@@ -43,6 +45,7 @@ export const KEYBIND_LABELS: Record<keyof Keybinds, string> = {
   toggleFullscreen:       "Toggle fullscreen",
   openSettings:           "Open settings",
   toggleBookmark:         "Toggle bookmark",
+  toggleMarker:           "Toggle marker",
 };
 
 export function eventToKeybind(e: KeyboardEvent): string {

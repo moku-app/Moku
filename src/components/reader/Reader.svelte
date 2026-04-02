@@ -4,14 +4,14 @@
     X, CaretLeft, CaretRight, ArrowLeft, ArrowRight,
     Square, Rows, Download, ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical,
     CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus,
-    Bookmark, BookOpen, MonitorPlay,
+    Bookmark, BookOpen, MonitorPlay, MapPin, Check,
   } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
-  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark } from "../../store/state.svelte";
+  import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, addMarker, removeMarker, updateMarker } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import { setReading } from "../../lib/discord";
-  import type { FitMode } from "../../store/state.svelte";
+  import type { FitMode, MarkerColor } from "../../store/state.svelte";
 
   const AVG_MIN_PER_PAGE = 0.33;
   const READ_LINE_PCT    = 0.20;
@@ -21,6 +21,15 @@
 
   const PAGE_STYLES = ["single", "fade", "double", "longstrip"] as const;
   type PageStyle = typeof PAGE_STYLES[number];
+
+  const MARKER_COLORS: MarkerColor[] = ["yellow", "red", "blue", "green", "purple"];
+  const MARKER_COLOR_HEX: Record<MarkerColor, string> = {
+    yellow: "#c4a94a",
+    red:    "#c47a7a",
+    blue:   "#7a9ec4",
+    green:  "#7aab7a",
+    purple: "#a07ac4",
+  };
 
   const pageCache = new Map<number, string[]>();
   const inflight  = new Map<number, Promise<string[]>>();
@@ -119,6 +128,11 @@
   let resumeFading      = $state(false);
   let resumeVisible     = $state(false);
 
+  let markerOpen       = $state(false);
+  let markerNote       = $state("");
+  let markerColor:  MarkerColor = $state("yellow");
+  let markerEditId     = $state("");
+
   function scheduleResumeDismiss() {
     if (resumeTimer)     clearTimeout(resumeTimer);
     if (resumeFadeTimer) clearTimeout(resumeFadeTimer);
@@ -149,6 +163,16 @@
   );
   const currentBookmark = $derived(displayChapter ? store.bookmarks.find(b => b.chapterId === displayChapter!.id) : undefined);
   const isBookmarked = $derived(!!currentBookmark && currentBookmark.pageNumber === store.pageNumber);
+
+  const currentPageMarkers = $derived(
+    displayChapter ? store.getMarkersForPage(displayChapter.id, store.pageNumber) : []
+  );
+
+  const activeChapterMarkers = $derived(
+    displayChapter ? store.getMarkersForChapter(displayChapter.id) : []
+  );
+
+  const hasMarkerOnPage = $derived(currentPageMarkers.length > 0);
 
   const showResumeBanner = $derived(
     resumeVisible && resumePage > 1 &&
@@ -239,6 +263,7 @@
     visibleChapterId = null;
     store.pageUrls   = [];
     fadingOut        = false;
+    markerOpen       = false;
 
     const bookmark  = store.bookmarks.find(b => b.chapterId === id);
     const resumeTo  = bookmark ? bookmark.pageNumber : 0;
@@ -297,7 +322,6 @@
     const chId = visibleChapterId;
     if (!chId || style !== "longstrip") return;
     if (chId === store.activeChapter?.id) return;
-    // Only resume if this chapter was opened directly, not auto-appended while reading
     const wasAppended = untrack(() => stripChapters.findIndex(c => c.chapterId === chId)) > 0;
     if (wasAppended) { untrack(() => { resumePage = 0; resumeVisible = false; }); return; }
     const bookmark = store.bookmarks.find(b => b.chapterId === chId);
@@ -580,6 +604,55 @@
     }
   }
 
+  function openMarkerPopover() {
+    const ch    = displayChapter;
+    const manga = store.activeManga;
+    if (!ch || !manga) return;
+    if (currentPageMarkers.length > 0) {
+      const first = currentPageMarkers[0];
+      markerEditId = first.id;
+      markerNote   = first.note;
+      markerColor  = first.color;
+    } else {
+      markerEditId = "";
+      markerNote   = "";
+      markerColor  = "yellow";
+    }
+    markerOpen = !markerOpen;
+    zoomOpen   = false;
+    dlOpen     = false;
+  }
+
+  function commitMarker() {
+    const ch    = displayChapter;
+    const manga = store.activeManga;
+    if (!ch || !manga) return;
+    if (markerEditId) {
+      updateMarker(markerEditId, { note: markerNote.trim(), color: markerColor });
+    } else {
+      addMarker({
+        mangaId:      manga.id,
+        mangaTitle:   manga.title,
+        thumbnailUrl: manga.thumbnailUrl,
+        chapterId:    ch.id,
+        chapterName:  ch.name,
+        pageNumber:   store.pageNumber,
+        note:         markerNote.trim(),
+        color:        markerColor,
+      });
+    }
+    markerOpen   = false;
+    markerNote   = "";
+    markerEditId = "";
+  }
+
+  function deleteCurrentMarker() {
+    if (markerEditId) removeMarker(markerEditId);
+    markerOpen   = false;
+    markerNote   = "";
+    markerEditId = "";
+  }
+
   function cycleStyle() {
     const idx = PAGE_STYLES.indexOf(style);
     updateSettings({ pageStyle: PAGE_STYLES[(idx + 1) % PAGE_STYLES.length] });
@@ -593,8 +666,15 @@
   function showUi() {
     uiVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => uiVisible = false, 3000);
+    hideTimer = setTimeout(() => { if (!markerOpen) uiVisible = false; }, 3000);
   }
+
+  $effect(() => {
+    if (markerOpen) {
+      uiVisible = true;
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    }
+  });
 
   function onWheel(e: WheelEvent) {
     if (!e.ctrlKey) return;
@@ -607,13 +687,14 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if ((e.target as HTMLElement).tagName === "INPUT") return;
+    if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
     const kb = store.settings.keybinds ?? DEFAULT_KEYBINDS;
     const r  = store.settings.readingDirection === "rtl";
     if (e.key === "Escape") {
       e.preventDefault();
-      if (zoomOpen) { zoomOpen = false; return; }
-      if (dlOpen)   { dlOpen   = false; return; }
+      if (markerOpen) { markerOpen = false; return; }
+      if (zoomOpen)   { zoomOpen   = false; return; }
+      if (dlOpen)     { dlOpen     = false; return; }
       closeReader(); return;
     }
     if (e.ctrlKey && (e.key === "=" || e.key === "+")) { e.preventDefault(); adjustZoom(ZOOM_STEP * 2); return; }
@@ -643,6 +724,7 @@
     else if (matchesKeybind(e, kb.toggleFullscreen))       { e.preventDefault(); toggleFullscreen().catch(console.error); }
     else if (matchesKeybind(e, kb.openSettings))           { e.preventDefault(); setSettingsOpen(true); }
     else if (matchesKeybind(e, kb.toggleBookmark))         { e.preventDefault(); toggleBookmark(); }
+    else if (matchesKeybind(e, kb.toggleMarker))           { e.preventDefault(); openMarkerPopover(); }
   }
 
   function handleTap(e: MouseEvent) {
@@ -769,16 +851,78 @@
         <Download size={14} weight="light" />
       </button>
 
-      <button class="icon-btn" class:active={isBookmarked} onclick={toggleBookmark} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"}>
-          <Bookmark size={15} weight={isBookmarked ? "fill" : "regular"} />
+      <div class="marker-wrap">
+        <button
+          class="icon-btn"
+          class:active={hasMarkerOnPage}
+          class:marker-btn-has={hasMarkerOnPage}
+          onclick={openMarkerPopover}
+          title={hasMarkerOnPage ? "Edit marker" : "Add marker"}
+          style={hasMarkerOnPage ? `--marker-color:${MARKER_COLOR_HEX[currentPageMarkers[0].color]}` : ""}
+        >
+          <MapPin size={14} weight={hasMarkerOnPage ? "fill" : "regular"} />
         </button>
+
+        {#if markerOpen}
+          <div class="marker-popover" role="presentation" onclick={(e) => e.stopPropagation()}
+            onmouseenter={() => { uiVisible = true; if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } }}
+          >
+            <div class="marker-pop-header">
+              <span class="marker-pop-title">
+                {markerEditId ? "Edit marker" : "New marker"} · p.{store.pageNumber}
+              </span>
+              {#if markerEditId}
+                <button class="marker-delete-btn" onclick={deleteCurrentMarker} title="Delete marker">
+                  <X size={12} weight="light" />
+                </button>
+              {/if}
+            </div>
+            <div class="marker-color-row">
+              {#each MARKER_COLORS as c}
+                <button
+                  class="marker-swatch"
+                  class:marker-swatch-active={markerColor === c}
+                  style="--swatch:{MARKER_COLOR_HEX[c]}"
+                  onclick={() => markerColor = c}
+                  title={c}
+                >
+                  <span class="swatch-dot"></span>
+                  <span class="swatch-label">{c}</span>
+                </button>
+              {/each}
+            </div>
+            <textarea
+              class="marker-textarea"
+              style="--accent-marker:{MARKER_COLOR_HEX[markerColor]}"
+              rows={3}
+              placeholder="Note (optional)…"
+              bind:value={markerNote}
+              onmouseenter={() => { uiVisible = true; if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } }}
+              onkeydown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitMarker(); }
+                if (e.key === "Escape") { markerOpen = false; }
+              }}
+            ></textarea>
+            <div class="marker-pop-actions">
+              <button class="marker-save-btn" style="--accent-marker:{MARKER_COLOR_HEX[markerColor]}" onclick={commitMarker}>
+                <Check size={12} weight="bold" />
+                {markerEditId ? "Update" : "Save"}
+              </button>
+              <button class="marker-cancel-btn" onclick={() => markerOpen = false}>Cancel</button>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <button class="icon-btn" class:active={isBookmarked} onclick={toggleBookmark} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"}>
+        <Bookmark size={15} weight={isBookmarked ? "fill" : "regular"} />
+      </button>
     </div>
   </div>
 
   {#if showResumeBanner}
     <div class="resume-banner" class:fading={resumeFading} role="status" onclick={() => { resumeVisible = false; resumeFading = false; }}>
       <span>Bookmark at page {resumePage}</span>
-
     </div>
   {/if}
 
@@ -864,6 +1008,7 @@
         <div class="slider-track-bg">
           <div class="slider-fill" style="width: {rtl ? 100 - sliderPct : sliderPct}%"></div>
         </div>
+
         {#if isBookmarked && currentBookmark}
           {@const bPct = sliderMax > 1 ? ((currentBookmark.pageNumber - 1) / (sliderMax - 1)) * 100 : 0}
           <div
@@ -872,6 +1017,16 @@
             title="Bookmark: Page {currentBookmark.pageNumber}"
           ></div>
         {/if}
+
+        {#each activeChapterMarkers as m (m.id)}
+          {@const mPct = sliderMax > 1 ? ((m.pageNumber - 1) / (sliderMax - 1)) * 100 : 0}
+          <div
+            class="slider-checkpoint marker-checkpoint"
+            style="left: {rtl ? 100 - mPct : mPct}%; background:{MARKER_COLOR_HEX[m.color]}"
+            title="{m.note ? m.note : 'Marker'} · Page {m.pageNumber}"
+          ></div>
+        {/each}
+
         <input
           type="range"
           class="slider-input"
@@ -950,6 +1105,7 @@
   .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .icon-btn:disabled { opacity: 0.2; cursor: default; }
   .icon-btn.active { color: var(--accent-fg); }
+  .marker-btn-has { color: var(--marker-color, var(--accent-fg)) !important; }
 
   .ch-label { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -976,6 +1132,31 @@
   .zoom-reset { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); padding: 3px var(--sp-2); border-radius: var(--radius-sm); border: 1px solid var(--border-dim); transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
   .zoom-reset:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-overlay); border-color: var(--border-strong); }
   .zoom-reset:disabled { opacity: 0.3; cursor: default; }
+
+  .marker-wrap { position: relative; flex-shrink: 0; }
+  .marker-popover { position: absolute; top: calc(100% + 8px); right: 0; width: 240px; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-3); box-shadow: 0 12px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4); z-index: 100; animation: scaleIn 0.1s ease both; transform-origin: top right; }
+  .marker-pop-header { display: flex; align-items: center; justify-content: space-between; }
+  .marker-pop-title { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
+  .marker-delete-btn { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--color-error); opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast); }
+  .marker-delete-btn:hover { opacity: 1; background: var(--color-error-bg); }
+
+  .marker-color-row { display: flex; gap: 5px; }
+  .marker-swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; padding: 6px 4px 5px; border-radius: var(--radius-md); border: 1px solid transparent; background: none; cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast); }
+  .marker-swatch:hover { background: var(--bg-raised); }
+  .marker-swatch-active { background: var(--bg-overlay); border-color: var(--border-strong); }
+  .swatch-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 0 var(--swatch); transition: box-shadow var(--t-fast), transform var(--t-fast); flex-shrink: 0; }
+  .marker-swatch:hover .swatch-dot { transform: scale(1.15); }
+  .marker-swatch-active .swatch-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--swatch) 30%, transparent); transform: scale(1.1); }
+  .swatch-label { font-family: var(--font-ui); font-size: 9px; letter-spacing: var(--tracking-wide); color: var(--text-faint); text-transform: capitalize; line-height: 1; }
+  .marker-swatch-active .swatch-label { color: var(--text-muted); }
+
+  .marker-textarea { width: 100%; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 7px 9px; font-size: var(--text-xs); color: var(--text-secondary); outline: none; resize: none; font-family: inherit; line-height: var(--leading-snug); transition: border-color var(--t-base), box-shadow var(--t-base); }
+  .marker-textarea:focus { border-color: var(--accent-marker, var(--border-focus)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-marker, var(--accent)) 18%, transparent); }
+  .marker-pop-actions { display: flex; align-items: center; gap: var(--sp-2); }
+  .marker-save-btn { display: flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--accent-marker, var(--accent)) 50%, transparent); background: color-mix(in srgb, var(--accent-marker, var(--accent)) 15%, transparent); color: var(--accent-marker, var(--accent-fg)); font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); cursor: pointer; transition: filter var(--t-fast); }
+  .marker-save-btn:hover { filter: brightness(1.2); }
+  .marker-cancel-btn { flex: 1; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); text-align: center; }
+  .marker-cancel-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
 
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
@@ -1008,6 +1189,7 @@
   .slider-input { position: absolute; left: 0; right: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; z-index: 2; }
   .slider-checkpoint { position: absolute; top: 50%; width: 4px; height: 10px; border-radius: 2px; transform: translate(-50%, -50%); pointer-events: none; z-index: 1; }
   .bookmark-checkpoint { background: var(--accent-fg); opacity: 0.7; }
+  .marker-checkpoint { opacity: 0.85; }
   .slider-tooltip { position: absolute; bottom: calc(100% + 2px); transform: translateX(-50%); background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-sm); padding: 2px 6px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-secondary); white-space: nowrap; pointer-events: none; z-index: 10; letter-spacing: var(--tracking-wide); }
   .slider-wrap:hover .slider-track-bg, .slider-wrap.dragging .slider-track-bg { height: 5px; }
 
@@ -1015,8 +1197,6 @@
   .resume-banner.fading { animation: bannerOut 1s ease forwards; }
   @keyframes bannerIn  { from { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
   @keyframes bannerOut { from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } to { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.97); } }
-  .resume-jump { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 2px 8px; cursor: pointer; transition: filter var(--t-fast); }
-  .resume-jump:hover { filter: brightness(1.15); }
 
   .dl-backdrop { position: fixed; inset: 0; z-index: calc(var(--z-reader) + 10); display: flex; align-items: flex-start; justify-content: flex-end; padding: 48px var(--sp-4) 0; }
   .dl-modal { background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-xl); padding: var(--sp-3); min-width: 210px; display: flex; flex-direction: column; gap: var(--sp-1); box-shadow: 0 8px 32px rgba(0,0,0,0.6); animation: scaleIn 0.12s ease both; transform-origin: top right; }

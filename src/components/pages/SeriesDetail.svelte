@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp, MagnifyingGlass, Gear, Eye } from "phosphor-svelte";
+  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp, MagnifyingGlass, Gear, Eye, MapPin } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, setPreviewManga, checkAndMarkCompleted as storeCheckAndMarkCompleted } from "../../store/state.svelte";
+  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, setPreviewManga, checkAndMarkCompleted as storeCheckAndMarkCompleted, clearMarkersForManga } from "../../store/state.svelte";
   import type { MangaPrefs } from "../../store/state.svelte";
   import { DEFAULT_MANGA_PREFS } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
@@ -13,6 +13,7 @@
   import MigrateModal from "./MigrateModal.svelte";
   import TrackingPanel from "../shared/TrackingPanel.svelte";
   import AutomationPanel from "../shared/AutomationPanel.svelte";
+  import MarkersPanel from "../shared/MarkersPanel.svelte";
 
   const CHAPTERS_PER_PAGE = 25;
   const MANGA_TTL_MS      = 5 * 60 * 1000;
@@ -49,6 +50,7 @@
   let migrateOpen:      boolean         = $state(false);
   let autoOpen:         boolean         = $state(false);
   let trackingOpen:     boolean         = $state(false);
+  let markersOpen:      boolean         = $state(false);
   let linkPickerOpen:   boolean         = $state(false);
   let linkSearch:       string          = $state("");
   let allMangaForLink:  Manga[]         = $state([]);
@@ -592,6 +594,10 @@
               <button class="detail-action-btn" onclick={() => trackingOpen = true}>
                 <ChartLineUp size={12} weight="light" /> Tracking
               </button>
+              <button class="detail-action-btn" class:detail-action-active={markersOpen} onclick={() => markersOpen = !markersOpen}>
+                <MapPin size={12} weight={markersOpen ? "fill" : "light"} />
+                Markers{store.activeManga && store.getMarkersForManga(store.activeManga.id).length > 0 ? ` (${store.getMarkersForManga(store.activeManga.id).length})` : ""}
+              </button>
               {#if manga?.inLibrary}
                 <button class="detail-action-btn" class:detail-action-active={hasAnyAutomation} onclick={() => autoOpen = true}>
                   <Gear size={12} weight={hasAnyAutomation ? "fill" : "light"} /> Automation
@@ -856,6 +862,14 @@
   <AutomationPanel mangaId={store.activeManga.id} {chapters} onClose={() => autoOpen = false} />
 {/if}
 
+{#if markersOpen && store.activeManga}
+  <div class="markers-panel-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) markersOpen = false; }}>
+    <div class="markers-panel-drawer">
+      <MarkersPanel mangaId={store.activeManga.id} {chapters} onClose={() => markersOpen = false} />
+    </div>
+  </div>
+{/if}
+
 {#if linkPickerOpen}
   <div class="link-backdrop" role="presentation"
     onclick={(e) => { if (e.target === e.currentTarget) closeLinkPicker(); }}
@@ -1104,4 +1118,8 @@
 
   @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
+
+  .markers-panel-overlay { position: fixed; inset: 0; z-index: var(--z-settings); display: flex; align-items: stretch; justify-content: flex-start; animation: fadeIn 0.12s ease both; }
+  .markers-panel-drawer { width: 280px; max-width: 90vw; background: var(--bg-surface); border-right: 1px solid var(--border-base); box-shadow: 4px 0 24px rgba(0,0,0,0.4); display: flex; flex-direction: column; animation: drawerIn 0.18s cubic-bezier(0.16,1,0.3,1) both; }
+  @keyframes drawerIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
 </style>

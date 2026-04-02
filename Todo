@@ -17,6 +17,7 @@ Minor Revisions:
 Priority Bugs:
  - Cache ALL Cover Pictures & Details for Manga in Library
  - Fix Library Build not Updating
+ - Check Auth System (Only Supports Basic-Auth)
 
 
 General/Misc Bugs:

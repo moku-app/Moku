@@ -32,7 +32,8 @@ export type LibraryContentFilter =
   | "unread"
   | "started"
   | "downloaded"
-  | "bookmarked";
+  | "bookmarked"
+  | "marked";
 
 export type BuiltinTheme = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
 export type Theme        = BuiltinTheme | string;
@@ -117,6 +118,22 @@ export interface BookmarkEntry {
   pageNumber:   number;
   savedAt:      number;
   label?:       string;
+}
+
+export type MarkerColor = "yellow" | "red" | "blue" | "green" | "purple";
+
+export interface MarkerEntry {
+  id:           string;
+  mangaId:      number;
+  mangaTitle:   string;
+  thumbnailUrl: string;
+  chapterId:    number;
+  chapterName:  string;
+  pageNumber:   number;
+  note:         string;
+  color:        MarkerColor;
+  createdAt:    number;
+  updatedAt?:   number;
 }
 
 export interface ReadLogEntry {
@@ -407,6 +424,7 @@ class Store {
   history:           HistoryEntry[]   = $state(saved?.history   ?? []);
   readLog:           ReadLogEntry[]   = $state(saved?.readLog   ?? []);
   bookmarks:         BookmarkEntry[]  = $state(saved?.bookmarks ?? []);
+  markers:           MarkerEntry[]    = $state(saved?.markers   ?? []);
   readingStats:      ReadingStats     = $state(mergeStats(saved));
   settings:          Settings         = $state(mergeSettings(saved));
   readerSessionId:   number           = $state(0);
@@ -437,6 +455,7 @@ class Store {
       $effect(() => { persist({ history:       this.history       }); });
       $effect(() => { persist({ readLog:       this.readLog       }); });
       $effect(() => { persist({ bookmarks:     this.bookmarks     }); });
+      $effect(() => { persist({ markers:       this.markers       }); });
       $effect(() => { persist({ readingStats:  this.readingStats  }); });
       $effect(() => { persist({ settings:      this.settings      }); });
     });
@@ -524,6 +543,39 @@ class Store {
     return this.bookmarks.find(b => b.chapterId === chapterId);
   }
 
+  addMarker(entry: Omit<MarkerEntry, "id" | "createdAt">): string {
+    const id = genId();
+    const marker: MarkerEntry = { ...entry, id, createdAt: Date.now() };
+    this.markers = [marker, ...this.markers].slice(0, 2000);
+    return id;
+  }
+
+  updateMarker(id: string, patch: Partial<Pick<MarkerEntry, "note" | "color">>) {
+    this.markers = this.markers.map(m =>
+      m.id === id ? { ...m, ...patch, updatedAt: Date.now() } : m
+    );
+  }
+
+  removeMarker(id: string) {
+    this.markers = this.markers.filter(m => m.id !== id);
+  }
+
+  getMarkersForPage(chapterId: number, page: number): MarkerEntry[] {
+    return this.markers.filter(m => m.chapterId === chapterId && m.pageNumber === page);
+  }
+
+  getMarkersForChapter(chapterId: number): MarkerEntry[] {
+    return this.markers.filter(m => m.chapterId === chapterId);
+  }
+
+  getMarkersForManga(mangaId: number): MarkerEntry[] {
+    return this.markers.filter(m => m.mangaId === mangaId);
+  }
+
+  clearMarkersForManga(mangaId: number) {
+    this.markers = this.markers.filter(m => m.mangaId !== mangaId);
+  }
+
   clearHistory() { this.history = []; this.readLog = []; }
 
   clearHistoryForManga(mangaId: number) {
@@ -543,6 +595,7 @@ class Store {
   wipeAllData() {
     this.history      = [];
     this.readLog      = [];
+    this.markers      = [];
     this.readingStats = { ...DEFAULT_READING_STATS };
     this.settings     = { ...this.settings, heroSlots: [null, null, null, null], mangaLinks: {} };
   }
@@ -676,6 +729,13 @@ export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: strin
 export function removeBookmark(chapterId: number)                              { store.removeBookmark(chapterId); }
 export function clearBookmarks()                                               { store.clearBookmarks(); }
 export function getBookmark(chapterId: number)                                 { return store.getBookmark(chapterId); }
+export function addMarker(entry: Omit<MarkerEntry, "id" | "createdAt">): string { return store.addMarker(entry); }
+export function updateMarker(id: string, patch: Partial<Pick<MarkerEntry, "note" | "color">>) { store.updateMarker(id, patch); }
+export function removeMarker(id: string)                                       { store.removeMarker(id); }
+export function getMarkersForPage(chapterId: number, page: number)             { return store.getMarkersForPage(chapterId, page); }
+export function getMarkersForChapter(chapterId: number)                        { return store.getMarkersForChapter(chapterId); }
+export function getMarkersForManga(mangaId: number)                            { return store.getMarkersForManga(mangaId); }
+export function clearMarkersForManga(mangaId: number)                          { store.clearMarkersForManga(mangaId); }
 export function toggleHiddenCategory(id: number)                             { store.toggleHiddenCategory(id); }
 export function saveCustomTheme(theme: CustomTheme)                          { store.saveCustomTheme(theme); }
 export function deleteCustomTheme(id: string)                                { store.deleteCustomTheme(id); }
