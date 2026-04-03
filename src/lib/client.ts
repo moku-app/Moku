@@ -13,11 +13,26 @@ function gqlUrl(): string { return `${getServerUrl()}/api/graphql`; }
 export function thumbUrl(path: string): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
-  return `${getServerUrl()}${path}`;
+
+  const base = getServerUrl();
+  const mode = store.settings.serverAuthMode;
+
+  if (mode === "BASIC_AUTH") {
+    const user = store.settings.serverAuthUser?.trim() ?? "";
+    const pass = store.settings.serverAuthPass?.trim() ?? "";
+    if (user && pass) {
+      const url      = new URL(`${base}${path}`);
+      url.username   = user;
+      url.password   = pass;
+      return url.toString();
+    }
+  }
+
+  return `${base}${path}`;
 }
 
 interface GQLResponse<T> {
-  data: T;
+  data:    T;
   errors?: { message: string }[];
 }
 
