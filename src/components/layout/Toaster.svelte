@@ -27,7 +27,7 @@
 {#if store.toasts.length}
   <div class="toaster" aria-live="polite">
     {#each store.toasts as t (t.id)}
-      <div
+      <button
         class="toast toast-{t.kind}"
         role="alert"
         onclick={() => dismissToast(t.id)}
@@ -43,7 +43,7 @@
           <p class="title">{t.title}</p>
           {#if t.body}<p class="sub">{t.body}</p>{/if}
         </div>
-      </div>
+      </button>
     {/each}
   </div>
 {/if}
@@ -76,6 +76,10 @@
     cursor: pointer;
     animation: slideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
     transition: opacity 0.15s ease, transform 0.15s ease;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    text-align: left;
   }
 
   .toast:hover  { opacity: 0.85; transform: translateX(-2px); }

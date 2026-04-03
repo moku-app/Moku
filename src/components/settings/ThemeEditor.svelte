@@ -12,8 +12,6 @@
 
   let { editingId = $bindable(null), onClose }: Props = $props();
 
-  // ── Token group definitions ───────────────────────────────────────────────
-
   const TOKEN_GROUPS: { label: string; tokens: (keyof ThemeTokens)[] }[] = [
     {
       label: "Backgrounds",
@@ -65,8 +63,6 @@
     "color-info-bg":  "Info background",
   };
 
-  // ── State ─────────────────────────────────────────────────────────────────
-
   function loadInitial(): { name: string; tokens: ThemeTokens } {
     if (editingId) {
       const existing = store.settings.customThemes.find(t => t.id === editingId);
@@ -81,12 +77,9 @@
   let saveStatus: "idle" | "saved" = $state("idle");
   let importError: string | null   = $state(null);
 
-  // ── CSS vars helper ───────────────────────────────────────────────────────
   function toCssVars(t: ThemeTokens): string {
     return Object.entries(t).map(([k, v]) => `--${k}: ${v};`).join(" ");
   }
-
-  // ── Actions ───────────────────────────────────────────────────────────────
 
   function handleSave() {
     const name = themeName.trim() || "Untitled Theme";
@@ -154,17 +147,15 @@
 
 <svelte:window onkeydown={onKey} />
 
-<!-- ── Main editor ────────────────────────────────────────────────────────────── -->
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="te-backdrop" onclick={onClose} role="presentation">
+<div class="te-backdrop" tabindex="-1" onclick={onClose} onkeydown={(e) => e.key === "Escape" && onClose()}>
   <div
     class="te-shell"
     role="dialog"
     aria-label="Theme editor"
+    tabindex="0"
     onclick={(e) => e.stopPropagation()}
   >
 
-    <!-- ── Header ──────────────────────────────────────────────────────── -->
     <header class="te-header">
       <div class="te-header-left">
         <button class="te-icon-btn" onclick={onClose} title="Close editor">
@@ -209,25 +200,17 @@
       </div>
     </header>
 
-    <!-- ── Body ───────────────────────────────────────────────────────── -->
     <div class="te-body">
 
-      <!-- Left: live preview -->
       <aside class="te-preview-pane">
         <div class="te-pane-label">Live Preview</div>
 
-        <!--
-          FIX 1: toCssVars scoped only to this element, so only the
-          preview UI sees the draft tokens — not the editor shell.
-        -->
         <div class="te-preview-ui" style={toCssVars(tokens)}>
-          <!-- Sidebar -->
           <div class="prv-sidebar">
             {#each [true, false, false, false] as active}
               <div class="prv-sb-dot" class:active></div>
             {/each}
           </div>
-          <!-- Main -->
           <div class="prv-main">
             <div class="prv-titlebar">
               <div class="prv-win-dots">
@@ -262,7 +245,6 @@
           </div>
         </div>
 
-        <!-- Swatch strip — scoped to draft tokens too -->
         <div class="te-swatches" style={toCssVars(tokens)}>
           {#each [
             ["bg-base","bg-base"],["bg-surface","bg-surface"],
@@ -279,7 +261,6 @@
         </div>
       </aside>
 
-      <!-- Right: token editor -->
       <div class="te-editor-pane">
         {#each TOKEN_GROUPS as group}
           <div class="te-group">

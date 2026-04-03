@@ -284,7 +284,7 @@
   .header { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   .header-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
-  .header-actions { display: flex; gap: var(--sp-1); }
+
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .icon-btn:disabled { opacity: 0.4; }

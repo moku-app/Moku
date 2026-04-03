@@ -19,8 +19,6 @@
     onClose:    () => void;
   } = $props();
 
-  // ── State ──────────────────────────────────────────────────────────────────
-
   type TabId = "records" | number;
 
   let trackers:    Tracker[]     = $state([]);
@@ -38,8 +36,6 @@
   let syncing:        number | null = $state(null);
   let editingChapter: number | null = $state(null);
   let chapterDraft:   number        = $state(0);
-
-  // ── Load ───────────────────────────────────────────────────────────────────
 
   async function load() {
     loading = true;
@@ -61,7 +57,6 @@
 
   $effect(() => { load(); });
 
-  // Auto-search with manga title when switching to a tracker tab
   $effect(() => {
     const tab = activeTab;
     if (typeof tab !== "number") return;
@@ -71,13 +66,9 @@
     doSearch(tab, mangaTitle);
   });
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
   function trackerFor(id: number)      { return trackers.find(t => t.id === id); }
   function recordFor(trackerId: number){ return records.find(r => r.trackerId === trackerId); }
   const loggedInTrackers = $derived(trackers.filter(t => t.isLoggedIn));
-
-  // ── Search ─────────────────────────────────────────────────────────────────
 
   let searchTimer: ReturnType<typeof setTimeout>;
 
@@ -104,8 +95,6 @@
       searching = false;
     }
   }
-
-  // ── Bind / Unbind ──────────────────────────────────────────────────────────
 
   async function bind(result: TrackSearch) {
     if (typeof activeTab !== "number") return;
@@ -136,8 +125,6 @@
       updatingRecord = null;
     }
   }
-
-  // ── Update ─────────────────────────────────────────────────────────────────
 
   async function updateStatus(record: TrackRecord, status: number) {
     updatingRecord = record.id;
@@ -234,7 +221,6 @@
 >
   <div class="modal" role="dialog" aria-label="Tracking">
 
-    <!-- ── Header ─────────────────────────────────────────────────────────── -->
     <div class="modal-header">
       <div class="header-left">
         <span class="modal-title">Tracking</span>
@@ -256,7 +242,6 @@
       </div>
 
     {:else}
-      <!-- ── Tabs ──────────────────────────────────────────────────────────── -->
       <div class="tabs">
         <button
           class="tab"
@@ -282,7 +267,6 @@
         {/each}
       </div>
 
-      <!-- ── My List tab ───────────────────────────────────────────────────── -->
       {#if activeTab === "records"}
         <div class="tab-body">
           {#if records.length === 0}
@@ -434,7 +418,6 @@
           {/if}
         </div>
 
-      <!-- ── Tracker search tab ─────────────────────────────────────────────── -->
       {:else}
         {@const tracker    = trackerFor(activeTab as number)}
         {@const boundRecord = recordFor(activeTab as number)}
@@ -644,7 +627,6 @@
   .result-bound { background: color-mix(in srgb, var(--accent) 8%, transparent) !important; }
   .result-cover { width: 44px; height: 62px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); flex-shrink: 0; }
   .result-cover-empty { background: var(--bg-raised); }
-  .hidden { display: none; }
   .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); padding-top: 2px; }
   .result-title { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); text-align: left; }
   .result-meta { display: flex; flex-wrap: wrap; gap: var(--sp-1); }

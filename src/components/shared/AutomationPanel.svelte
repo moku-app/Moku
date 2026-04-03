@@ -11,8 +11,6 @@
     onClose:  () => void;
   } = $props();
 
-  // ── Prefs helpers ──────────────────────────────────────────────────────────
-
   const mangaPrefs = $derived(
     (store.settings.mangaPrefs?.[mangaId] ?? {}) as Partial<MangaPrefs>
   );
@@ -30,14 +28,10 @@
     });
   }
 
-  // ── Scanlator list — derived from loaded chapters ──────────────────────────
-
   const scanlators = $derived(
     [...new Set(chapters.map(c => c.scanlator).filter((s): s is string => !!s?.trim()))]
       .sort((a, b) => a.localeCompare(b))
   );
-
-  // ── Options ────────────────────────────────────────────────────────────────
 
   const DOWNLOAD_AHEAD_OPTIONS = [
     { value: 0,  label: "Off"  },
@@ -66,18 +60,14 @@
     { value: "manual", label: "Manual"  },
   ];
 
-  // ── Backdrop close ─────────────────────────────────────────────────────────
-
   function onBackdrop(e: MouseEvent) {
     if (e.target === e.currentTarget) onClose();
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="backdrop" onmousedown={onBackdrop}>
+<div class="backdrop" role="presentation" tabindex="-1" onmousedown={onBackdrop}>
   <div class="modal" role="dialog" aria-modal="true" aria-label="Automation">
 
-    <!-- Header -->
     <div class="modal-header">
       <div class="header-left">
         <span class="modal-title">Automation</span>
@@ -86,10 +76,8 @@
       <button class="close-btn" onclick={onClose} aria-label="Close"><X size={16} weight="light" /></button>
     </div>
 
-    <!-- Body -->
     <div class="modal-body">
 
-      <!-- ── Downloads ────────────────────────────────────────────────────── -->
       <p class="section-label">Downloads</p>
 
       <div class="auto-row">
@@ -100,6 +88,7 @@
         <button
           role="switch"
           aria-checked={getPref("autoDownload")}
+          aria-label="Auto-download new chapters"
           class="auto-toggle"
           class:auto-toggle-on={getPref("autoDownload")}
           onclick={() => setPref("autoDownload", !getPref("autoDownload"))}
@@ -140,7 +129,6 @@
 
       <div class="divider"></div>
 
-      <!-- ── On Read ──────────────────────────────────────────────────────── -->
       <p class="section-label">On Read</p>
 
       <div class="auto-row">
@@ -151,6 +139,7 @@
         <button
           role="switch"
           aria-checked={getPref("deleteOnRead")}
+          aria-label="Delete after reading"
           class="auto-toggle"
           class:auto-toggle-on={getPref("deleteOnRead")}
           onclick={() => setPref("deleteOnRead", !getPref("deleteOnRead"))}
@@ -174,7 +163,6 @@
 
       <div class="divider"></div>
 
-      <!-- ── Updates ─────────────────────────────────────────────────────── -->
       <p class="section-label">Updates</p>
 
       <div class="auto-row">
@@ -185,6 +173,7 @@
         <button
           role="switch"
           aria-checked={getPref("pauseUpdates")}
+          aria-label="Pause updates"
           class="auto-toggle"
           class:auto-toggle-on={getPref("pauseUpdates")}
           onclick={() => setPref("pauseUpdates", !getPref("pauseUpdates"))}
@@ -210,7 +199,6 @@
       {#if scanlators.length > 1}
         <div class="divider"></div>
 
-        <!-- ── Scanlator ──────────────────────────────────────────────────── -->
         <p class="section-label">Scanlator</p>
 
         <div class="auto-row auto-row-align-start">
