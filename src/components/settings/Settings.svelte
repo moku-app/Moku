@@ -10,6 +10,7 @@
   import { GET_DOWNLOADS_PATH, SET_DOWNLOADS_PATH, SET_LOCAL_SOURCE_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
   import type { Category, Source } from "../../lib/types";
   import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories } from "../../store/state.svelte";
+  import { authSession } from "../../lib/auth";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
   import type { Settings, FitMode, Theme } from "../../store/state.svelte";
@@ -433,8 +434,17 @@
   let secLoading       = $state(false);
   let secError         = $state<string | null>(null);
   let secSaved         = $state<string | null>(null);
+  let authMode         = $state(store.settings.serverAuthMode ?? "NONE");
+  // Warning is based on what the server has confirmed (store value), not the
+  // local draft — so it doesn't fire just because the store has a stale value
+  // before loadServerSecurity runs, and it clears once the user saves a
+  // supported mode.
+  const authModeUnsupported = $derived(
+    store.settings.serverAuthMode === "SIMPLE_LOGIN" ||
+    store.settings.serverAuthMode === "UI_LOGIN"
+  );
   let authUsername     = $state(store.settings.serverAuthUser ?? "");
-  let authPassword     = $state(store.settings.serverAuthPass ?? "");
+  let authPassword     = $state("");
   let socksEnabled     = $state(store.settings.socksProxyEnabled ?? false);
   let socksHost        = $state(store.settings.socksProxyHost ?? "");
   let socksPort        = $state(store.settings.socksProxyPort ?? "1080");
@@ -463,9 +473,10 @@
         flareSolverrAsResponseFallback: boolean;
       }}>(GET_SERVER_SECURITY);
       const s = res.settings;
-      const authOn = s.authMode === "BASIC_AUTH";
-      updateSettings({ serverAuthEnabled: authOn, serverAuthUser: s.authUsername });
-      authUsername  = s.authUsername;
+      const mode = (s.authMode ?? "NONE") as "NONE" | "BASIC_AUTH" | "SIMPLE_LOGIN" | "UI_LOGIN";
+      authMode     = mode;
+      authUsername = s.authUsername;
+      updateSettings({ serverAuthMode: mode, serverAuthUser: s.authUsername });
       socksEnabled  = s.socksProxyEnabled;  socksHost    = s.socksProxyHost;
       socksPort     = s.socksProxyPort;     socksVersion = s.socksProxyVersion;
       socksUsername = s.socksProxyUsername;
@@ -483,28 +494,57 @@
     } catch {}
   }
   $effect(() => { if (tab === "security" && !secLoaded) loadServerSecurity(); });
-  async function enableAuth() {
-    if (!authUsername.trim() || !authPassword.trim()) {
-      secError = "Username and password are required"; return;
+  async function saveAuth() {
+    if (authMode === "BASIC_AUTH" && (!authUsername.trim() || !authPassword.trim())) {
+      secError = "Username and password are required for Basic Auth"; return;
     }
     secLoading = true; secError = null;
-    updateSettings({ serverAuthEnabled: true, serverAuthUser: authUsername, serverAuthPass: authPassword });
+
+    const prevMode = store.settings.serverAuthMode;
+    const prevUser = store.settings.serverAuthUser;
+    const prevPass = store.settings.serverAuthPass;
+    const newUser  = authMode === "BASIC_AUTH" ? authUsername.trim() : "";
+    const newPass  = authMode === "BASIC_AUTH" ? authPassword.trim() : "";
+
+    // The store must contain valid credentials while the mutation request is
+    // in-flight so fetchAuthenticated can authenticate it:
+    //   - Updating credentials: server still accepts the OLD password, so keep
+    //     the old credentials in the store until the server confirms the change.
+    //   - First-time enable (store has no pass yet): pre-commit the new
+    //     credentials because there is nothing else to send.
+    const isFirstTimeEnable = authMode === "BASIC_AUTH" && !prevPass.trim();
+    if (isFirstTimeEnable) {
+      updateSettings({ serverAuthMode: authMode as any, serverAuthUser: newUser, serverAuthPass: newPass });
+    }
+
     try {
-      await gql(SET_SERVER_AUTH, { authMode: "BASIC_AUTH", authUsername: authUsername.trim(), authPassword: authPassword.trim() });
+      await gql(SET_SERVER_AUTH, { authMode, authUsername: newUser, authPassword: newPass });
+      // On success, commit new credentials (no-op if already pre-committed).
+      updateSettings({ serverAuthMode: authMode as any, serverAuthUser: newUser, serverAuthPass: newPass });
+      if (authMode === "NONE") { authSession.clearTokens(); authPassword = ""; }
       showSaved("auth");
     } catch (e: any) {
-      updateSettings({ serverAuthEnabled: false });
-      secError = e?.message ?? "Failed to enable authentication";
+      // Roll back to previous values on failure.
+      updateSettings({ serverAuthMode: prevMode, serverAuthUser: prevUser, serverAuthPass: prevPass });
+      secError = e?.message ?? "Failed to save authentication settings";
     } finally { secLoading = false; }
   }
-  async function disableAuth() {
+
+  async function clearAuth() {
     secLoading = true; secError = null;
+    const prevMode = store.settings.serverAuthMode;
+    const prevUser = store.settings.serverAuthUser;
+    const prevPass = store.settings.serverAuthPass;
+    // Keep existing credentials in the store so the disable-auth mutation
+    // goes out authenticated, then clear them on success.
     try {
       await gql(SET_SERVER_AUTH, { authMode: "NONE", authUsername: "", authPassword: "" });
-      updateSettings({ serverAuthEnabled: false, serverAuthUser: "", serverAuthPass: "" });
-      authUsername = ""; authPassword = "";
+      updateSettings({ serverAuthMode: "NONE", serverAuthUser: "", serverAuthPass: "" });
+      authMode = "NONE"; authUsername = ""; authPassword = "";
+      authSession.clearTokens();
       showSaved("auth");
     } catch (e: any) {
+      updateSettings({ serverAuthMode: prevMode, serverAuthUser: prevUser, serverAuthPass: prevPass });
       secError = e?.message ?? "Failed to disable authentication";
     } finally { secLoading = false; }
   }
@@ -761,6 +801,7 @@
   let contentSources:        Source[] = $state([]);
   let contentSourcesLoading: boolean  = $state(false);
   let newTagInput:           string   = $state("");
+  let tagsRevealed:          boolean  = $state(false);
   let sourceSearch:          string   = $state("");
   $effect(() => {
     if (tab === "content" && contentSources.length === 0 && !contentSourcesLoading) {
@@ -834,7 +875,7 @@
     return Array.from(map.values());
   });
 </script>
-<div class="backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) close(); }} onkeydown={(e) => { if (e.key === "Escape") close(); }}>
+<div class="backdrop" role="presentation" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) close(); }} onkeydown={(e) => { if (e.key === "Escape") close(); }}>
   <div class="modal" role="dialog" aria-label="Settings">
     <div class="sidebar">
       <p class="modal-title">Settings</p>
@@ -1662,41 +1703,76 @@
             <div class="section">
               <div class="section-title-row">
                 <p class="section-title">Server Authentication</p>
-                <span class="sec-status-pill" class:sec-pill-on={store.settings.serverAuthEnabled}>
-                  {store.settings.serverAuthEnabled ? "Enabled" : "Disabled"}
+                <span class="sec-status-pill" class:sec-pill-on={store.settings.serverAuthMode === "BASIC_AUTH"} class:sec-pill-warn={authModeUnsupported}>
+                  {store.settings.serverAuthMode === "BASIC_AUTH"   ? "Basic Auth"   :
+                   store.settings.serverAuthMode === "SIMPLE_LOGIN" ? "Simple Login — unsupported" :
+                   store.settings.serverAuthMode === "UI_LOGIN"     ? "UI Login — unsupported"     : "Disabled"}
                 </span>
               </div>
+
+              {#if authModeUnsupported}
+                <div class="sec-banner sec-banner-warn" style="margin: var(--sp-2) var(--sp-3) 0;">
+                  <strong>{store.settings.serverAuthMode === "SIMPLE_LOGIN" ? "Simple Login" : "UI Login"}</strong> is not supported by this client — only <strong>Basic Auth</strong> works here.
+                  Switch your Suwayomi server to <code>basic_auth</code> and set the mode below to <strong>Basic</strong>, then save.
+                </div>
+              {/if}
+
               <div class="step-row">
                 <div class="toggle-info">
-                  <span class="toggle-label">Username</span>
+                  <span class="toggle-label">Mode</span>
+                  <span class="toggle-desc">How Suwayomi verifies requests</span>
                 </div>
-                <input class="text-input" bind:value={authUsername} placeholder="Username" autocomplete="off" spellcheck="false" disabled={secLoading} />
-              </div>
-              <div class="step-row">
-                <div class="toggle-info">
-                  <span class="toggle-label">Password</span>
-                </div>
-                <div class="sec-field-wrap">
-                  <input class="text-input" type={showAuthPass ? "text" : "password"} bind:value={authPassword} placeholder="Password" autocomplete="off" spellcheck="false" disabled={secLoading} />
-                  <button class="sec-eye-btn" onclick={() => showAuthPass = !showAuthPass} title={showAuthPass ? "Hide password" : "Show password"} tabindex="-1">
-                    {#if showAuthPass}
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                    {:else}
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    {/if}
-                  </button>
+                <div class="auth-mode-group">
+                  {#each [
+                    { value: "NONE",       label: "None"  },
+                    { value: "BASIC_AUTH", label: "Basic" },
+                  ] as opt}
+                    <button
+                      class="auth-mode-btn"
+                      class:auth-mode-active={authMode === opt.value}
+                      onclick={() => authMode = opt.value as any}
+                      disabled={secLoading}
+                    >{opt.label}</button>
+                  {/each}
                 </div>
               </div>
+
+              {#if authMode !== "NONE"}
+                <div class="step-row">
+                  <div class="toggle-info"><span class="toggle-label">Username</span></div>
+                  <input class="text-input" bind:value={authUsername} placeholder="Username" autocomplete="off" spellcheck="false" disabled={secLoading} />
+                </div>
+                <div class="step-row">
+                  <div class="toggle-info"><span class="toggle-label">Password</span></div>
+                  <div class="sec-field-wrap">
+                    <input class="text-input" type={showAuthPass ? "text" : "password"} bind:value={authPassword} placeholder="Password" autocomplete="off" spellcheck="false" disabled={secLoading} />
+                    <button class="sec-eye-btn" onclick={() => showAuthPass = !showAuthPass} title={showAuthPass ? "Hide" : "Show"} tabindex="-1">
+                      {#if showAuthPass}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      {:else}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+
+
+              {/if}
+
               <div class="step-row">
                 <div class="toggle-info"></div>
                 <div class="sec-btn-row">
-                  {#if store.settings.serverAuthEnabled}
-                    <button class="sec-action-btn sec-action-danger" onclick={disableAuth} disabled={secLoading}>
+                  {#if store.settings.serverAuthMode !== "NONE"}
+                    <button class="sec-action-btn sec-action-danger" onclick={clearAuth} disabled={secLoading}>
                       {secLoading ? "Saving…" : "Disable"}
                     </button>
                   {/if}
-                  <button class="sec-action-btn sec-action-primary" onclick={enableAuth} disabled={secLoading || !authUsername.trim() || !authPassword.trim()}>
-                    {secLoading ? "Saving…" : secSaved === "auth" ? "Saved ✓" : store.settings.serverAuthEnabled ? "Update" : "Enable"}
+                  <button
+                    class="sec-action-btn sec-action-primary"
+                    onclick={saveAuth}
+                    disabled={secLoading || (authMode === "BASIC_AUTH" && (!authUsername.trim() || !authPassword.trim()))}
+                  >
+                    {secLoading ? "Saving…" : secSaved === "auth" ? "Saved ✓" : store.settings.serverAuthMode === "BASIC_AUTH" ? "Update" : authMode === "NONE" ? "Save" : "Enable"}
                   </button>
                 </div>
               </div>
@@ -1716,21 +1792,29 @@
                 <div class="step-row">
                   <div class="toggle-info">
                     <span class="toggle-label">PIN</span>
-                    <span class="toggle-desc">4–8 digits</span>
+                    <span class="toggle-desc">4–8 digits, saved on Enter or Save button</span>
                   </div>
-                  <div class="sec-pin-wrap">
-                    <div class="sec-pin-row">
-                      <input class="text-input sec-pin-input" type="password" inputmode="numeric" maxlength={8} value={pinInput}
-                        oninput={(e) => { pinInput = e.currentTarget.value.replace(/\D/g, "").slice(0, 8); pinError = ""; }}
-                        onkeydown={(e) => e.key === "Enter" && commitPin()} placeholder="••••" autocomplete="off" />
-                      <button class="sec-action-btn sec-action-primary"
-                        onclick={commitPin}
-                        disabled={pinInput.length > 0 && pinInput.length < 4}>
-                        {store.settings.appLockPin && pinInput === store.settings.appLockPin ? "Saved ✓" : "Save"}
-                      </button>
-                    </div>
-                    {#if pinError}<span class="sec-pin-error">{pinError}</span>{/if}
+                  <div class="sec-btn-row">
+                    <input
+                      class="text-input"
+                      type="password"
+                      inputmode="numeric"
+                      maxlength={8}
+                      placeholder="4–8 digits"
+                      value={pinInput}
+                      oninput={(e) => { pinInput = e.currentTarget.value.replace(/\D/g, "").slice(0, 8); pinError = ""; }}
+                      onkeydown={(e) => e.key === "Enter" && commitPin()}
+                      autocomplete="off"
+                      aria-label="Enter PIN"
+                      style="width:120px;letter-spacing:0.2em"
+                    />
+                    <button class="sec-action-btn sec-action-primary"
+                      onclick={commitPin}
+                      disabled={pinInput.length > 0 && pinInput.length < 4}>
+                      {store.settings.appLockPin && pinInput === store.settings.appLockPin ? "Saved ✓" : "Save"}
+                    </button>
                   </div>
+                  {#if pinError}<span class="sec-pin-error">{pinError}</span>{/if}
                 </div>
               {/if}
             </div>
@@ -1882,9 +1966,13 @@
             </div>
             <div class="section">
               <p class="section-title">Blocked Genre Tags</p>
-              <p class="toggle-desc" style="padding:0 var(--sp-3) var(--sp-2);display:block">
-                Manga whose genres contain any of these substrings are filtered out. Case-insensitive, partial match.
-              </p>
+              <div class="section-title-row" style="padding-top:0;padding-bottom:var(--sp-2)">
+                <span class="toggle-desc" style="flex:1">Manga matching any of these substrings are filtered. Case-insensitive, partial match.</span>
+                <button class="kb-reset" style="font-size:var(--text-xs);padding:2px 10px;flex-shrink:0" onclick={() => tagsRevealed = !tagsRevealed}>
+                  {tagsRevealed ? "Hide" : `Show (${(store.settings.nsfwFilteredTags ?? []).length})`}
+                </button>
+              </div>
+              {#if tagsRevealed}
               <div class="content-tag-grid">
                 {#each (store.settings.nsfwFilteredTags ?? []) as tag}
                   <span class="content-tag">
@@ -1894,6 +1982,7 @@
                   </span>
                 {/each}
               </div>
+              {/if}
               <div class="content-tag-add">
                 <input
                   class="text-input"
@@ -2210,14 +2299,6 @@
   .storage-bar-fill.critical { background: var(--color-error); }
   .storage-bar-labels { display: flex; justify-content: space-between; }
   .storage-bar-used, .storage-bar-free { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .storage-legend { display: flex; flex-direction: column; gap: var(--sp-1); padding: 0 var(--sp-3); }
-  .storage-legend-row { display: flex; align-items: center; gap: var(--sp-2); }
-  .storage-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .storage-dot-manga { background: var(--accent); }
-  .storage-dot-free  { background: var(--bg-overlay); border: 1px solid var(--border-strong); }
-  .storage-dot-app   { background: var(--text-faint); }
-  .storage-legend-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); flex: 1; }
-  .storage-legend-val   { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); }
   .storage-path-note { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-3) 0; word-break: break-all; }
 
   /* ── Migration banner ───────────────────────────────────────── */
@@ -2263,9 +2344,6 @@
   .folder-row:hover { background: var(--bg-raised); }
   .folder-row-name { flex: 1; font-size: var(--text-sm); color: var(--text-secondary); }
   .folder-row-count { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
-  .folder-tab-toggle { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 2px 7px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
-  .folder-tab-toggle.on { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
-  .folder-tab-toggle:hover { color: var(--text-muted); border-color: var(--border-strong); }
   .folder-delete:hover:not(:disabled) { color: var(--color-error) !important; }
   .folder-hidden { opacity: 0.35; }
   .folder-default-active { color: var(--accent-fg) !important; }
@@ -2360,13 +2438,14 @@
   .tracker-connected-btns { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
   .oauth-flow { display: flex; flex-direction: column; gap: var(--sp-2); width: 100%; align-items: flex-end; }
   .oauth-hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); line-height: var(--leading-snug); text-align: right; }
-  .oauth-hint strong { color: var(--text-secondary); font-weight: var(--weight-medium); }
-  .oauth-hint code { font-family: monospace; font-size: 10px; color: var(--text-muted); background: var(--bg-overlay); padding: 1px 4px; border-radius: 3px; }
   .oauth-input { width: 100%; background: var(--bg-overlay); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); outline: none; transition: border-color var(--t-base); }
   .oauth-input:focus { border-color: var(--border-focus); }
   .oauth-btns { display: flex; align-items: center; gap: var(--sp-2); }
-  .sec-banner { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-2); border-radius: var(--radius-sm); }
+  .sec-banner { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-2); border-radius: var(--radius-sm); line-height: var(--leading-snug); }
   .sec-banner-error { color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); }
+  .sec-banner-warn  { color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); }
+  .sec-banner-warn code { font-family: monospace; font-size: 10px; background: color-mix(in srgb, var(--color-error) 12%, transparent); padding: 1px 4px; border-radius: 3px; }
+  .sec-pill-warn { border-color: var(--color-error); color: var(--color-error); background: var(--color-error-bg); }
   .section-title-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
   .section-title-row .section-title { padding: 0; }
   .sec-status-pill { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: var(--bg-overlay); flex-shrink: 0; cursor: default; }
@@ -2379,14 +2458,15 @@
   .sec-action-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .sec-action-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
   .sec-action-btn:disabled { opacity: 0.35; cursor: default; }
+  .auth-mode-group { display: flex; gap: 2px; background: var(--bg-overlay); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: 2px; flex-shrink: 0; }
+  .auth-mode-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-fast), background var(--t-fast); white-space: nowrap; }
+  .auth-mode-btn:hover:not(:disabled) { color: var(--text-secondary); background: var(--bg-raised); }
+  .auth-mode-btn.auth-mode-active { background: var(--bg-surface); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+  .auth-mode-btn:disabled { opacity: 0.4; cursor: default; }
   .sec-action-primary { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
   .sec-action-primary:hover:not(:disabled) { filter: brightness(1.1); }
   .sec-action-danger { border-color: var(--color-error); color: var(--color-error); }
   .sec-action-danger:hover:not(:disabled) { background: var(--color-error-bg); }
-  .sec-pin-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-  .sec-pin-wrap .sec-pin-row { display: flex; align-items: center; gap: var(--sp-2); }
-  .sec-pin-input { width: 96px; text-align: center; letter-spacing: 0.25em; }
-  .sec-port-input { width: 88px; }
   .sec-pin-error { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--color-error); letter-spacing: var(--tracking-wide); }
   @keyframes fadeIn  { from { opacity: 0 }           to { opacity: 1 } }
   @keyframes scaleIn { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }

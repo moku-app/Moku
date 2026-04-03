@@ -888,3 +888,20 @@ export const LOGOUT_TRACKER = `
     }
   }
 `;
+
+export const LOGIN_USER = `
+  mutation Login($username: String!, $password: String!) {
+    login(input: { username: $username, password: $password }) {
+      accessToken
+      refreshToken
+    }
+  }
+`;
+
+export const REFRESH_TOKEN = `
+  mutation RefreshToken {
+    refreshToken {
+      accessToken
+    }
+  }
+`;

@@ -5,6 +5,8 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { gql } from "./lib/client";
+  import logoUrl from "./assets/moku-icon-splash.svg";
+  import { probeServer, loginBasic, authSession, logout } from "./lib/auth";
   import { GET_DOWNLOAD_STATUS } from "./lib/queries";
   import { store, addToast, setActiveDownloads, setSettingsOpen } from "./store/state.svelte";
   import { initRpc, setIdle, clearReading, destroyRpc } from "./lib/discord";
@@ -75,6 +77,13 @@
   let notConfigured = $state(false);
   let idle          = $state(false);
   let devSplash     = $state(false);
+
+  let loginRequired      = $state(false);
+  let loginUser          = $state(store.settings.serverAuthUser ?? "");
+  let loginPass          = $state("");
+  let loginError         = $state<string | null>(null);
+  let loginBusy          = $state(false);
+  let unsupportedMode    = $state(false);
 
   let platformScale = $state(1.0);
   let _appliedZoom = -1;
@@ -195,30 +204,35 @@
   function startProbe() {
     cancelProbe = false;
     failed      = false;
+    loginRequired = false;
     let tries   = 0;
 
     async function probe() {
       if (cancelProbe) return;
       tries++;
-      try {
-        const rawUrl = store.settings.serverUrl;
-        const base   = typeof rawUrl === "string" && rawUrl.trim()
-          ? rawUrl.replace(/\/$/, "")
-          : "http://127.0.0.1:4567";
-        const s      = store.settings;
-        const auth: Record<string, string> = s.serverAuthEnabled && s.serverAuthUser && s.serverAuthPass
-          ? { Authorization: `Basic ${btoa(`${s.serverAuthUser.trim()}:${s.serverAuthPass.trim()}`)}` }
-          : {};
-        const res = await fetch(`${base}/api/graphql`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...auth },
-          body: JSON.stringify({ query: "{ __typename }" }),
-          signal: AbortSignal.timeout(2000),
-        });
-        if (res.ok && !cancelProbe) { serverProbeOk = true; return; }
-      } catch {}
-      if (tries >= MAX_ATTEMPTS && !cancelProbe) { failed = true; return; }
-      if (!cancelProbe) setTimeout(probe, 750);
+      const result = await probeServer();
+      if (cancelProbe) return;
+
+      if (result === "ok") {
+        serverProbeOk = true;
+        loginRequired = false;
+        return;
+      }
+
+      if (result === "auth_required") {
+        serverProbeOk = true;
+        loginRequired = true;
+        return;
+      }
+
+      if (result === "unsupported_mode") {
+        serverProbeOk = true;
+        unsupportedMode = true;
+        return;
+      }
+
+      if (tries >= MAX_ATTEMPTS) { failed = true; return; }
+      setTimeout(probe, 750);
     }
 
     setTimeout(probe, 800);
@@ -310,29 +324,99 @@
     return () => window.removeEventListener("keydown", handleZoomKey);
   });
 
+  async function handleLogin() {
+    if (!loginUser.trim() || !loginPass.trim()) {
+      loginError = "Username and password are required";
+      return;
+    }
+    loginBusy  = true;
+    loginError = null;
+    try {
+      await loginBasic(loginUser.trim(), loginPass.trim());
+      loginRequired = false;
+      loginPass     = "";
+      loginError    = null;
+      appReady      = true;
+    } catch (e: any) {
+      loginError = e?.message ?? "Login failed";
+    } finally {
+      loginBusy = false;
+    }
+  }
+
   function handleRetry() {
-    failed        = false;
-    notConfigured = false;
-    serverProbeOk = false;
+    failed          = false;
+    notConfigured   = false;
+    serverProbeOk   = false;
+    loginRequired   = false;
+    unsupportedMode = false;
     startProbe();
   }
 
   function handleBypass() {
-    cancelProbe   = true;
-    serverProbeOk = true;
-    appReady      = true;
+    cancelProbe     = true;
+    serverProbeOk   = true;
+    loginRequired   = false;
+    unsupportedMode = false;
+    appReady        = true;
   }
 </script>
 
 {#if devSplash}
   <SplashScreen mode="idle" showFps showCards={store.settings.splashCards ?? true}
     onDismiss={() => setTimeout(() => devSplash = false, 340)} />
-{:else if !appReady}
+{:else if !appReady && !loginRequired && !unsupportedMode}
   <SplashScreen mode="loading" ringFull={serverProbeOk} {failed} {notConfigured}
     showCards={store.settings.splashCards ?? true}
-    onReady={() => appReady = true}
+    onReady={() => { appReady = true; }}
     onRetry={handleRetry}
     onBypass={handleBypass} />
+{:else if unsupportedMode}
+  <SplashScreen mode="loading" ringFull={true} showCards={store.settings.splashCards ?? true} />
+  <div class="auth-overlay">
+    <div class="auth-card">
+      <img src={logoUrl} alt="Moku" class="auth-logo" />
+      <p class="auth-title">moku</p>
+      <span class="auth-mode-badge auth-mode-badge--warn">{
+        store.settings.serverAuthMode === "SIMPLE_LOGIN" ? "Simple Login" :
+        store.settings.serverAuthMode === "UI_LOGIN"     ? "UI Login"     : "Unsupported Auth"
+      }</span>
+      <p class="auth-host">{store.settings.serverUrl || "localhost:4567"}</p>
+      <p class="auth-body">
+        <strong>{
+          store.settings.serverAuthMode === "SIMPLE_LOGIN" ? "Simple Login" :
+          store.settings.serverAuthMode === "UI_LOGIN"     ? "UI Login"     : "This auth mode"
+        }</strong> is not supported. Switch your server to <strong>Basic Auth</strong> and update Settings → Security.
+      </p>
+      <button class="auth-btn auth-btn--ghost" onclick={handleBypass}>Continue anyway</button>
+    </div>
+  </div>
+{:else if loginRequired}
+  <SplashScreen mode="loading" ringFull={true} showCards={store.settings.splashCards ?? true} />
+  <div class="auth-overlay">
+    <div class="auth-card">
+      <img src={logoUrl} alt="Moku" class="auth-logo" />
+      <p class="auth-title">moku</p>
+      <span class="auth-mode-badge">Basic Auth</span>
+      <p class="auth-host">{store.settings.serverUrl || "localhost:4567"}</p>
+      {#if loginError}
+        <p class="auth-error">{loginError}</p>
+      {/if}
+      <div class="auth-fields">
+        <input class="auth-input" type="text" placeholder="Username"
+          bind:value={loginUser} disabled={loginBusy} autocomplete="username"
+          onkeydown={(e) => e.key === "Enter" && handleLogin()} />
+        <input class="auth-input" type="password" placeholder="Password"
+          bind:value={loginPass} disabled={loginBusy} autocomplete="current-password"
+          onkeydown={(e) => e.key === "Enter" && handleLogin()} />
+      </div>
+      <button class="auth-btn" onclick={handleLogin}
+        disabled={loginBusy || !loginUser.trim() || !loginPass.trim()}>
+        {loginBusy ? "Signing in…" : "Sign in"}
+      </button>
+      <button class="auth-btn auth-btn--ghost" onclick={handleBypass}>Skip</button>
+    </div>
+  </div>
 {:else}
   <div id="app-shell" class="root">
     {#if idle && !store.activeChapter}
@@ -358,4 +442,27 @@
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
   .content { flex: 1; overflow: hidden; }
+
+  /* Auth overlay — floats above the SplashScreen */
+  .auth-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .auth-card { pointer-events: auto; width: min(280px, calc(100vw - 48px)); background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); padding: var(--sp-6) var(--sp-5); display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); box-shadow: 0 32px 80px rgba(0,0,0,0.75); animation: authIn 0.28s cubic-bezier(0.16,1,0.3,1) both; text-align: center; }
+  @keyframes authIn { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+  .auth-logo { width: 56px; height: 56px; border-radius: 14px; display: block; }
+  .auth-title { font-family: var(--font-ui); font-size: 11px; font-weight: 500; letter-spacing: 0.26em; text-transform: uppercase; color: var(--text-secondary); margin: -6px 0 0; user-select: none; }
+  .auth-mode-badge { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--accent-fg); background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-full); padding: 2px 10px; }
+  .auth-mode-badge--warn { color: var(--color-error); background: var(--color-error-bg); border-color: var(--color-error); }
+  .auth-host { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); margin: -4px 0 0; }
+  .auth-body { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); line-height: var(--leading-snug); margin: 0; }
+  .auth-body strong { color: var(--text-secondary); font-weight: var(--weight-medium); }
+  .auth-error { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); border-radius: var(--radius-sm); padding: var(--sp-2) var(--sp-3); margin: 0; width: 100%; box-sizing: border-box; }
+  .auth-fields { display: flex; flex-direction: column; gap: var(--sp-2); width: 100%; }
+  .auth-input { width: 100%; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 8px 12px; font-size: var(--text-sm); color: var(--text-primary); outline: none; box-sizing: border-box; transition: border-color var(--t-base), box-shadow var(--t-base); font-family: inherit; }
+  .auth-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent); }
+  .auth-input:disabled { opacity: 0.5; }
+  .auth-btn { width: 100%; padding: 9px; border-radius: var(--radius-md); background: var(--accent); border: 1px solid var(--accent); color: var(--accent-fg); font-size: var(--text-sm); font-family: var(--font-ui); letter-spacing: var(--tracking-wide); cursor: pointer; transition: opacity var(--t-base); }
+  .auth-btn:hover:not(:disabled) { opacity: 0.85; }
+  .auth-btn:disabled { opacity: 0.35; cursor: default; }
+  .auth-btn--ghost { background: none; border-color: transparent; color: var(--text-faint); font-size: var(--text-xs); padding: 4px; }
+  .auth-btn--ghost:hover:not(:disabled) { color: var(--text-muted); opacity: 1; }
 </style>

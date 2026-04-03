@@ -1011,7 +1011,7 @@
   .panel-check { width: 13px; height: 13px; border-radius: 2px; border: 1px solid var(--border-strong); background: transparent; flex-shrink: 0; transition: background var(--t-base), border-color var(--t-base); display: flex; align-items: center; justify-content: center; color: var(--bg-base); }
   .panel-check-on { background: var(--accent); border-color: var(--accent); }
   .dir-toggle { color: var(--text-secondary); justify-content: flex-start; gap: var(--sp-2); border-top: 1px solid var(--border-dim); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: 2px; padding-top: 9px; }
-  .sort-caret { flex-shrink: 0; }
+  :global(.sort-caret) { flex-shrink: 0; }
 
   /* ── Selection toolbar ──────────────────────────────────────────────────── */
   .select-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-6); background: var(--bg-raised); border-bottom: 1px solid var(--accent-dim); flex-shrink: 0; animation: fadeIn 0.1s ease both; }

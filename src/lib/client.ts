@@ -1,19 +1,11 @@
 import { store } from "../store/state.svelte";
+import { fetchAuthenticated } from "./auth";
 
 const DEFAULT_URL = "http://127.0.0.1:4567";
 
 function getServerUrl(): string {
   const url = store.settings.serverUrl;
   return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : DEFAULT_URL;
-}
-
-function getAuthHeader(): Record<string, string> {
-  const s = store.settings;
-  if (!s.serverAuthEnabled) return {};
-  const user = typeof s.serverAuthUser === "string" ? s.serverAuthUser.trim() : "";
-  const pass = typeof s.serverAuthPass === "string" ? s.serverAuthPass.trim() : "";
-  if (user && pass) return { Authorization: `Basic ${btoa(`${user}:${pass}`)}` };
-  return {};
 }
 
 function gqlUrl(): string { return `${getServerUrl()}/api/graphql`; }
@@ -41,22 +33,22 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 async function fetchWithRetry(
-  url: string,
-  init: RequestInit,
+  url:     string,
+  init:    RequestInit,
   signal?: AbortSignal,
-  retries = 3,
-  delayMs = 300,
+  retries  = 3,
+  delayMs  = 300,
 ): Promise<Response> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
   for (let i = 0; i < retries; i++) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-
     try {
-      const res = await fetch(url, { ...init, signal });
+      const res = await fetchAuthenticated(url, init, signal);
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       return res;
     } catch (e: any) {
+      if (e?.authRequired) throw e;
       const isAbort = e?.name === "AbortError" || signal?.aborted;
       if (isAbort) throw new DOMException("Aborted", "AbortError");
       if (i === retries - 1) throw e;
@@ -67,14 +59,14 @@ async function fetchWithRetry(
 }
 
 export async function gql<T>(
-  query: string,
+  query:      string,
   variables?: Record<string, unknown>,
-  signal?: AbortSignal,
+  signal?:    AbortSignal,
 ): Promise<T> {
   const res = await fetchWithRetry(gqlUrl(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeader() },
-    body: JSON.stringify({ query, variables }),
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ query, variables }),
   }, signal);
 
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");

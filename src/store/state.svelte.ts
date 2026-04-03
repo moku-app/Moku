@@ -243,7 +243,7 @@ export interface Settings {
   mangaPrefs:              Record<number, Partial<MangaPrefs>>;
   serverAuthUser:          string;
   serverAuthPass:          string;
-  serverAuthEnabled:       boolean;
+  serverAuthMode:          "NONE" | "BASIC_AUTH" | "SIMPLE_LOGIN" | "UI_LOGIN";
   socksProxyEnabled:       boolean;
   socksProxyHost:          string;
   socksProxyPort:          string;
@@ -314,7 +314,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mangaPrefs:             {},
   serverAuthUser:         "",
   serverAuthPass:         "",
-  serverAuthEnabled:      false,
+  serverAuthMode:         "NONE",
   socksProxyEnabled:      false,
   socksProxyHost:         "",
   socksProxyPort:         "1080",
