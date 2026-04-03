@@ -268,7 +268,14 @@
             <div class="te-token-list">
               {#each group.tokens as token}
                 <div class="te-token-row">
-                  <span class="te-color-swatch" style="background: {tokens[token]}"></span>
+                  <label class="te-color-swatch" style="background: {tokens[token]}" title="Pick colour">
+                    <input
+                      type="color"
+                      class="te-color-picker"
+                      value={tokens[token].length === 7 ? tokens[token] : tokens[token].slice(0,7)}
+                      oninput={(e) => { tokens = { ...tokens, [token]: (e.target as HTMLInputElement).value }; }}
+                    />
+                  </label>
                   <span class="te-token-name">{TOKEN_LABELS[token]}</span>
                   <span class="te-token-key">{token}</span>
                   <input
@@ -299,20 +306,16 @@
 </div>
 
 <style>
-  /* ── Backdrop ─────────────────────────────────────────────────────────────── */
   .te-backdrop {
     position: fixed; inset: 0;
     background: rgba(0, 0, 0, 0.72);
     z-index: 200;
-    /* FIX 2: center the modal instead of stretch */
     display: flex; align-items: center; justify-content: center;
     animation: teBackdropIn 0.14s ease both;
   }
   @keyframes teBackdropIn { from { opacity: 0; } to { opacity: 1; } }
 
-  /* ── Shell ────────────────────────────────────────────────────────────────── */
   .te-shell {
-    /* FIX 2: constrained dimensions so it doesn't fill the screen */
     width: calc(100% - 48px);
     max-width: 1100px;
     height: calc(100% - 48px);
@@ -329,7 +332,6 @@
     to   { transform: translateY(0) scale(1);       opacity: 1; }
   }
 
-  /* ── Header ───────────────────────────────────────────────────────────────── */
   .te-header {
     display: flex; align-items: center; justify-content: space-between;
     gap: 12px; padding: 0 16px; height: 46px;
@@ -401,10 +403,8 @@
   .te-save-btn:hover { filter: brightness(1.12); }
   .te-save-btn.saved { background: var(--accent-dim); border-color: var(--accent); }
 
-  /* ── Body ─────────────────────────────────────────────────────────────────── */
   .te-body { flex: 1; overflow: hidden; display: flex; min-height: 0; }
 
-  /* ── Preview pane ─────────────────────────────────────────────────────────── */
   .te-preview-pane {
     width: 260px; flex-shrink: 0;
     border-right: 1px solid var(--border-dim);
@@ -420,7 +420,6 @@
     flex-shrink: 0;
   }
 
-  /* te-preview-ui receives draft CSS vars via inline style */
   .te-preview-ui {
     flex: 1; min-height: 0;
     border-radius: 8px; overflow: hidden;
@@ -428,7 +427,6 @@
     display: flex; background: var(--bg-void);
   }
 
-  /* Sidebar strip */
   .prv-sidebar {
     width: 34px; flex-shrink: 0;
     background: var(--bg-surface);
@@ -493,7 +491,6 @@
   .prv-toast-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
   .prv-toast-lines { flex: 1; }
 
-  /* Swatch strip */
   .te-swatches { display: flex; gap: 5px; flex-wrap: wrap; flex-shrink: 0; }
   .te-swatch {
     width: 22px; height: 22px; border-radius: 4px;
@@ -501,7 +498,6 @@
     flex-shrink: 0; cursor: default;
   }
 
-  /* ── Editor pane ──────────────────────────────────────────────────────────── */
   .te-editor-pane {
     flex: 1; overflow-y: auto;
     padding: 16px 20px;
@@ -533,10 +529,23 @@
   .te-token-row:hover { background: var(--bg-raised); }
 
   .te-color-swatch {
-    width: 16px; height: 16px; border-radius: 4px;
+    width: 36px; height: 18px; border-radius: 5px;
     flex-shrink: 0;
     border: 1px solid rgba(255,255,255,0.12);
     box-shadow: 0 0 0 1px rgba(0,0,0,0.2);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    display: block;
+  }
+  .te-color-swatch:hover { box-shadow: 0 0 0 2px var(--border-focus); }
+
+  .te-color-picker {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    padding: 0; border: none;
   }
 
   .te-token-name {
