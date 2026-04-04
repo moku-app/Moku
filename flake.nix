@@ -71,7 +71,7 @@
               inherit version;
               src            = frontendSrc;
               fetcherVersion = 1;
-              hash           = "sha256-ezlckHhfSIe/Hs30tbiN0a/EuvGxhO5L020aup23Ozg=";
+              hash           = "sha256-oJVMFL1wdAd1x4AQECTh/yPMhiirbjUduBelZ3bWQtI=";
             };
 
             buildPhase   = "pnpm build";

@@ -1,79 +1,79 @@
-import { start, stop, setActivity, clearActivity } from "tauri-plugin-drpc";
-import { Activity, Assets, Button, Timestamps }     from "tauri-plugin-drpc/activity";
-import type { Manga, Chapter }                       from "./types";
+import { connect, disconnect, setActivity, clearActivity } from "tauri-plugin-discord-rpc-api";
+import { listen }                                           from '@tauri-apps/api/event'
+import type { Manga, Chapter }                              from './types'
 
-const APP_ID         = "1487894643613106298";
-const FALLBACK_IMAGE = "moku_logo";
+const APP_ID         = '1487894643613106298'
+const FALLBACK_IMAGE = 'moku_logo'
 
-let sessionStart: number | null = null;
+let sessionStart: number | null = null
+let unlisten: (() => void) | null = null
 
 function isPublicUrl(url: string | null | undefined): boolean {
-  return typeof url === "string" && url.startsWith("https://");
+  return typeof url === 'string' && url.startsWith('https://')
 }
 
 function resolveCoverImage(manga: Manga): string {
-  return isPublicUrl(manga.thumbnailUrl) ? manga.thumbnailUrl : FALLBACK_IMAGE;
+  return isPublicUrl(manga.thumbnailUrl) ? manga.thumbnailUrl : FALLBACK_IMAGE
 }
 
 function trunc(s: string, max = 128): string {
-  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`
 }
 
 function formatChapter(chapter: Chapter): string {
-  const n = chapter.chapterNumber;
-  return `Chapter ${Number.isInteger(n) ? n : n.toFixed(1)}`;
-}
-
-function getTimestamps(): Timestamps {
-  return new Timestamps(sessionStart ?? Date.now());
+  const n = chapter.chapterNumber
+  return `Chapter ${Number.isInteger(n) ? n : n.toFixed(1)}`
 }
 
 const BUTTONS = [
-  new Button("GitHub", "https://github.com/Youwes09/Moku"),
-  new Button("Discord", "https://discord.gg/Jq3pwuNqPp"),
-];
+  { label: 'GitHub',  url: 'https://github.com/Youwes09/Moku' },
+  { label: 'Discord', url: 'https://discord.gg/Jq3pwuNqPp' },
+]
 
 export async function initRpc(): Promise<void> {
-  sessionStart = Date.now();
-  await start(APP_ID).catch(() => {});
+  sessionStart = Date.now()
+
+  unlisten = await listen('discord-rpc://running', ({ payload }) => {
+    if (payload) setIdle().catch(() => {})
+  })
+
+  await connect(APP_ID).catch(() => {})
 }
 
 export async function setReading(manga: Manga, chapter: Chapter): Promise<void> {
-  const assets = new Assets()
-    .setLargeImage(resolveCoverImage(manga))
-    .setLargeText(trunc(manga.title))
-    .setSmallImage(FALLBACK_IMAGE)
-    .setSmallText("Moku");
-
-  const activity = new Activity()
-    .setDetails(trunc(manga.title))
-    .setState(`${formatChapter(chapter)}  ·  Reading`)
-    .setAssets(assets)
-    .setTimestamps(getTimestamps());
-  activity.setButton(BUTTONS);
-
-  await setActivity(activity).catch(() => {});
+  await setActivity({
+    details:    trunc(manga.title),
+    state:      `${formatChapter(chapter)}  ·  Reading`,
+    timestamps: { start: sessionStart ?? Date.now() },
+    assets: {
+      largeImage: resolveCoverImage(manga),
+      largeText:  trunc(manga.title),
+      smallImage: FALLBACK_IMAGE,
+      smallText:  'Moku',
+    },
+    buttons: BUTTONS,
+  }).catch(() => {})
 }
 
 export async function setIdle(): Promise<void> {
-  const assets = new Assets()
-    .setLargeImage(FALLBACK_IMAGE)
-    .setLargeText("Moku");
-
-  const activity = new Activity()
-    .setDetails("Browsing")
-    .setAssets(assets)
-    .setTimestamps(getTimestamps());
-  activity.setButton(BUTTONS);
-
-  await setActivity(activity).catch(() => {});
+  await setActivity({
+    details:    'Browsing',
+    timestamps: { start: sessionStart ?? Date.now() },
+    assets: {
+      largeImage: FALLBACK_IMAGE,
+      largeText:  'Moku',
+    },
+    buttons: BUTTONS,
+  }).catch(() => {})
 }
 
 export async function clearReading(): Promise<void> {
-  await clearActivity().catch(() => {});
+  await clearActivity().catch(() => {})
 }
 
 export async function destroyRpc(): Promise<void> {
-  sessionStart = null;
-  await stop().catch(() => {});
+  unlisten?.()
+  unlisten     = null
+  sessionStart = null
+  await disconnect().catch(() => {})
 }

@@ -16,6 +16,7 @@
     "clsx": "^2.1.1",
     "phosphor-svelte": "^3.1.0",
     "svelte-spa-router": "^4.0.1",
+    "tauri-plugin-discord-rpc-api": "github:Youwes09/tauri-plugin-discord-rpc",
     "tauri-plugin-drpc": "^1.0.3"
   },
   "devDependencies": {

@@ -26,6 +26,9 @@ importers:
       svelte-spa-router:
         specifier: ^4.0.1
         version: 4.0.2
+      tauri-plugin-discord-rpc-api:
+        specifier: github:Youwes09/tauri-plugin-discord-rpc
+        version: https://codeload.github.com/Youwes09/tauri-plugin-discord-rpc/tar.gz/4b20388e4b65e0efcff2aa9a8622b5884554cd8a
       tauri-plugin-drpc:
         specifier: ^1.0.3
         version: 1.0.3(typescript@5.9.3)
@@ -747,6 +750,10 @@ packages:
     resolution: {integrity: sha512-TTDxwYnHkova6Wsyj1PGt9TByuWqvMoeY1bQiuAf2DM/JeDSMw7FjRKzk8K/5mJ99vGOKhbCqTDpyAKwjp4igg==}
     engines: {node: '>=18'}
 
+  tauri-plugin-discord-rpc-api@https://codeload.github.com/Youwes09/tauri-plugin-discord-rpc/tar.gz/4b20388e4b65e0efcff2aa9a8622b5884554cd8a:
+    resolution: {tarball: https://codeload.github.com/Youwes09/tauri-plugin-discord-rpc/tar.gz/4b20388e4b65e0efcff2aa9a8622b5884554cd8a}
+    version: 0.1.0
+
   tauri-plugin-drpc@1.0.3:
     resolution: {integrity: sha512-vl5dXhjKbl7+Nf9veW12usdmIUtZXwEf91SzxQPZlbRRJ/sjizbbQlnkUTtx6baJuGzz0KXXgP9xUhF39BdiXQ==}
     peerDependencies:
@@ -1371,6 +1378,10 @@ snapshots:
       locate-character: 3.0.0
       magic-string: 0.30.21
       zimmerframe: 1.1.4
+
+  tauri-plugin-discord-rpc-api@https://codeload.github.com/Youwes09/tauri-plugin-discord-rpc/tar.gz/4b20388e4b65e0efcff2aa9a8622b5884554cd8a:
+    dependencies:
+      '@tauri-apps/api': 2.10.1
 
   tauri-plugin-drpc@1.0.3(typescript@5.9.3):
     dependencies:

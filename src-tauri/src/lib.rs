@@ -26,9 +26,6 @@ pub enum SpawnError {
     SpawnFailed(String),
 }
 
-// ── Update types ──────────────────────────────────────────────────────────────
-
-/// A single GitHub release returned to the frontend.
 #[derive(Serialize, Clone)]
 pub struct ReleaseInfo {
     pub tag_name:     String,
@@ -38,7 +35,6 @@ pub struct ReleaseInfo {
     pub html_url:     String,
 }
 
-/// Progress event emitted during download — matches what the frontend listens for.
 #[derive(Clone, serde::Serialize)]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 struct UpdateProgress {
@@ -46,8 +42,6 @@ struct UpdateProgress {
     total:      Option<u64>,
 }
 
-/// Strip the \\?\ extended-length path prefix that Windows adds to long paths.
-/// Java and many other tools do not accept this prefix and will fail silently.
 fn strip_unc(path: PathBuf) -> PathBuf {
     let s = path.to_string_lossy();
     if let Some(stripped) = s.strip_prefix(r"\\?\") {
@@ -61,10 +55,6 @@ fn resolve_downloads_path(downloads_path: &str) -> PathBuf {
     if !downloads_path.trim().is_empty() {
         return PathBuf::from(downloads_path);
     }
-    // Mirror Suwayomi-Server's own default: <data_dir>/Tachidesk/downloads
-    // Windows: %LOCALAPPDATA%\Tachidesk\downloads
-    // macOS:   ~/Library/Application Support/Tachidesk/downloads
-    // Linux:   $XDG_DATA_HOME/Tachidesk/downloads  (~/.local/share/Tachidesk/downloads)
     let base = std::env::var("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| dirs::data_dir().unwrap_or_else(|| PathBuf::from("/")));
@@ -108,34 +98,23 @@ fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
     })
 }
 
-/// Returns the resolved default downloads path for the current platform.
-/// This mirrors resolve_downloads_path("") so the frontend can display it.
 #[tauri::command]
 fn get_default_downloads_path() -> String {
     resolve_downloads_path("").to_string_lossy().into_owned()
 }
 
-/// Returns true if the given path exists and is a directory.
 #[tauri::command]
 fn check_path_exists(path: String) -> bool {
     std::path::Path::new(path.trim()).is_dir()
 }
 
-/// Creates a directory and all missing parent directories.
 #[tauri::command]
 fn create_directory(path: String) -> Result<(), String> {
     std::fs::create_dir_all(path.trim()).map_err(|e| e.to_string())
 }
 
-/// Moves all content from `src` into `dst`, then removes `src`.
-/// Emits `migrate_progress` events: `{ done, total, current }`.
-/// Only deletes the source tree after every file is confirmed copied.
 #[tauri::command]
-async fn migrate_downloads(
-    app: tauri::AppHandle,
-    src: String,
-    dst: String,
-) -> Result<(), String> {
+async fn migrate_downloads(app: tauri::AppHandle, src: String, dst: String) -> Result<(), String> {
     use tauri::Emitter;
     use std::fs;
 
@@ -143,19 +122,16 @@ async fn migrate_downloads(
     let dst_path = std::path::PathBuf::from(dst.trim());
 
     if !src_path.is_dir() {
-        return Ok(()); // nothing to migrate
+        return Ok(());
     }
 
-    // Count files first so the frontend can show accurate progress
     let total: u64 = WalkDir::new(&src_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .count() as u64;
 
-    let _ = app.emit("migrate_progress", serde_json::json!({
-        "done": 0u64, "total": total, "current": ""
-    }));
+    let _ = app.emit("migrate_progress", serde_json::json!({ "done": 0u64, "total": total, "current": "" }));
 
     let mut done: u64 = 0;
 
@@ -172,23 +148,15 @@ async fn migrate_downloads(
             fs::copy(entry.path(), &target).map_err(|e| e.to_string())?;
             done += 1;
             let _ = app.emit("migrate_progress", serde_json::json!({
-                "done": done,
-                "total": total,
-                "current": rel.to_string_lossy()
+                "done": done, "total": total, "current": rel.to_string_lossy()
             }));
         }
     }
 
-    // Only remove source after all files are confirmed copied
     fs::remove_dir_all(&src_path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// Returns the OS/monitor DPI scale factor for the window's current monitor.
-/// This is the real hardware scale — 1.0 on standard displays, 2.0 on HiDPI/4K,
-/// 1.25–1.5 on Windows displays with OS-level scaling applied.
-/// The frontend multiplies this by the user's uiZoom preference to get the
-/// final effective zoom applied to document.documentElement.
 #[tauri::command]
 fn get_platform_ui_scale(window: tauri::Window) -> f64 {
     window.scale_factor().unwrap_or(1.0)
@@ -210,8 +178,6 @@ fn kill_tachidesk(app: &tauri::AppHandle) {
             .creation_flags(CREATE_NO_WINDOW)
             .status();
 
-        // Poll until no java.exe remains (up to ~3 s) so the installer can
-        // overwrite the JRE DLLs without hitting a sharing-violation error.
         for _ in 0..30 {
             let still_running = std::process::Command::new("tasklist")
                 .args(["/FI", "IMAGENAME eq java.exe", "/NH"])
@@ -220,19 +186,14 @@ fn kill_tachidesk(app: &tauri::AppHandle) {
                 .map(|o| String::from_utf8_lossy(&o.stdout).contains("java.exe"))
                 .unwrap_or(false);
 
-            if !still_running {
-                break;
-            }
+            if !still_running { break; }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
 
     #[cfg(not(target_os = "windows"))]
-    let _ = std::process::Command::new("pkill")
-        .args(["-f", "tachidesk"])
-        .status();
+    let _ = std::process::Command::new("pkill").args(["-f", "tachidesk"]).status();
 }
-
 
 const DEFAULT_SERVER_CONF: &str = r#"server.ip = "127.0.0.1"
 server.port = 4567
@@ -328,23 +289,14 @@ struct ServerInvocation {
     working_dir: Option<PathBuf>,
 }
 
-/// Locate the `java` / `java.exe` binary inside a bundled JRE directory.
-///
-/// Expected layout (Windows and Linux):
-///   <bundle_dir>/jre/bin/java[.exe]
-///
-/// On Windows `strip_unc` is applied so Java doesn't choke on `\\?\` prefixes.
 #[cfg(not(target_os = "macos"))]
 fn find_java_in_bundle(bundle_dir: &PathBuf, log: &mut Option<std::fs::File>) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     let java = strip_unc(bundle_dir.join("jre").join("bin").join("java.exe"));
-
     #[cfg(not(target_os = "windows"))]
     let java = bundle_dir.join("jre").join("bin").join("java");
 
-    do_log(log, &format!("[find_java] checking path: {:?}", java));
-    do_log(log, &format!("[find_java] exists: {}", java.exists()));
-
+    do_log(log, &format!("[find_java] path: {:?} exists: {}", java, java.exists()));
     if java.exists() { Some(java) } else { None }
 }
 
@@ -360,12 +312,8 @@ fn resolve_server_binary(
     app: &tauri::AppHandle,
     log: &mut Option<std::fs::File>,
 ) -> Result<ServerInvocation, SpawnError> {
-    do_log(log, &format!("[resolve] binary arg = {:?}", binary));
+    do_log(log, &format!("[resolve] binary = {:?}", binary));
 
-    // ── 1. User-specified binary path ─────────────────────────────────────────
-    // Primary: honour the path as-is (doc-2 behaviour — trust the user).
-    // Fallback: if the path doesn't exist after stripping UNC, log a warning
-    // and continue so the bundled detection still has a chance.
     if !binary.trim().is_empty() {
         let path = strip_unc(PathBuf::from(binary.trim()));
         do_log(log, &format!("[resolve] user path: {:?} exists={}", path, path.exists()));
@@ -376,62 +324,44 @@ fn resolve_server_binary(
                 working_dir: path.parent().map(|p| p.to_path_buf()),
             });
         }
-        // Fallback: path was set but file is missing — warn and keep trying.
-        do_log(log, "[resolve] WARNING: user-supplied path not found, falling through to bundled detection");
+        do_log(log, "[resolve] user path not found, falling through");
     }
 
-    // Resolve and UNC-strip resource_dir once; used by all non-macOS branches.
     #[cfg(not(target_os = "macos"))]
     let resource_dir = {
         let raw = app.path().resource_dir().unwrap_or_default();
         let stripped = strip_unc(raw);
-        do_log(log, &format!("[resolve] resource_dir (stripped) = {:?}", stripped));
+        do_log(log, &format!("[resolve] resource_dir = {:?}", stripped));
         stripped
     };
 
-    // ── 2. Bundled JRE + JAR (Windows / Linux — specific layout) ─────────────
-    // Primary path from doc-2: binaries/suwayomi-bundle/bin/Suwayomi-Server.jar
     #[cfg(not(target_os = "macos"))]
     {
         let bundle_dir = resource_dir.join("binaries").join("suwayomi-bundle");
         let jar        = bundle_dir.join("bin").join("Suwayomi-Server.jar");
 
-        do_log(log, &format!("[resolve] bundle_dir = {:?}", bundle_dir));
-        do_log(log, &format!("[resolve] bundle_dir exists: {}", bundle_dir.exists()));
-        do_log(log, &format!("[resolve] jar = {:?}", jar));
-        do_log(log, &format!("[resolve] jar exists: {}", jar.exists()));
+        do_log(log, &format!("[resolve] bundle_dir={:?} exists={}", bundle_dir, bundle_dir.exists()));
+        do_log(log, &format!("[resolve] jar={:?} exists={}", jar, jar.exists()));
 
         match find_java_in_bundle(&bundle_dir, log) {
-            Some(java) => {
-                do_log(log, &format!("[resolve] java found: {:?}", java));
-                if jar.exists() {
-                    do_log(log, "[resolve] both java and jar found — using bundled JRE");
-                    return Ok(ServerInvocation {
-                        bin:  java.to_string_lossy().into_owned(),
-                        args: vec!["-jar".to_string(), jar.to_string_lossy().into_owned()],
-                        working_dir: Some(bundle_dir),
-                    });
-                }
-                do_log(log, "[resolve] java found but jar MISSING — falling through");
+            Some(java) if jar.exists() => {
+                do_log(log, "[resolve] using bundled JRE");
+                return Ok(ServerInvocation {
+                    bin:  java.to_string_lossy().into_owned(),
+                    args: vec!["-jar".to_string(), jar.to_string_lossy().into_owned()],
+                    working_dir: Some(bundle_dir),
+                });
             }
-            None => {
-                do_log(log, "[resolve] java NOT found in bundle — falling through");
-            }
+            _ => do_log(log, "[resolve] bundled JRE/jar not found, falling through"),
         }
     }
 
-    // ── 2b. Bundled launcher scripts / native sidecars (Windows / Linux) ──────
-    // Fallback for older bundle layouts that ship a wrapper script instead of a
-    // bare JRE + JAR.  Also scans for any *.jar in resource_dir as a last resort.
     #[cfg(not(target_os = "macos"))]
     {
-        // Named launcher scripts.
-        let script_candidates = ["suwayomi-launcher", "suwayomi-launcher.sh", "tachidesk-server"];
-        for name in &script_candidates {
+        for name in &["suwayomi-launcher", "suwayomi-launcher.sh", "tachidesk-server"] {
             let p = resource_dir.join(name);
-            do_log(log, &format!("[resolve] sidecar candidate: {:?} exists={}", p, p.exists()));
+            do_log(log, &format!("[resolve] sidecar: {:?} exists={}", p, p.exists()));
             if p.exists() {
-                do_log(log, &format!("[resolve] using sidecar: {:?}", p));
                 return Ok(ServerInvocation {
                     bin:         p.to_string_lossy().into_owned(),
                     args:        vec![],
@@ -440,50 +370,31 @@ fn resolve_server_binary(
             }
         }
 
-        // Generic JRE at resource_dir root + any *.jar alongside it.
-        do_log(log, "[resolve] no named sidecar found, trying generic JRE + any jar in resource_dir");
         if let Some(java) = find_java_in_bundle(&resource_dir, log) {
             let jar = std::fs::read_dir(&resource_dir)
                 .ok()
                 .and_then(|mut rd| {
-                    rd.find(|e| {
-                        e.as_ref()
-                            .map(|e| e.file_name().to_string_lossy().ends_with(".jar"))
-                            .unwrap_or(false)
-                    })
-                    .and_then(|e| e.ok())
-                    .map(|e| e.path())
+                    rd.find(|e| e.as_ref().map(|e| e.file_name().to_string_lossy().ends_with(".jar")).unwrap_or(false))
+                        .and_then(|e| e.ok())
+                        .map(|e| e.path())
                 });
 
-            do_log(log, &format!("[resolve] generic jar candidate: {:?}", jar));
-
             if let Some(jar_path) = jar {
-                do_log(log, &format!("[resolve] using generic JRE java={:?} jar={:?}", java, jar_path));
+                do_log(log, &format!("[resolve] generic JRE java={:?} jar={:?}", java, jar_path));
                 return Ok(ServerInvocation {
                     bin:  java.to_string_lossy().into_owned(),
                     args: vec!["-jar".to_string(), jar_path.to_string_lossy().into_owned()],
                     working_dir: Some(resource_dir),
                 });
             }
-            do_log(log, "[resolve] generic JRE found but no .jar — falling through");
         }
     }
 
-    // ── 3. macOS app bundle — MacOS/ then Resources/ ──────────────────────────
     #[cfg(target_os = "macos")]
     {
         let resource_dir = app.path().resource_dir().unwrap_or_default();
-        let macos_dir    = resource_dir
-            .parent()
-            .map(|p| p.join("MacOS"))
-            .unwrap_or_default();
+        let macos_dir    = resource_dir.parent().map(|p| p.join("MacOS")).unwrap_or_default();
 
-        do_log(log, &format!("[resolve] macOS macos_dir = {:?}", macos_dir));
-
-        // Tauri strips the target triple when installing externalBin sidecars into
-        // Contents/MacOS/, so the binary is "suwayomi-server" at runtime.
-        // Triple-suffixed names are kept as a belt-and-suspenders fallback for
-        // dev / flat layouts.
         let candidates = [
             "suwayomi-server",
             "suwayomi-server-aarch64-apple-darwin",
@@ -498,7 +409,6 @@ fn resolve_server_binary(
                 let p = search_dir.join(name);
                 do_log(log, &format!("[resolve] macOS candidate: {:?} exists={}", p, p.exists()));
                 if p.exists() {
-                    do_log(log, &format!("[resolve] using macOS sidecar: {:?}", p));
                     return Ok(ServerInvocation {
                         bin:         p.to_string_lossy().into_owned(),
                         args:        vec![],
@@ -509,37 +419,17 @@ fn resolve_server_binary(
         }
     }
 
-    // ── 4. PATH fallback ──────────────────────────────────────────────────────
-    // Use `where` on Windows, `which` everywhere else.
-    do_log(log, "[resolve] trying PATH fallback");
     for name in &["suwayomi-server", "tachidesk-server"] {
         #[cfg(target_os = "windows")]
-        let found = std::process::Command::new("where")
-            .arg(name)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
+        let found = std::process::Command::new("where").arg(name).output().map(|o| o.status.success()).unwrap_or(false);
         #[cfg(not(target_os = "windows"))]
-        let found = std::process::Command::new("which")
-            .arg(name)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        do_log(log, &format!("[resolve] PATH check {:?}: found={}", name, found));
+        let found = std::process::Command::new("which").arg(name).output().map(|o| o.status.success()).unwrap_or(false);
 
         if found {
-            do_log(log, &format!("[resolve] using PATH binary: {}", name));
-            return Ok(ServerInvocation {
-                bin:         name.to_string(),
-                args:        vec![],
-                working_dir: None,
-            });
+            return Ok(ServerInvocation { bin: name.to_string(), args: vec![], working_dir: None });
         }
     }
 
-    do_log(log, "[resolve] FAILED — no binary found anywhere");
     Err(SpawnError::NotConfigured(
         "Server binary not found. Install Suwayomi-Server or set the path in Settings.".to_string(),
     ))
@@ -555,50 +445,28 @@ fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnError>
     }
 
     let data_dir = suwayomi_data_dir();
-
     let log_path = data_dir.join("moku-spawn.log");
     let _ = std::fs::create_dir_all(&data_dir);
-    let mut log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .ok();
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).ok();
 
-    do_log(&mut log, "");
-    do_log(&mut log, "========================================");
-    do_log(&mut log, &format!("[spawn_server] called at {:?}", std::time::SystemTime::now()));
-    do_log(&mut log, &format!("[spawn_server] binary arg = {:?}", binary));
-    do_log(&mut log, &format!("[spawn_server] data_dir = {:?}", data_dir));
-    do_log(&mut log, &format!("[spawn_server] log file = {:?}", log_path));
-    do_log(&mut log, &format!("[spawn_server] APPDATA = {:?}", std::env::var("APPDATA")));
-    do_log(&mut log, &format!("[spawn_server] LOCALAPPDATA = {:?}", std::env::var("LOCALAPPDATA")));
-    do_log(&mut log, &format!("[spawn_server] current_dir = {:?}", std::env::current_dir()));
+    do_log(&mut log, &format!("[spawn_server] binary={:?} data_dir={:?}", binary, data_dir));
 
     seed_server_conf(&data_dir);
-    do_log(&mut log, "[spawn_server] server.conf seeded");
 
-    let mut invocation = match resolve_server_binary(&binary, &app, &mut log) {
-        Ok(i) => i,
-        Err(e) => {
-            do_log(&mut log, &format!("[spawn_server] resolve FAILED: {:?}", e));
-            return Err(e);
-        }
-    };
+    let mut invocation = resolve_server_binary(&binary, &app, &mut log).map_err(|e| {
+        do_log(&mut log, &format!("[spawn_server] resolve failed: {:?}", e));
+        e
+    })?;
 
-    let bin_display = invocation.bin.clone();
     let rootdir_flag = format!(
         "-Dsuwayomi.tachidesk.config.server.rootDir={}",
         data_dir.to_string_lossy()
     );
-
     invocation.args.insert(0, rootdir_flag);
 
-    let working_dir = invocation.working_dir
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let working_dir = invocation.working_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
-    do_log(&mut log, &format!("[spawn_server] bin = {:?}", bin_display));
-    do_log(&mut log, &format!("[spawn_server] args = {:?}", invocation.args));
-    do_log(&mut log, &format!("[spawn_server] working_dir = {:?}", working_dir));
+    do_log(&mut log, &format!("[spawn_server] bin={:?} args={:?} cwd={:?}", invocation.bin, invocation.args, working_dir));
 
     let cmd = app.shell()
         .command(&invocation.bin)
@@ -606,17 +474,13 @@ fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnError>
         .args(&invocation.args)
         .current_dir(&working_dir);
 
-    do_log(&mut log, "[spawn_server] calling cmd.spawn()...");
-
     match cmd.spawn() {
         Ok((_rx, child)) => {
-            do_log(&mut log, &format!("[spawn_server] SUCCESS — spawned: {}", bin_display));
             *app.state::<ServerState>().0.lock().unwrap() = Some(child);
             Ok(())
         }
         Err(e) => {
-            do_log(&mut log, &format!("[spawn_server] SPAWN FAILED: {}", e));
-            do_log(&mut log, &format!("[spawn_server] error kind: {:?}", e));
+            do_log(&mut log, &format!("[spawn_server] spawn failed: {}", e));
             Err(SpawnError::SpawnFailed(e.to_string()))
         }
     }
@@ -628,10 +492,6 @@ fn kill_server(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-// ── Update commands ───────────────────────────────────────────────────────────
-
-/// Fetch the list of all GitHub releases so the frontend can show a version picker.
-/// Uses tauri-plugin-http so it goes through Tauri's permission system.
 #[tauri::command]
 async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
     use tauri_plugin_http::reqwest;
@@ -663,22 +523,15 @@ async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
     let body = resp.text().await.map_err(|e| e.to_string())?;
     let releases: Vec<GhRelease> = serde_json::from_str(&body).map_err(|e| e.to_string())?;
 
-    Ok(releases
-        .into_iter()
-        .map(|r| ReleaseInfo {
-            tag_name:     r.tag_name.clone(),
-            name:         r.name.unwrap_or_else(|| r.tag_name.clone()),
-            body:         r.body.unwrap_or_default(),
-            published_at: r.published_at.unwrap_or_default(),
-            html_url:     r.html_url,
-        })
-        .collect())
+    Ok(releases.into_iter().map(|r| ReleaseInfo {
+        tag_name:     r.tag_name.clone(),
+        name:         r.name.unwrap_or_else(|| r.tag_name.clone()),
+        body:         r.body.unwrap_or_default(),
+        published_at: r.published_at.unwrap_or_default(),
+        html_url:     r.html_url,
+    }).collect())
 }
 
-/// Download and install the latest update using tauri-plugin-updater.
-/// Emits `update-progress` events with `{ downloaded, total }` while downloading.
-/// On Windows the installer runs in passive (silent) mode; the frontend prompts restart.
-/// On other platforms this command is a no-op — the frontend opens the GitHub page instead.
 #[tauri::command]
 #[allow(unused_variables)]
 async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String> {
@@ -693,7 +546,7 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String
         let update  = updater.check().await.map_err(|e| e.to_string())?;
 
         let Some(update) = update else {
-            return Err("No update available from the updater endpoint.".into());
+            return Err("No update available.".into());
         };
 
         let app_clone = app.clone();
@@ -711,18 +564,15 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String
     }
 }
 
-/// Restart the app after a successful update install.
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
     tauri::process::restart(&app.env());
 }
 
-// ── App entry point ───────────────────────────────────────────────────────────
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_drpc::init())
+        .plugin(tauri_plugin_discord_rpc::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())

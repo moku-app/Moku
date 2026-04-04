@@ -33,11 +33,11 @@
     "process:allow-restart",
     "http:default",
     "http:allow-fetch",
-    "drpc:default",
-    "drpc:allow-is-running",
-    "drpc:allow-spawn-thread",
-    "drpc:allow-destroy-thread",
-    "drpc:allow-set-activity",
-    "drpc:allow-clear-activity"
+    "discord-rpc:default",
+    "discord-rpc:allow-connect",
+    "discord-rpc:allow-disconnect",
+    "discord-rpc:allow-set-activity",
+    "discord-rpc:allow-clear-activity",
+    "discord-rpc:allow-is-running"
   ]
 }
