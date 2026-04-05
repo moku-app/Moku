@@ -6,8 +6,8 @@
     CircleNotch, MagnifyingGlassMinus, MagnifyingGlassPlus,
     Bookmark, BookOpen, MonitorPlay, MapPin, Check,
   } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
-  import { fetchAuthenticated } from "../../lib/auth";
+  import { gql, thumbUrl, plainThumbUrl } from "../../lib/client";
+  import { getBlobUrl } from "../../lib/imageCache";
   import { store as appStore } from "../../store/state.svelte";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, addMarker, removeMarker, updateMarker } from "../../store/state.svelte";
@@ -43,16 +43,16 @@
     if (!inflight.has(chapterId)) {
       const p = gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
         .then(async d => {
-          const rawUrls = d.fetchChapterPages.pages.map(thumbUrl);
           const mode = appStore.settings.serverAuthMode ?? "NONE";
-          const urls = mode === "BASIC_AUTH"
-            ? await Promise.all(rawUrls.map(u =>
-                fetchAuthenticated(u, { method: "GET" })
-                  .then(r => r.blob())
-                  .then(b => URL.createObjectURL(b))
-                  .catch(() => u)
-              ))
-            : rawUrls;
+          const rawUrls = d.fetchChapterPages.pages.map(p => plainThumbUrl(p));
+          let urls: string[];
+          if (mode === "BASIC_AUTH") {
+            // Pre-fetch all pages via tauri-plugin-http (bypasses CORS + auth headers)
+            // in parallel so they're cached and ready to display immediately
+            urls = await Promise.all(rawUrls.map(u => getBlobUrl(u).catch(() => u)));
+          } else {
+            urls = rawUrls.map(u => thumbUrl(u));
+          }
           pageCache.set(chapterId, urls);
           return urls;
         })

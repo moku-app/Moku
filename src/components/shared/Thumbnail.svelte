@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
-  import { thumbUrl } from "../../lib/client";
-  import { fetchAuthenticated } from "../../lib/auth";
+  import { thumbUrl, plainThumbUrl } from "../../lib/client";
   import { store } from "../../store/state.svelte";
+  import { getBlobUrl } from "../../lib/imageCache";
 
   let {
     src,
@@ -22,40 +21,22 @@
     [key: string]: any;
   } = $props();
 
-  const blobCache = new Map<string, string>();
+  const isAuth = $derived(store.settings.serverAuthMode === "BASIC_AUTH");
 
-  let resolved = $state("");
-  let current  = "";
+  // Plain URL for non-auth users — fast, no overhead
+  const plainResolved = $derived(src ? thumbUrl(src) : "");
 
+  // Blob URL for auth users — fetched with Authorization header
+  let blobUrl = $state("");
   $effect(() => {
-    const path = src;
-    const mode = store.settings.serverAuthMode ?? "NONE";
-
-    if (path === current) return;
-    current = path;
-
-    if (!path) { resolved = ""; return; }
-
-    if (mode !== "BASIC_AUTH") {
-      resolved = thumbUrl(path);
-      return;
-    }
-
-    if (blobCache.has(path)) {
-      resolved = blobCache.get(path)!;
-      return;
-    }
-
-    resolved = "";
-    fetchAuthenticated(thumbUrl(path), { method: "GET" })
-      .then(r => r.blob())
-      .then(blob => {
-        const url = URL.createObjectURL(blob);
-        blobCache.set(path, url);
-        if (current === path) resolved = url;
-      })
-      .catch(() => {});
+    if (!isAuth || !src) { blobUrl = ""; return; }
+    const fullUrl = plainThumbUrl(src);
+    getBlobUrl(fullUrl)
+      .then(u => { blobUrl = u; })
+      .catch(() => { blobUrl = ""; });
   });
+
+  const resolved = $derived(isAuth ? blobUrl || undefined : plainResolved || undefined);
 </script>
 
 <img src={resolved} {alt} class={className} {loading} {decoding} {onerror} {...rest} />

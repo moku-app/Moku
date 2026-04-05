@@ -10,25 +10,17 @@ function getServerUrl(): string {
 
 function gqlUrl(): string { return `${getServerUrl()}/api/graphql`; }
 
-export function thumbUrl(path: string): string {
+// Returns a clean absolute URL with no embedded credentials.
+export function plainThumbUrl(path: string): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
+  return `${getServerUrl()}${path}`;
+}
 
-  const base = getServerUrl();
-  const mode = store.settings.serverAuthMode;
-
-  if (mode === "BASIC_AUTH") {
-    const user = store.settings.serverAuthUser?.trim() ?? "";
-    const pass = store.settings.serverAuthPass?.trim() ?? "";
-    if (user && pass) {
-      const url      = new URL(`${base}${path}`);
-      url.username   = user;
-      url.password   = pass;
-      return url.toString();
-    }
-  }
-
-  return `${base}${path}`;
+// Same as plainThumbUrl — credentials are never embedded in URLs.
+// Auth users load images via getBlobUrl (imageCache.ts) instead.
+export function thumbUrl(path: string): string {
+  return plainThumbUrl(path);
 }
 
 interface GQLResponse<T> {

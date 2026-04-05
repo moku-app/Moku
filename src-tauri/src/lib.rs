@@ -11,6 +11,14 @@ use walkdir::WalkDir;
 
 struct ServerState(Mutex<Option<CommandChild>>);
 
+#[derive(Default, Clone)]
+struct AuthCredentials {
+    user: String,
+    pass: String,
+}
+
+struct AuthState(Mutex<AuthCredentials>);
+
 #[derive(Serialize)]
 pub struct StorageInfo {
     manga_bytes: u64,
@@ -569,6 +577,14 @@ fn restart_app(app: tauri::AppHandle) {
     tauri::process::restart(&app.env());
 }
 
+#[tauri::command]
+fn set_auth_credentials(app: tauri::AppHandle, user: String, pass: String) {
+    let state = app.state::<AuthState>();
+    let mut creds = state.0.lock().unwrap();
+    creds.user = user;
+    creds.pass = pass;
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -579,6 +595,71 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ServerState(Mutex::new(None)))
+        .manage(AuthState(Mutex::new(AuthCredentials::default())))
+        .register_asynchronous_uri_scheme_protocol("moku", |ctx, request, responder| {
+            use tauri_plugin_http::reqwest;
+
+            // moku://proxy/<percent-encoded-absolute-url>
+            let raw_uri = request.uri().to_string();
+            let encoded = raw_uri
+                .split_once("://")
+                .and_then(|(_, rest)| rest.split_once('/'))
+                .map(|(_, after)| after.to_string())
+                .unwrap_or_default();
+            let target_url = match urlencoding::decode(&encoded) {
+                Ok(u)  => u.into_owned(),
+                Err(_) => encoded,
+            };
+
+            eprintln!("[moku] target_url={:?}", target_url);
+
+            let auth_state = ctx.app_handle().state::<AuthState>();
+            let creds      = auth_state.0.lock().unwrap().clone();
+
+            tokio::spawn(async move {
+                let result: Result<(Vec<u8>, String), String> = async {
+                    let client = reqwest::Client::builder()
+                        .build()
+                        .map_err(|e| e.to_string())?;
+
+                    let mut req = client.get(&target_url);
+                    if !creds.user.is_empty() && !creds.pass.is_empty() {
+                        req = req.basic_auth(&creds.user, Some(&creds.pass));
+                    }
+
+                    let resp = req.send().await.map_err(|e| e.to_string())?;
+                    let content_type = resp
+                        .headers()
+                        .get(reqwest::header::CONTENT_TYPE)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("image/jpeg")
+                        .to_string();
+                    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+                    Ok((bytes.to_vec(), content_type))
+                }.await;
+
+                match result {
+                    Ok((bytes, content_type)) => {
+                        responder.respond(
+                            tauri::http::Response::builder()
+                                .header("Content-Type", content_type)
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(bytes)
+                                .unwrap_or_else(|_| tauri::http::Response::builder().status(500).body(vec![]).unwrap())
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("[moku] error: {}", e);
+                        responder.respond(
+                            tauri::http::Response::builder()
+                                .status(502)
+                                .body(vec![])
+                                .unwrap()
+                        );
+                    }
+                }
+            });
+        })
         .invoke_handler(tauri::generate_handler![
             get_storage_info,
             get_default_downloads_path,
@@ -591,6 +672,7 @@ pub fn run() {
             list_releases,
             download_and_install_update,
             restart_app,
+            set_auth_credentials,
         ])
         .setup(|_app| Ok(()))
         .on_window_event(|window, event| {

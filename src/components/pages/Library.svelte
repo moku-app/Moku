@@ -9,6 +9,7 @@
   import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter, LibraryContentFilter } from "../../store/state.svelte";
   import type { Manga, Category, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
+  import Thumbnail from "../shared/Thumbnail.svelte";
 
   const CARD_MIN_W     = 130;
   const CARD_GAP       = 16;
@@ -920,7 +921,7 @@
             onpointerleave={onCardPointerLeave}
           >
             <div class="cover-wrap">
-              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" loading="lazy" decoding="async" draggable="false" />
+              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" draggable="false" />
               {#if m.downloadCount}<span class="badge-dl">{m.downloadCount}</span>{/if}
               {#if m.unreadCount}<span class="badge-unread">{m.unreadCount}</span>{/if}
               {#if selectMode}

@@ -2,7 +2,7 @@
   import { onMount, untrack } from "svelte";
   import { Play, ArrowRight, ArrowLeft, BookOpen, Clock, Fire, TrendUp, CalendarBlank, CheckCircle, PushPin, X as XIcon, MagnifyingGlass, ListBullets } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { fetchAuthenticated } from "../../lib/auth";
+  import { getBlobUrl } from "../../lib/imageCache";
   import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_LIBRARY, GET_CHAPTERS, GET_MANGA, GET_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
@@ -121,22 +121,15 @@
     activeSlot?.kind === "continue" ? (activeSlot.entry?.thumbnailUrl ?? "") : ""
   );
   let heroThumb = $state("");
-  const heroThumbCache = new Map<string, string>();
   $effect(() => {
     const path = heroThumbSrc;
     const mode = store.settings.serverAuthMode ?? "NONE";
     if (!path) { heroThumb = ""; return; }
     if (mode !== "BASIC_AUTH") { heroThumb = thumbUrl(path); return; }
-    if (heroThumbCache.has(path)) { heroThumb = heroThumbCache.get(path)!; return; }
-    heroThumb = "";
-    fetchAuthenticated(thumbUrl(path), { method: "GET" })
-      .then(r => r.blob())
-      .then(blob => {
-        const url = URL.createObjectURL(blob);
-        heroThumbCache.set(path, url);
-        heroThumb = url;
-      })
-      .catch(() => {});
+    // Use tauri-plugin-http backed getBlobUrl which handles auth and bypasses CORS
+    getBlobUrl(thumbUrl(path))
+      .then(url => { heroThumb = url; })
+      .catch(() => { heroThumb = ""; });
   });
   const heroTitle   = $derived(activeSlot?.kind === "pinned"   ? (activeSlot.manga?.title ?? "")               : activeSlot?.kind === "continue" ? (activeSlot.entry?.mangaTitle ?? "") : "");
   const heroManga   = $derived(activeSlot?.kind === "pinned"   ? activeSlot.manga                               : activeSlot?.kind === "continue" ? libraryManga.find(m => m.id === activeSlot.entry?.mangaId) : null);
