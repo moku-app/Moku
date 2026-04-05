@@ -7,7 +7,7 @@
     Bookmark, BookOpen, MonitorPlay, MapPin, Check,
   } from "phosphor-svelte";
   import { gql, thumbUrl, plainThumbUrl } from "../../lib/client";
-  import { getBlobUrl } from "../../lib/imageCache";
+  import { getBlobUrl, preloadBlobUrls } from "../../lib/imageCache";
   import { store as appStore } from "../../store/state.svelte";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, addMarker, removeMarker, updateMarker } from "../../store/state.svelte";
@@ -36,29 +36,29 @@
   const pageCache = new Map<number, string[]>();
   const inflight  = new Map<number, Promise<string[]>>();
 
+  const isAuth = () => (appStore.settings.serverAuthMode ?? "NONE") === "BASIC_AUTH";
+
+  function resolveUrl(url: string, priority = 0): Promise<string> {
+    return isAuth() ? getBlobUrl(url, priority) : Promise.resolve(url);
+  }
+
   function fetchPages(chapterId: number, signal?: AbortSignal): Promise<string[]> {
     const cached = pageCache.get(chapterId);
     if (cached) return Promise.resolve(cached);
     if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+
     if (!inflight.has(chapterId)) {
       const p = gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
-        .then(async d => {
-          const mode = appStore.settings.serverAuthMode ?? "NONE";
-          const rawUrls = d.fetchChapterPages.pages.map(p => plainThumbUrl(p));
-          let urls: string[];
-          if (mode === "BASIC_AUTH") {
-            // Pre-fetch all pages via tauri-plugin-http (bypasses CORS + auth headers)
-            // in parallel so they're cached and ready to display immediately
-            urls = await Promise.all(rawUrls.map(u => getBlobUrl(u).catch(() => u)));
-          } else {
-            urls = rawUrls.map(u => thumbUrl(u));
-          }
+        .then(d => {
+          const urls = d.fetchChapterPages.pages.map(p => plainThumbUrl(p));
+          if (isAuth()) preloadBlobUrls(urls, urls.length);
           pageCache.set(chapterId, urls);
           return urls;
         })
         .finally(() => inflight.delete(chapterId));
       inflight.set(chapterId, p);
     }
+
     const base = inflight.get(chapterId)!;
     if (!signal) return base;
     return new Promise((resolve, reject) => {
@@ -68,20 +68,19 @@
   }
 
   const aspectCache = new Map<string, number>();
-  function preloadImage(url: string) { new Image().src = url; }
 
   function measureAspect(url: string): Promise<number> {
     if (aspectCache.has(url)) return Promise.resolve(aspectCache.get(url)!);
-    return new Promise(res => {
+    return resolveUrl(url).then(src => new Promise(res => {
       const img = new Image();
-      img.onload  = () => {
-        const r = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0.67;
-        aspectCache.set(url, r);
-        res(r);
-      };
+      img.onload  = () => { const r = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0.67; aspectCache.set(url, r); res(r); };
       img.onerror = () => res(0.67);
-      img.src = url;
-    });
+      img.src = src;
+    }));
+  }
+
+  function preloadImage(url: string) {
+    resolveUrl(url).then(src => { new Image().src = src; }).catch(() => {});
   }
 
   interface StripChapter { chapterId: number; chapterName: string; urls: string[]; }
@@ -461,9 +460,22 @@
 
   $effect(() => {
     const ahead = store.settings.preloadPages ?? 3;
-    for (let i = 1; i <= ahead; i++) { const url = store.pageUrls[store.pageNumber - 1 + i]; if (url) preloadImage(url); }
-    const behind = store.pageUrls[store.pageNumber - 2];
-    if (behind) preloadImage(behind);
+    const current = store.pageUrls[store.pageNumber - 1];
+    if (!current) return;
+    if (isAuth()) {
+      getBlobUrl(current, 999);
+      const upcoming = Array.from({ length: ahead }, (_, i) => store.pageUrls[store.pageNumber + i]).filter(Boolean) as string[];
+      const behind   = store.pageUrls[store.pageNumber - 2];
+      preloadBlobUrls(upcoming, ahead);
+      if (behind) preloadBlobUrls([behind], 0);
+    } else {
+      for (let i = 1; i <= ahead; i++) {
+        const url = store.pageUrls[store.pageNumber - 1 + i];
+        if (url) preloadImage(url);
+      }
+      const behind = store.pageUrls[store.pageNumber - 2];
+      if (behind) preloadImage(behind);
+    }
   });
 
   $effect(() => {
@@ -959,39 +971,31 @@
     {#if style === "longstrip"}
       {#each stripToRender as chunk}
         {#each chunk.urls as url, i}
-          <img
-            src={url}
-            alt="{chunk.chapterName} – Page {i + 1}"
-            data-local-page={i + 1}
-            data-chapter={chunk.chapterId}
-            data-total={chunk.urls.length}
-            class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}"
-            loading={i < 5 ? "eager" : "lazy"}
-            decoding="async"
-          />
+          {#await resolveUrl(url, chunk.urls.length - i)}
+            <img src="" alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading={i < 5 ? "eager" : "lazy"} decoding="async" />
+          {:then src}
+            <img {src} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading={i < 5 ? "eager" : "lazy"} decoding="async" />
+          {/await}
         {/each}
       {/each}
       <div style="height:1px;flex-shrink:0"></div>
 
     {:else if style === "fade" && pageReady}
-      <img
-        src={store.pageUrls[store.pageNumber - 1]}
-        alt="Page {store.pageNumber}"
-        class={imgCls}
-        decoding="async"
-        style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;"
-      />
+      {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
+        <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity:0" />
+      {:then src}
+        <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" />
+      {/await}
 
     {:else if style === "double" && pageReady}
       {#if pageGroups.length}
         <div class="double-wrap">
           {#each currentGroup as pg, i}
-            <img
-              src={store.pageUrls[pg - 1]}
-              alt="Page {pg}"
-              class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}"
-              decoding="async"
-            />
+            {#await resolveUrl(store.pageUrls[pg - 1], 999)}
+              <img src="" alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
+            {:then src}
+              <img {src} alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
+            {/await}
           {/each}
         </div>
       {:else}
@@ -999,7 +1003,11 @@
       {/if}
 
     {:else if pageReady}
-      <img src={store.pageUrls[store.pageNumber - 1]} alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
+      {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
+        <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
+      {:then src}
+        <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
+      {/await}
     {/if}
   </div>
 
@@ -1148,13 +1156,6 @@
   .marker-popover { position: absolute; top: calc(100% + 8px); right: 0; width: 240px; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-3); box-shadow: 0 12px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4); z-index: 100; animation: scaleIn 0.1s ease both; transform-origin: top right; }
   .marker-pop-header { display: flex; align-items: center; justify-content: space-between; }
   .marker-pop-title { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
-  .marker-delete-btn { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--color-error); opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast); }
-  .marker-delete-btn:hover { opacity: 1; background: var(--color-error-bg); }
-
-  .marker-color-row { display: flex; gap: 5px; }
-  .marker-swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; padding: 6px 4px 5px; border-radius: var(--radius-md); border: 1px solid transparent; background: none; cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast); }
-  .marker-swatch:hover { background: var(--bg-raised); }
-  .marker-swatch-active { background: var(--bg-overlay); border-color: var(--border-strong); }
   .swatch-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 0 var(--swatch); transition: box-shadow var(--t-fast), transform var(--t-fast); flex-shrink: 0; }
   .marker-swatch:hover .swatch-dot { transform: scale(1.15); }
   .marker-swatch-active .swatch-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--swatch) 30%, transparent); transform: scale(1.1); }

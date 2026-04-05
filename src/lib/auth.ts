@@ -16,27 +16,25 @@ function basicHeader(user: string, pass: string): Record<string, string> {
   return { Authorization: `Basic ${btoa(`${user}:${pass}`)}` };
 }
 
-function buildRequestInit(init: RequestInit, extraHeaders: Record<string, string> = {}): RequestInit {
-  return {
-    ...init,
-    credentials: "include",
-    headers: { ...(init.headers as Record<string, string> ?? {}), ...extraHeaders },
-  };
-}
-
-export async function fetchAuthenticated(
+export function fetchAuthenticated(
   url:     string,
   init:    RequestInit,
   signal?: AbortSignal,
 ): Promise<Response> {
   const mode = store.settings.serverAuthMode ?? "NONE";
-  const s    = store.settings;
 
   if (mode === "BASIC_AUTH") {
-    const user = s.serverAuthUser?.trim() ?? "";
-    const pass = s.serverAuthPass?.trim() ?? "";
-    const headers = user && pass ? basicHeader(user, pass) : {};
-    return fetch(url, buildRequestInit({ ...init, signal }, headers));
+    const user = store.settings.serverAuthUser?.trim() ?? "";
+    const pass = store.settings.serverAuthPass?.trim() ?? "";
+    return fetch(url, {
+      ...init,
+      signal,
+      credentials: "include",
+      headers: {
+        ...(init.headers as Record<string, string> ?? {}),
+        ...(user && pass ? basicHeader(user, pass) : {}),
+      },
+    });
   }
 
   return fetch(url, { ...init, signal });
@@ -80,7 +78,6 @@ export async function probeServer(): Promise<"ok" | "auth_required" | "unsupport
     });
 
     if (res.ok) {
-      if (mode !== "NONE") updateSettings({ serverAuthMode: "NONE" });
       return "ok";
     }
 

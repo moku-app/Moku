@@ -221,6 +221,15 @@
 
       if (result === "auth_required") {
         serverProbeOk = true;
+        const savedUser = store.settings.serverAuthUser?.trim() ?? "";
+        const savedPass = store.settings.serverAuthPass?.trim() ?? "";
+        if (savedUser && savedPass) {
+          try {
+            await loginBasic(savedUser, savedPass);
+            loginRequired = false;
+            return;
+          } catch {}
+        }
         loginRequired = true;
         return;
       }

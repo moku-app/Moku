@@ -10,15 +10,12 @@ function getServerUrl(): string {
 
 function gqlUrl(): string { return `${getServerUrl()}/api/graphql`; }
 
-// Returns a clean absolute URL with no embedded credentials.
 export function plainThumbUrl(path: string): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
   return `${getServerUrl()}${path}`;
 }
 
-// Same as plainThumbUrl — credentials are never embedded in URLs.
-// Auth users load images via getBlobUrl (imageCache.ts) instead.
 export function thumbUrl(path: string): string {
   return plainThumbUrl(path);
 }
