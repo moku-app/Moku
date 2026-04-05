@@ -190,6 +190,7 @@ export interface MangaPrefs {
   pauseUpdates:       boolean;
   refreshInterval:    "global" | "daily" | "weekly" | "manual";
   preferredScanlator: string;
+  scanlatorFilter:    string[];
 }
 
 export const DEFAULT_MANGA_PREFS: MangaPrefs = {
@@ -201,6 +202,7 @@ export const DEFAULT_MANGA_PREFS: MangaPrefs = {
   pauseUpdates:       false,
   refreshInterval:    "global",
   preferredScanlator: "",
+  scanlatorFilter:    [],
 };
 
 export interface Settings {
@@ -398,75 +400,63 @@ function mergeSettings(saved: any): Settings {
     mangaPrefs:        saved?.settings?.mangaPrefs        ?? {},
     customThemes:      saved?.settings?.customThemes      ?? [],
     hiddenCategoryIds: saved?.settings?.hiddenCategoryIds ?? [],
+    nsfwFilteredTags:  saved?.settings?.nsfwFilteredTags  ?? DEFAULT_SETTINGS.nsfwFilteredTags,
+    nsfwAllowedSourceIds: saved?.settings?.nsfwAllowedSourceIds ?? [],
+    nsfwBlockedSourceIds: saved?.settings?.nsfwBlockedSourceIds ?? [],
     libraryTabSort:    saved?.settings?.libraryTabSort    ?? {},
     libraryTabStatus:  saved?.settings?.libraryTabStatus  ?? {},
     libraryTabFilters: saved?.settings?.libraryTabFilters ?? {},
-    nsfwFilteredTags:     saved?.settings?.nsfwFilteredTags     ?? ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
-    nsfwAllowedSourceIds: saved?.settings?.nsfwAllowedSourceIds ?? [],
-    nsfwBlockedSourceIds: saved?.settings?.nsfwBlockedSourceIds ?? [],
+    extraScanDirs:     saved?.settings?.extraScanDirs     ?? [],
   };
 }
 
-function mergeStats(saved: any): ReadingStats {
-  return { ...DEFAULT_READING_STATS, ...saved?.readingStats };
-}
-
-function todayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-const genId = () => Math.random().toString(36).slice(2, 10);
-
 class Store {
-  navPage:           NavPage          = $state(saved?.navPage   ?? "home");
-  libraryFilter:     LibraryFilter    = $state("library");
-  history:           HistoryEntry[]   = $state(saved?.history   ?? []);
-  readLog:           ReadLogEntry[]   = $state(saved?.readLog   ?? []);
-  bookmarks:         BookmarkEntry[]  = $state(saved?.bookmarks ?? []);
-  markers:           MarkerEntry[]    = $state(saved?.markers   ?? []);
-  readingStats:      ReadingStats     = $state(mergeStats(saved));
-  settings:          Settings         = $state(mergeSettings(saved));
-  readerSessionId:   number           = $state(0);
-  genreFilter:       string           = $state("");
-  searchPrefill:     string           = $state("");
-  activeManga:       Manga | null     = $state(null);
-  previewManga:      Manga | null     = $state(null);
-  activeSource:      Source | null    = $state(null);
-  pageUrls:          string[]         = $state([]);
-  pageNumber:        number           = $state(1);
-  libraryTagFilter:  string[]         = $state([]);
-  settingsOpen:      boolean          = $state(false);
-  activeDownloads:   ActiveDownload[] = $state([]);
-  toasts:            Toast[]          = $state([]);
-  activeChapter:     Chapter | null   = $state(null);
-  activeChapterList: Chapter[]        = $state([]);
-  isFullscreen:      boolean          = $state(false);
-  categories:        Category[]       = $state([]);
-  discoverCache:      Map<string, Manga[]> = $state(new Map());
-  discoverLibraryIds: Set<number>          = $state(new Set());
-  discoverSrcOffset:  number               = $state(0);
+  settings:        Settings        = $state(mergeSettings(saved));
+  activeManga:     Manga | null    = $state(null);
+  previewManga:    Manga | null    = $state(null);
+  activeChapter:   Chapter | null  = $state(null);
+  activeChapterList: Chapter[]     = $state([]);
+  pageUrls:        string[]        = $state([]);
+  pageNumber:      number          = $state(1);
+  navPage:         NavPage         = $state("home");
+  libraryFilter:   LibraryFilter   = $state("all");
+  genreFilter:     string          = $state("");
+  searchPrefill:   string          = $state("");
+  toasts:          Toast[]         = $state([]);
+  categories:      Category[]      = $state([]);
+  activeDownloads: ActiveDownload[] = $state([]);
+  activeSource:    Source | null   = $state(null);
+  libraryTagFilter: string[]       = $state([]);
+  settingsOpen:    boolean         = $state(false);
+  history:         HistoryEntry[]  = $state(saved?.history  ?? []);
+  bookmarks:       BookmarkEntry[] = $state(saved?.bookmarks ?? []);
+  markers:         MarkerEntry[]   = $state(saved?.markers   ?? []);
+  readLog:         ReadLogEntry[]  = $state(saved?.readLog   ?? []);
+  readingStats:    ReadingStats    = $state(saved?.readingStats ?? { ...DEFAULT_READING_STATS });
+  discoverCache:   Map<string, any> = $state(new Map());
+  discoverLibraryIds: Set<number>  = $state(new Set());
+  discoverSrcOffset: number        = $state(0);
 
   constructor() {
     $effect.root(() => {
-      $effect(() => { persist({ storeVersion:  STORE_VERSION      }); });
-      $effect(() => { persist({ navPage:       this.navPage       }); });
-      $effect(() => { persist({ libraryFilter: this.libraryFilter }); });
-      $effect(() => { persist({ history:       this.history       }); });
-      $effect(() => { persist({ readLog:       this.readLog       }); });
-      $effect(() => { persist({ bookmarks:     this.bookmarks     }); });
-      $effect(() => { persist({ markers:       this.markers       }); });
-      $effect(() => { persist({ readingStats:  this.readingStats  }); });
-      $effect(() => { persist({ settings:      this.settings      }); });
+      $effect(() => {
+        persist({
+          settings:     this.settings,
+          history:      this.history,
+          bookmarks:    this.bookmarks,
+          markers:      this.markers,
+          readLog:      this.readLog,
+          readingStats: this.readingStats,
+          storeVersion: STORE_VERSION,
+        });
+      });
     });
   }
 
   openReader(chapter: Chapter, chapterList: Chapter[], manga?: Manga | null) {
-    if (manga) this.activeManga = manga;
     this.activeChapter     = chapter;
     this.activeChapterList = chapterList;
-    this.pageUrls          = [];
-    this.pageNumber        = 1;
+    if (manga !== undefined) this.activeManga = manga;
   }
 
   closeReader() {
@@ -474,86 +464,70 @@ class Store {
     this.activeChapterList = [];
     this.pageUrls          = [];
     this.pageNumber        = 1;
-    this.readerSessionId  += 1;
   }
 
-  addHistory(entry: HistoryEntry, completed = false, minutes = AVG_MIN_PER_CHAPTER) {
-    if (this.history[0]?.chapterId === entry.chapterId) {
-      this.history[0] = { ...this.history[0], readAt: entry.readAt };
-    } else {
-      this.history = [entry, ...this.history.filter(x => x.chapterId !== entry.chapterId)].slice(0, 300);
-    }
+  addHistory(entry: HistoryEntry, completed = false, minutes?: number) {
+    const filtered = this.history.filter(h => h.chapterId !== entry.chapterId);
+    this.history   = [entry, ...filtered].slice(0, 500);
 
     if (completed) {
-      const logEntry: ReadLogEntry = {
-        mangaId:   entry.mangaId,
-        chapterId: entry.chapterId,
-        readAt:    entry.readAt,
-        minutes,
-      };
-      this.readLog = [...this.readLog, logEntry].slice(-5000);
+      const existing = this.readLog.find(e => e.chapterId === entry.chapterId);
+      if (!existing) {
+        const mins = minutes ?? AVG_MIN_PER_CHAPTER;
+        this.readLog = [...this.readLog, { mangaId: entry.mangaId, chapterId: entry.chapterId, readAt: entry.readAt, minutes: mins }];
+        const uniqueChapters = new Set(this.readLog.map(e => e.chapterId));
+        const uniqueManga    = new Set(this.readLog.map(e => e.mangaId));
+        const totalMinutes   = this.readLog.reduce((sum, e) => sum + e.minutes, 0);
+        const now            = new Date();
+        const todayStr       = now.toISOString().slice(0, 10);
+        const lastDate       = this.readingStats.lastStreakDate;
+        const yesterday      = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr   = yesterday.toISOString().slice(0, 10);
+        let streak = this.readingStats.currentStreakDays;
+        if (lastDate === todayStr) {
+        } else if (lastDate === yesterdayStr) {
+          streak++;
+        } else {
+          streak = 1;
+        }
+        const longest = Math.max(this.readingStats.longestStreakDays, streak);
+        this.readingStats = {
+          totalChaptersRead: uniqueChapters.size,
+          totalMangaRead:    uniqueManga.size,
+          totalMinutesRead:  totalMinutes,
+          firstReadAt:       this.readingStats.firstReadAt || entry.readAt,
+          lastReadAt:        entry.readAt,
+          currentStreakDays: streak,
+          longestStreakDays: longest,
+          lastStreakDate:    todayStr,
+        };
+      }
     }
-
-    const log = completed ? [...this.readLog] : this.readLog;
-
-    const uniqueChapters = new Set(log.map(e => e.chapterId));
-    const uniqueManga    = new Set(log.map(e => e.mangaId));
-    const totalMinutes   = log.reduce((sum, e) => sum + e.minutes, 0);
-
-    const today = todayStr();
-    let { currentStreakDays, longestStreakDays, lastStreakDate } = this.readingStats;
-    if (lastStreakDate !== today) {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-      currentStreakDays = lastStreakDate === yStr ? currentStreakDays + 1 : 1;
-      longestStreakDays = Math.max(longestStreakDays, currentStreakDays);
-      lastStreakDate    = today;
-    }
-
-    this.readingStats = {
-      totalChaptersRead: uniqueChapters.size,
-      totalMangaRead:    uniqueManga.size,
-      totalMinutesRead:  totalMinutes,
-      firstReadAt:       this.readingStats.firstReadAt === 0 ? entry.readAt : this.readingStats.firstReadAt,
-      lastReadAt:        entry.readAt,
-      currentStreakDays,
-      longestStreakDays,
-      lastStreakDate,
-    };
   }
 
   addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) {
-    const bookmark: BookmarkEntry = { ...entry, savedAt: Date.now(), label };
-    this.bookmarks = [
-      bookmark,
-      ...this.bookmarks.filter(b => b.mangaId !== entry.mangaId),
-    ].slice(0, 200);
+    const filtered = this.bookmarks.filter(b => b.chapterId !== entry.chapterId);
+    this.bookmarks = [{ ...entry, savedAt: Date.now(), label }, ...filtered].slice(0, 200);
   }
 
   removeBookmark(chapterId: number) {
     this.bookmarks = this.bookmarks.filter(b => b.chapterId !== chapterId);
   }
 
-  clearBookmarks() {
-    this.bookmarks = [];
-  }
+  clearBookmarks() { this.bookmarks = []; }
 
   getBookmark(chapterId: number): BookmarkEntry | undefined {
     return this.bookmarks.find(b => b.chapterId === chapterId);
   }
 
   addMarker(entry: Omit<MarkerEntry, "id" | "createdAt">): string {
-    const id = genId();
-    const marker: MarkerEntry = { ...entry, id, createdAt: Date.now() };
-    this.markers = [marker, ...this.markers].slice(0, 2000);
+    const id  = Math.random().toString(36).slice(2);
+    this.markers = [...this.markers, { ...entry, id, createdAt: Date.now() }];
     return id;
   }
 
   updateMarker(id: string, patch: Partial<Pick<MarkerEntry, "note" | "color">>) {
-    this.markers = this.markers.map(m =>
-      m.id === id ? { ...m, ...patch, updatedAt: Date.now() } : m
-    );
+    this.markers = this.markers.map(m => m.id === id ? { ...m, ...patch, updatedAt: Date.now() } : m);
   }
 
   removeMarker(id: string) {

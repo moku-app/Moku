@@ -2,13 +2,34 @@
   import { store, dismissToast } from "../../store/state.svelte";
   import type { Toast } from "../../store/state.svelte";
 
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const EXIT_MS = 280;
+  const leaving = new Set<string>();
+  const timers  = new Map<string, ReturnType<typeof setTimeout>>();
 
   function schedule(t: Toast) {
     if (timers.has(t.id)) return;
     const dur = t.duration ?? 3500;
     if (dur === 0) return;
-    timers.set(t.id, setTimeout(() => dismissToast(t.id), dur));
+    timers.set(t.id, setTimeout(() => dismiss(t.id), dur));
+  }
+
+  function dismiss(id: string) {
+    if (leaving.has(id)) return;
+    leaving.add(id);
+    if (timers.has(id)) { clearTimeout(timers.get(id)!); timers.delete(id); }
+
+    const el = document.querySelector<HTMLElement>(`[data-toast-id="${id}"]`);
+    if (!el) { finalize(id); return; }
+
+    const h = el.offsetHeight;
+    el.style.setProperty("--exit-h", `${h}px`);
+    el.classList.add("leaving");
+    setTimeout(() => finalize(id), EXIT_MS);
+  }
+
+  function finalize(id: string) {
+    leaving.delete(id);
+    dismissToast(id);
   }
 
   $effect(() => {
@@ -27,7 +48,12 @@
 {#if store.toasts.length}
   <div class="toaster" aria-live="polite">
     {#each store.toasts as t (t.id)}
-      <div role="alert" class="toast toast-{t.kind}" onclick={() => dismissToast(t.id)}>
+      <div
+        role="alert"
+        class="toast toast-{t.kind}"
+        data-toast-id={t.id}
+        onclick={() => dismiss(t.id)}
+      >
         <div class="accent-bar"></div>
         <span class="icon">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
@@ -70,20 +96,37 @@
     min-width: 200px;
     overflow: hidden;
     cursor: pointer;
-    animation: slideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
-    transition: opacity 0.15s ease, transform 0.15s ease;
     font-family: inherit;
     font-size: inherit;
     color: inherit;
     text-align: left;
+    will-change: transform, opacity;
+    animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   }
 
-  .toast:hover  { opacity: 0.85; transform: translateX(-2px); }
+  .toast:hover {
+    border-color: var(--border-base);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.06) inset;
+    transform: translateX(-3px);
+  }
+
   .toast:active { transform: translateX(0) scale(0.98); }
 
+  :global(.toast.leaving) {
+    animation: slideOut 0.28s cubic-bezier(0.4, 0, 1, 1) forwards !important;
+    pointer-events: none;
+  }
+
   @keyframes slideIn {
-    from { opacity: 0; transform: translateX(16px) scale(0.98); }
-    to   { opacity: 1; transform: translateX(0)    scale(1); }
+    from { opacity: 0; transform: translateX(20px) scale(0.96); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+
+  @keyframes slideOut {
+    0%   { opacity: 1; transform: translateX(0) scale(1);        max-height: var(--exit-h, 80px); margin-bottom: 0; }
+    40%  { opacity: 0; transform: translateX(14px) scale(0.96);  max-height: var(--exit-h, 80px); margin-bottom: 0; }
+    100% { opacity: 0; transform: translateX(14px) scale(0.96);  max-height: 0;                   margin-bottom: -6px; }
   }
 
   .accent-bar {

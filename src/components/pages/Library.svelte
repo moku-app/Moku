@@ -995,10 +995,10 @@
   /* ── Dropdown panels (shared) ───────────────────────────────────────────── */
   .sort-panel-wrap,
   .filter-panel-wrap { position: relative; }
-  .dropdown-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 9999; min-width: 220px; background: var(--bg-overlay, #1a1a1a); border: 1px solid var(--border-base); border-radius: var(--radius-md); padding: 6px; box-shadow: 0 12px 36px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3); animation: fadeIn 0.1s ease both; }
+  .dropdown-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 9999; min-width: 220px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); box-shadow: 0 8px 32px rgba(0,0,0,0.5); animation: fadeIn 0.1s ease both; }
   .panel-label { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-faint); padding: 4px 8px 8px; }
   .panel-item { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 7px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); gap: var(--sp-2); }
-  .panel-item:hover { background: var(--bg-subtle, #202020); color: var(--text-primary); }
+  .panel-item:hover { background: var(--bg-overlay); color: var(--text-primary); }
   .panel-item-active { color: var(--accent-fg); background: var(--accent-muted); font-weight: var(--weight-medium, 500); }
   .panel-item-active:hover { background: var(--accent-dim); }
   .panel-divider { height: 1px; background: var(--border-dim); margin: 4px 2px; }

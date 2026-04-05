@@ -3,12 +3,9 @@
   import { store, updateSettings } from "../../store/state.svelte";
   import { DEFAULT_MANGA_PREFS } from "../../store/state.svelte";
   import type { MangaPrefs } from "../../store/state.svelte";
-  import type { Chapter } from "../../lib/types";
-
-  let { mangaId, chapters, onClose }: {
-    mangaId:  number;
-    chapters: Chapter[];
-    onClose:  () => void;
+  let { mangaId, onClose }: {
+    mangaId: number;
+    onClose: () => void;
   } = $props();
 
   const mangaPrefs = $derived(
@@ -28,12 +25,7 @@
     });
   }
 
-  const scanlators = $derived(
-    [...new Set(chapters.map(c => c.scanlator).filter((s): s is string => !!s?.trim()))]
-      .sort((a, b) => a.localeCompare(b))
-  );
-
-  const DOWNLOAD_AHEAD_OPTIONS = [
+const DOWNLOAD_AHEAD_OPTIONS = [
     { value: 0,  label: "Off"  },
     { value: 2,  label: "2"    },
     { value: 5,  label: "5"    },
@@ -196,33 +188,7 @@
         </div>
       </div>
 
-      {#if scanlators.length > 1}
-        <div class="divider"></div>
 
-        <p class="section-label">Scanlator</p>
-
-        <div class="auto-row auto-row-align-start">
-          <div class="auto-info">
-            <span class="auto-label">Preferred scanlator</span>
-            <span class="auto-desc">Prioritise this group's chapters in the list</span>
-          </div>
-          <div class="scanlator-list">
-            <button
-              class="auto-chip scanlator-chip"
-              class:auto-chip-on={!getPref("preferredScanlator")}
-              onclick={() => setPref("preferredScanlator", "")}
-            >Any</button>
-            {#each scanlators as s}
-              <button
-                class="auto-chip scanlator-chip"
-                class:auto-chip-on={getPref("preferredScanlator") === s}
-                onclick={() => setPref("preferredScanlator", getPref("preferredScanlator") === s ? "" : s)}
-                title={s}
-              >{s}</button>
-            {/each}
-          </div>
-        </div>
-      {/if}
 
     </div>
   </div>
@@ -300,10 +266,6 @@
   .auto-chip:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
   .auto-chip-on { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
-  /* Scanlator list */
-  .scanlator-list { display: flex; flex-direction: row; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 220px; }
-  .scanlator-chip { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-
-  @keyframes fadeIn  { from { opacity: 0 }                         to { opacity: 1 } }
+@keyframes fadeIn  { from { opacity: 0 }                         to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

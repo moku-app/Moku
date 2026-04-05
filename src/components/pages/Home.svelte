@@ -9,6 +9,7 @@
   import { store, openReader, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter, setLibraryFilter } from "../../store/state.svelte";
   import type { HistoryEntry } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
+  import { buildReaderChapterList } from "../../lib/chapterList";
 
   function timeAgo(ts: number): string {
     const diff = Date.now() - ts, m = Math.floor(diff / 60000);
@@ -59,17 +60,23 @@
       .finally(() => loadingLibrary = false);
   }
 
-  // Re-fetch library and reset hero chapters whenever the reader closes,
-  // so the hero reflects the latest-read chapter immediately.
-  $effect(() => {
-    const sessionId = store.readerSessionId;
-    if (sessionId === 0) return; // skip initial mount — onMount handles that
+  function resetAndReload() {
     cache.clear(CACHE_KEYS.LIBRARY);
-    loadingLibrary = true;
+    loadingLibrary  = true;
     heroChapters    = [];
     heroAllChapters = [];
     heroChaptersFor = null;
     loadLibrary();
+  }
+
+  $effect(() => {
+    if (store.navPage === "home") untrack(() => resetAndReload());
+  });
+
+  $effect(() => {
+    const sessionId = store.readerSessionId;
+    if (sessionId === 0) return;
+    untrack(() => resetAndReload());
   });
 
   async function fetchExtraCompleted(library: Manga[], completed: Category | null) {
@@ -158,7 +165,8 @@
 
   $effect(() => {
     const id = heroMangaId;
-    if (id && id !== heroChaptersFor) untrack(() => loadHeroChapters(id));
+    void store.settings.mangaPrefs?.[id!];
+    if (id) untrack(() => loadHeroChapters(id));
   });
 
   async function loadHeroChapters(mangaId: number) {
@@ -171,9 +179,10 @@
       if (heroChaptersFor !== mangaId) return;
       const all = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
       heroAllChapters = all;
-      const lastReadIdx = heroEntry ? all.findIndex(c => c.id === heroEntry!.chapterId) : all.findLastIndex(c => c.isRead);
+      const filtered = buildReaderChapterList(all, store.settings.mangaPrefs?.[mangaId]);
+      const lastReadIdx = heroEntry ? filtered.findIndex(c => c.id === heroEntry!.chapterId) : filtered.findLastIndex(c => c.isRead);
       const startIdx = Math.max(0, lastReadIdx);
-      heroChapters = all.slice(startIdx, startIdx + 5);
+      heroChapters = filtered.slice(startIdx, startIdx + 5);
     } catch { heroChapters = []; heroAllChapters = []; }
     finally { loadingHeroChapters = false; }
   }
@@ -192,7 +201,9 @@
       if (all.length) {
         const manga = heroManga ?? { id: heroMangaId, title: heroTitle, thumbnailUrl: heroManga?.thumbnailUrl ?? "" } as any;
         store.activeManga = manga;
-        openReader(chapter, all);
+        const list = buildReaderChapterList(all, store.settings.mangaPrefs?.[heroMangaId]);
+        const target = list.find(c => c.id === chapter.id) ?? list[0];
+        if (target) openReader(target, list);
       }
     } catch { store.activeManga = { id: heroMangaId, title: heroTitle, thumbnailUrl: heroManga?.thumbnailUrl ?? "" } as any; }
     finally { resuming = false; }
@@ -206,11 +217,12 @@
     resuming = true;
     try {
       const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: heroEntry.mangaId });
-      const chapters = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
-      const ch = chapters.find(c => c.id === heroEntry!.chapterId) ?? chapters[0];
+      const raw = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
+      const list = buildReaderChapterList(raw, store.settings.mangaPrefs?.[heroEntry.mangaId]);
+      const ch = list.find(c => c.id === heroEntry!.chapterId) ?? list[0];
       if (ch) {
         store.activeManga = heroManga ?? { id: heroEntry.mangaId, title: heroEntry.mangaTitle, thumbnailUrl: heroEntry.thumbnailUrl } as any;
-        openReader(ch, chapters);
+        openReader(ch, list);
       }
     } catch { store.activeManga = { id: heroEntry.mangaId, title: heroEntry.mangaTitle, thumbnailUrl: heroEntry.thumbnailUrl } as any; }
     finally { resuming = false; }
@@ -219,11 +231,12 @@
   async function resumeEntry(entry: HistoryEntry) {
     try {
       const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: entry.mangaId });
-      const chapters = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
-      const ch = chapters.find(c => c.id === entry.chapterId) ?? chapters[0];
+      const raw = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
+      const list = buildReaderChapterList(raw, store.settings.mangaPrefs?.[entry.mangaId]);
+      const ch = list.find(c => c.id === entry.chapterId) ?? list[0];
       if (ch) {
         store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any;
-        openReader(ch, chapters);
+        openReader(ch, list);
       } else store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any;
     } catch { store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any; }
   }

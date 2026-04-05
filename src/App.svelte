@@ -11,13 +11,13 @@
   import { store, addToast, setActiveDownloads, setSettingsOpen } from "./store/state.svelte";
   import { initRpc, setIdle, clearReading, destroyRpc } from "./lib/discord";
   import type { DownloadStatus, DownloadQueueItem } from "./lib/types";
-  import Layout       from "./components/layout/Layout.svelte";
+  import Layout       from "./components/chrome/Layout.svelte";
   import Reader       from "./components/reader/Reader.svelte";
   import Settings     from "./components/settings/Settings.svelte";
   import ThemeEditor  from "./components/settings/ThemeEditor.svelte";
-  import TitleBar     from "./components/layout/TitleBar.svelte";
-  import Toaster      from "./components/layout/Toaster.svelte";
-  import SplashScreen from "./components/layout/SplashScreen.svelte";
+  import TitleBar     from "./components/chrome/TitleBar.svelte";
+  import Toaster      from "./components/chrome/Toaster.svelte";
+  import SplashScreen from "./components/chrome/SplashScreen.svelte";
   import MangaPreview from "./components/shared/MangaPreview.svelte";
 
   let themeStyleEl: HTMLStyleElement | null = null;

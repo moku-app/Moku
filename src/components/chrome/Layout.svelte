@@ -3,7 +3,7 @@
   import Sidebar        from "./Sidebar.svelte";
   import Home           from "../pages/Home.svelte";
   import Library        from "../pages/Library.svelte";
-  import SeriesDetail   from "../pages/SeriesDetail.svelte";
+  import SeriesDetail   from "../series/SeriesDetail.svelte";
   import RecentActivity from "./RecentActivity.svelte";
   import Search         from "../pages/Search.svelte";
   import Discover       from "../pages/Discover.svelte";

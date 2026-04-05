@@ -9,8 +9,9 @@
   import { gql, thumbUrl, plainThumbUrl } from "../../lib/client";
   import { getBlobUrl, preloadBlobUrls } from "../../lib/imageCache";
   import { store as appStore } from "../../store/state.svelte";
-  import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
+  import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD, DELETE_DOWNLOADED_CHAPTERS } from "../../lib/queries";
   import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, addMarker, removeMarker, updateMarker } from "../../store/state.svelte";
+  import { DEFAULT_MANGA_PREFS } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import { setReading } from "../../lib/discord";
   import type { FitMode, MarkerColor } from "../../store/state.svelte";
@@ -333,7 +334,24 @@
     if (!chId || style !== "longstrip") return;
     if (chId === store.activeChapter?.id) return;
     const wasAppended = untrack(() => stripChapters.findIndex(c => c.chapterId === chId)) > 0;
-    if (wasAppended) { untrack(() => { resumePage = 0; resumeVisible = false; }); return; }
+    if (wasAppended) {
+      untrack(() => {
+        resumePage = 0; resumeVisible = false;
+        const prefs = getMangaPrefs();
+        if (prefs.downloadAhead > 0) {
+          const list = store.activeChapterList;
+          const idx  = list.findIndex(c => c.id === chId);
+          if (idx >= 0) {
+            const toQueue = list
+              .slice(idx + 1, idx + 1 + prefs.downloadAhead)
+              .filter(c => !c.isDownloaded && !c.isRead)
+              .map(c => c.id);
+            if (toQueue.length) gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: toQueue }).catch(console.error);
+          }
+        }
+      });
+      return;
+    }
     const bookmark = store.bookmarks.find(b => b.chapterId === chId);
     if (bookmark && bookmark.pageNumber > 1) {
       untrack(() => {
@@ -502,6 +520,12 @@
     }
   });
 
+  function getMangaPrefs() {
+    const mangaId = store.activeManga?.id;
+    if (!mangaId) return DEFAULT_MANGA_PREFS;
+    return { ...DEFAULT_MANGA_PREFS, ...(appStore.settings.mangaPrefs?.[mangaId] ?? {}) };
+  }
+
   function markChapterRead(id: number) {
     if (markedRead.has(id)) return;
     markedRead.add(id);
@@ -516,9 +540,42 @@
     }
     gql(MARK_CHAPTER_READ, { id, isRead: true })
       .then(() => {
-        if (store.activeManga) {
+        const mangaId = store.activeManga?.id;
+        if (mangaId) {
           const updated = store.activeChapterList.map(c => c.id === id ? { ...c, isRead: true } : c);
-          checkAndMarkCompleted(store.activeManga.id, updated);
+          checkAndMarkCompleted(mangaId, updated);
+
+          const prefs = getMangaPrefs();
+
+          if (prefs.deleteOnRead) {
+            const ch = store.activeChapterList.find(c => c.id === id);
+            if (ch?.isDownloaded) {
+              const delayMs = (prefs.deleteDelayHours ?? 0) * 60 * 60 * 1000;
+              const doDelete = () => gql(DELETE_DOWNLOADED_CHAPTERS, { ids: [id] }).catch(console.error);
+              if (delayMs === 0) doDelete();
+              else setTimeout(doDelete, delayMs);
+            }
+          }
+
+          if (prefs.downloadAhead > 0) {
+            const list  = store.activeChapterList;
+            const idx   = list.findIndex(c => c.id === id);
+            if (idx >= 0) {
+              const toQueue = list
+                .slice(idx + 1, idx + 1 + prefs.downloadAhead)
+                .filter(c => !c.isDownloaded && !c.isRead)
+                .map(c => c.id);
+              if (toQueue.length) gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: toQueue }).catch(console.error);
+            }
+          }
+
+          if (prefs.maxKeepChapters > 0) {
+            const downloaded = store.activeChapterList
+              .filter(c => c.isDownloaded)
+              .sort((a, b) => a.sourceOrder - b.sourceOrder);
+            const excess = downloaded.slice(0, Math.max(0, downloaded.length - prefs.maxKeepChapters));
+            if (excess.length) gql(DELETE_DOWNLOADED_CHAPTERS, { ids: excess.map(c => c.id) }).catch(console.error);
+          }
         }
       })
       .catch(e => { markedRead.delete(id); console.error(e); });

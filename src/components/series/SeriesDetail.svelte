@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp, MagnifyingGlass, Gear, Eye, MapPin } from "phosphor-svelte";
+  import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp, MagnifyingGlass, Gear, Eye, MapPin, Funnel, Check } from "phosphor-svelte";
   import { gql } from "../../lib/client";
   import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
@@ -12,9 +12,9 @@
   import type { Manga, Chapter, Category } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
   import MigrateModal from "./MigrateModal.svelte";
-  import TrackingPanel from "../shared/TrackingPanel.svelte";
-  import AutomationPanel from "../shared/AutomationPanel.svelte";
-  import MarkersPanel from "../shared/MarkersPanel.svelte";
+  import TrackingPanel from "./TrackingPanel.svelte";
+  import AutomationPanel from "./AutomationPanel.svelte";
+  import MarkersPanel from "./MarkersPanel.svelte";
 
   const CHAPTERS_PER_PAGE = 25;
   const MANGA_TTL_MS      = 5 * 60 * 1000;
@@ -58,6 +58,7 @@
   let loadingLinkList:  boolean         = $state(false);
   let selectedIds:      Set<number>     = $state(new Set());
   let sortMenuOpen:     boolean         = $state(false);
+  let scanFilterOpen:   boolean         = $state(false);
   let dlDropRef:        HTMLDivElement | undefined = $state();
   let folderPickerRef:  HTMLDivElement | undefined = $state();
   let mangaAbort:       AbortController | null = null;
@@ -76,22 +77,67 @@
     return (mangaPrefs[key] ?? DEFAULT_MANGA_PREFS[key]) as MangaPrefs[K];
   }
 
+  function setPref<K extends keyof MangaPrefs>(key: K, value: MangaPrefs[K]) {
+    const id = store.activeManga?.id;
+    if (!id) return;
+    updateSettings({
+      mangaPrefs: {
+        ...store.settings.mangaPrefs,
+        [id]: { ...(store.settings.mangaPrefs?.[id] ?? {}), [key]: value },
+      },
+    });
+  }
+
   const hasSelection = $derived(selectedIds.size > 0);
 
   const sortDir  = $derived(store.settings.chapterSortDir);
   const sortMode = $derived(store.settings.chapterSortMode ?? "source");
 
+  const availableScanlators = $derived(
+    [...new Set(chapters.map(c => c.scanlator).filter((s): s is string => !!s?.trim()))]
+      .sort((a, b) => a.localeCompare(b))
+  );
+
+  const scanlatorFilter = $derived((getPref("scanlatorFilter") ?? []) as string[]);
+
   const sortedChapters = $derived.by(() => {
-    const base = [...chapters];
+    let base = [...chapters];
+
     if (sortMode === "chapterNumber") base.sort((a, b) => a.chapterNumber - b.chapterNumber);
     else if (sortMode === "uploadDate") base.sort((a, b) => Number(a.uploadDate ?? 0) - Number(b.uploadDate ?? 0));
     else base.sort((a, b) => a.sourceOrder - b.sourceOrder);
+
+    const preferred = getPref("preferredScanlator");
+    if (preferred) {
+      const pref: Chapter[] = [], rest: Chapter[] = [];
+      for (const c of base) (c.scanlator === preferred ? pref : rest).push(c);
+      base = [...pref, ...rest];
+    }
+
+    if (scanlatorFilter.length > 0) {
+      const seen = new Map<number, Chapter>();
+      for (const ch of base) {
+        const existing = seen.get(ch.chapterNumber);
+        if (!existing) {
+          seen.set(ch.chapterNumber, ch);
+        } else {
+          const np = scanlatorFilter.indexOf(ch.scanlator ?? "");
+          const op = scanlatorFilter.indexOf(existing.scanlator ?? "");
+          if (np !== -1 && (op === -1 || np < op)) seen.set(ch.chapterNumber, ch);
+        }
+      }
+      base = [...seen.values()];
+      if (sortMode === "chapterNumber") base.sort((a, b) => a.chapterNumber - b.chapterNumber);
+      else if (sortMode === "uploadDate") base.sort((a, b) => Number(a.uploadDate ?? 0) - Number(b.uploadDate ?? 0));
+      else base.sort((a, b) => a.sourceOrder - b.sourceOrder);
+    }
+
     return sortDir === "desc" ? base.reverse() : base;
   });
 
-  const chaptersAsc     = $derived([...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder));
-  const totalPages      = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
-  const pageChapters    = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
+  const chaptersAsc  = $derived([...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder));
+  const totalPages   = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
+  const pageChapters = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
   const readCount       = $derived(chapters.filter(c => c.isRead).length);
   const totalCount      = $derived(chapters.length);
   const progressPct     = $derived(totalCount > 0 ? (readCount / totalCount) * 100 : 0);
@@ -101,8 +147,8 @@
   const hasFolders      = $derived(assignedFolders.length > 0);
 
   const continueChapter = $derived((() => {
-    if (!chapters.length) return null;
-    const asc        = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
+    if (!sortedChapters.length) return null;
+    const asc        = [...sortedChapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
     const anyRead    = asc.some(c => c.isRead);
     const inProgress = asc.find(c => !c.isRead && (c.lastPageRead ?? 0) > 0);
     if (inProgress) return { chapter: inProgress, type: "continue" as const };
@@ -285,6 +331,15 @@
   function handleDlOutside(e: MouseEvent) { if (dlDropRef && !dlDropRef.contains(e.target as Node)) dlOpen = false; }
   function handleFolderOutside(e: MouseEvent) { if (folderPickerRef && !folderPickerRef.contains(e.target as Node)) { folderPickerOpen = false; folderCreating = false; folderNewName = ""; } }
 
+  $effect(() => {
+    if (!scanFilterOpen) return;
+    function onOutside(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest(".scan-filter-wrap")) scanFilterOpen = false;
+    }
+    setTimeout(() => document.addEventListener("mousedown", onOutside, true), 0);
+    return () => document.removeEventListener("mousedown", onOutside, true);
+  });
+
   async function toggleLibrary() {
     if (!manga) return;
     togglingLibrary = true;
@@ -322,12 +377,22 @@
     await gql(MARK_CHAPTER_READ, { id: chapterId, isRead }).catch(console.error);
     chapters = chapters.map(c => c.id === chapterId ? { ...c, isRead } : c);
     if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
-    if (isRead && getPref("deleteOnRead")) {
-      const ch = chapters.find(c => c.id === chapterId);
-      if (ch?.isDownloaded) {
-        const delayMs = getPref("deleteDelayHours") * 60 * 60 * 1000;
-        if (delayMs === 0) deleteDownloaded(chapterId);
-        else setTimeout(() => deleteDownloaded(chapterId), delayMs);
+    if (isRead) {
+      if (getPref("deleteOnRead")) {
+        const ch = chapters.find(c => c.id === chapterId);
+        if (ch?.isDownloaded) {
+          const delayMs = getPref("deleteDelayHours") * 60 * 60 * 1000;
+          if (delayMs === 0) deleteDownloaded(chapterId);
+          else setTimeout(() => deleteDownloaded(chapterId), delayMs);
+        }
+      }
+      const ahead = getPref("downloadAhead");
+      if (ahead > 0) {
+        const idx = sortedChapters.findIndex(c => c.id === chapterId);
+        if (idx >= 0) {
+          const toQueue = sortedChapters.slice(idx + 1, idx + 1 + ahead).filter(c => !c.isDownloaded).map(c => c.id);
+          if (toQueue.length) enqueueMultiple(toQueue);
+        }
       }
     }
   }
@@ -543,7 +608,7 @@
 
     <div class="cta-section">
       {#if continueChapter}
-        <button class="read-btn" onclick={() => openReaderWithAhead(continueChapter!.chapter, chaptersAsc)}>
+        <button class="read-btn" onclick={() => openReaderWithAhead(continueChapter!.chapter, sortedChapters)}>
           <Play size={12} weight="fill" />
           {continueChapter.type === "continue"
             ? `Continue · Ch.${continueChapter.chapter.chapterNumber}${(continueChapter.chapter.lastPageRead ?? 0) > 0 ? ` p.${continueChapter.chapter.lastPageRead}` : ""}`
@@ -648,6 +713,7 @@
               </div>
             {/if}
           </div>
+
           <button class="icon-btn" class:active={viewMode === "grid"} onclick={() => viewMode = viewMode === "list" ? "grid" : "list"} title={viewMode === "list" ? "Grid view" : "List view"}>
             {#if viewMode === "list"}<SquaresFour size={14} weight="light" />{:else}<List size={14} weight="light" />{/if}
           </button>
@@ -670,6 +736,40 @@
             </div>
           {/if}
         </div>
+
+        {#if availableScanlators.length > 1}
+          <div class="scan-filter-wrap">
+            <button class="icon-btn" class:active={scanlatorFilter.length > 0} onclick={() => scanFilterOpen = !scanFilterOpen} title="Filter by scanlator">
+              <Funnel size={14} weight={scanlatorFilter.length > 0 ? "fill" : "light"} />
+            </button>
+            {#if scanFilterOpen}
+              <div class="scan-filter-panel" role="menu">
+                <div class="scan-filter-header">
+                  <span class="scan-filter-heading">Scanlators</span>
+                  {#if scanlatorFilter.length > 0}
+                    <button class="scan-filter-clear" onclick={() => { setPref("scanlatorFilter", []); chapterPage = 1; }}>Clear</button>
+                  {/if}
+                </div>
+                <div class="scan-filter-divider"></div>
+                {#each availableScanlators as s}
+                  <button class="scan-filter-item" class:scan-filter-item-active={scanlatorFilter.includes(s)} role="menuitem"
+                    onclick={() => {
+                      const next = scanlatorFilter.includes(s)
+                        ? scanlatorFilter.filter(x => x !== s)
+                        : [...scanlatorFilter, s];
+                      setPref("scanlatorFilter", next);
+                      chapterPage = 1;
+                    }}>
+                    <span class="scan-filter-check" class:scan-filter-check-on={scanlatorFilter.includes(s)}>
+                      {#if scanlatorFilter.includes(s)}<Check size={9} weight="bold" />{/if}
+                    </span>
+                    {s}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <button class="icon-btn" onclick={refreshChapters} disabled={refreshing}>
           <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
@@ -788,7 +888,7 @@
           {@const inProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
           {@const isGridSelected = selectedIds.has(ch.id)}
           <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress} class:grid-selected={isGridSelected}
-            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, chaptersAsc)}
+            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters)}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: i }; }}
             title={ch.name}>
             <span class="grid-cell-num">{ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber}</span>
@@ -802,8 +902,8 @@
           {@const idxInSorted = sortedChapters.indexOf(ch)}
           {@const isSelected = selectedIds.has(ch.id)}
           <div role="button" tabindex="0" class="ch-row" class:read={ch.isRead} class:ch-selected={isSelected}
-            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, chaptersAsc)}
-            onkeydown={(e) => e.key === "Enter" && (hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, chaptersAsc))}
+            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters)}
+            onkeydown={(e) => e.key === "Enter" && (hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters))}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: idxInSorted }; }}>
             <button class="ch-check" class:ch-check-visible={hasSelection} onclick={(e) => toggleSelect(ch.id, e)} title="Select">
               {#if isSelected}<CheckCircle size={15} weight="fill" />{:else}<Circle size={15} weight="light" />{/if}
@@ -819,8 +919,10 @@
             <div class="ch-right">
               {#if ch.isRead}<CheckCircle size={14} weight="light" class="read-icon" />{/if}
               {#if ch.isDownloaded}
-                <span class="ch-dl-dot" title="Downloaded"></span>
-                <button class="dl-btn dl-btn-delete" onclick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }} title="Delete download"><Trash size={13} weight="light" /></button>
+                <div class="ch-dl-wrap">
+                  <Download size={13} weight="fill" class="ch-dl-icon" />
+                  <button class="dl-btn dl-btn-delete" onclick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }} title="Delete download"><Trash size={13} weight="light" /></button>
+                </div>
               {:else if enqueueing.has(ch.id)}
                 <CircleNotch size={14} weight="light" class="anim-spin enqueue-icon" />
               {:else}
@@ -1111,8 +1213,11 @@
   .ch-row:hover .dl-btn-delete { opacity: 1; }
   .dl-btn-delete:hover { background: var(--color-error-bg) !important; }
 
-  .ch-dl-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fg); flex-shrink: 0; opacity: 0.7; transition: opacity var(--t-fast); }
-  .ch-row:hover .ch-dl-dot { opacity: 0; }
+  .ch-dl-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
+  :global(.ch-dl-icon) { color: var(--text-faint); transition: opacity var(--t-fast); }
+  .ch-row:hover .ch-dl-wrap :global(.ch-dl-icon) { opacity: 0; }
+  .ch-dl-wrap .dl-btn-delete { position: absolute; inset: 0; opacity: 0; }
+  .ch-row:hover .ch-dl-wrap .dl-btn-delete { opacity: 1; }
 
   .grid-selected { background: var(--accent-muted) !important; border-color: var(--accent-dim) !important; }
   .grid-cell-dl { position: absolute; top: 3px; left: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent-fg); }
@@ -1123,4 +1228,18 @@
   .markers-panel-overlay { position: fixed; inset: 0; z-index: var(--z-settings); display: flex; align-items: stretch; justify-content: flex-start; animation: fadeIn 0.12s ease both; }
   .markers-panel-drawer { width: 280px; max-width: 90vw; background: var(--bg-surface); border-right: 1px solid var(--border-base); box-shadow: 4px 0 24px rgba(0,0,0,0.4); display: flex; flex-direction: column; animation: drawerIn 0.18s cubic-bezier(0.16,1,0.3,1) both; }
   @keyframes drawerIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+
+  .scan-filter-wrap { position: relative; }
+  .scan-filter-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 200; min-width: 200px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); box-shadow: 0 8px 32px rgba(0,0,0,0.5); animation: scaleIn 0.1s ease both; transform-origin: top right; }
+  .scan-filter-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 6px; }
+  .scan-filter-heading { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-secondary); font-weight: var(--weight-medium); }
+  .scan-filter-clear { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 0; transition: color var(--t-base); }
+  .scan-filter-clear:hover { color: var(--color-error); }
+  .scan-filter-divider { height: 1px; background: var(--border-dim); margin: 0 2px 4px; }
+  .scan-filter-item { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 7px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scan-filter-item:hover { background: var(--bg-overlay); color: var(--text-primary); }
+  .scan-filter-item-active { color: var(--accent-fg); background: var(--accent-muted); }
+  .scan-filter-item-active:hover { background: var(--accent-dim); }
+  .scan-filter-check { width: 13px; height: 13px; border-radius: 2px; border: 1px solid var(--border-strong); background: transparent; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--bg-base); transition: background var(--t-base), border-color var(--t-base); }
+  .scan-filter-check-on { background: var(--accent); border-color: var(--accent); }
 </style>
