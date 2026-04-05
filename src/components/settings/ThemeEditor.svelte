@@ -147,7 +147,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="te-backdrop" tabindex="-1" onclick={onClose} onkeydown={(e) => e.key === "Escape" && onClose()}>
+<div class="te-backdrop" role="presentation" onclick={onClose} onkeydown={(e) => e.key === "Escape" && onClose()}>
   <div
     class="te-shell"
     role="dialog"

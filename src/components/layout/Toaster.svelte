@@ -27,11 +27,7 @@
 {#if store.toasts.length}
   <div class="toaster" aria-live="polite">
     {#each store.toasts as t (t.id)}
-      <button
-        class="toast toast-{t.kind}"
-        role="alert"
-        onclick={() => dismissToast(t.id)}
-      >
+      <div role="alert" class="toast toast-{t.kind}" onclick={() => dismissToast(t.id)}>
         <div class="accent-bar"></div>
         <span class="icon">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
@@ -43,7 +39,7 @@
           <p class="title">{t.title}</p>
           {#if t.body}<p class="sub">{t.body}</p>{/if}
         </div>
-      </button>
+      </div>
     {/each}
   </div>
 {/if}

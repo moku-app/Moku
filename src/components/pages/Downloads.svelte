@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Play, Pause, Trash, CircleNotch, X } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_DOWNLOAD_STATUS, START_DOWNLOADER, STOP_DOWNLOADER, CLEAR_DOWNLOADER, DEQUEUE_DOWNLOAD } from "../../lib/queries";
   import { store, setActiveDownloads } from "../../store/state.svelte";
   import type { DownloadStatus } from "../../lib/types";
@@ -114,7 +115,7 @@
         <div class="row" class:row-active={isActive} class:row-removing={isRemoving}>
           {#if manga?.thumbnailUrl}
             <div class="thumb">
-              <img src={thumbUrl(manga.thumbnailUrl)} alt={manga?.title} class="thumb-img" loading="lazy" decoding="async" />
+              <Thumbnail src={manga.thumbnailUrl} alt={manga?.title} class="thumb-img" />
             </div>
           {/if}
           <div class="info">
@@ -165,7 +166,7 @@
   .row.row-active { border-color: var(--accent-dim); }
   .row.row-removing { opacity: 0.4; pointer-events: none; }
   .thumb { width: 36px; height: 54px; border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-overlay); flex-shrink: 0; border: 1px solid var(--border-dim); }
-  .thumb-img { width: 100%; height: 100%; object-fit: cover; }
+  :global(.thumb-img) { width: 100%; height: 100%; object-fit: cover; }
   .info { flex: 1; display: flex; flex-direction: column; gap: 3px; overflow: hidden; min-width: 0; }
   .manga-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chapter-name { font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

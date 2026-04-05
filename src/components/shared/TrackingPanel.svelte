@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CircleNotch, X, MagnifyingGlass, ArrowSquareOut, Lock, LockOpen, ArrowsClockwise } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import {
     GET_TRACKERS,
     GET_MANGA_TRACK_RECORDS,
@@ -260,7 +261,7 @@
             class:tab-active={activeTab === t.id}
             onclick={() => { activeTab = t.id; searchResults = []; }}
           >
-            <img src={thumbUrl(t.icon)} alt={t.name} class="tab-icon" />
+            <Thumbnail src={t.icon} alt={t.name} class="tab-icon" />
             {t.name}
             {#if rec}<span class="tab-dot"></span>{/if}
           </button>
@@ -278,25 +279,50 @@
             {#each records as record (record.id)}
               {@const tracker = trackerFor(record.trackerId)}
               {@const isBusy  = updatingRecord === record.id}
-              <div class="record-row" class:record-busy={isBusy}>
+              <div class="record-card" class:record-busy={isBusy}>
 
-                <div class="record-identity">
-                  {#if tracker}
-                    <img src={thumbUrl(tracker.icon)} alt={tracker.name} class="record-tracker-icon" />
-                  {/if}
-                  {#if record.remoteUrl}
-                    <a href={record.remoteUrl} target="_blank" rel="noreferrer" class="record-title">
-                      {record.title}
-                      <ArrowSquareOut size={10} weight="light" />
-                    </a>
-                  {:else}
-                    <span class="record-title-plain">{record.title}</span>
-                  {/if}
+                <!-- Title row -->
+                <div class="record-head">
+                  <div class="record-source">
+                    {#if tracker}
+                      <Thumbnail src={tracker.icon} alt={tracker.name} class="record-tracker-icon" />
+                    {/if}
+                    <span class="record-source-name">{tracker?.name ?? "Tracker"}</span>
+                  </div>
+                  <div class="record-head-actions">
+                    {#if tracker?.supportsPrivateTracking}
+                      <button
+                        class="record-icon-btn"
+                        class:icon-active={record.private}
+                        title={record.private ? "Private — click to make public" : "Public"}
+                        disabled={isBusy}
+                        onclick={() => togglePrivate(record)}
+                      >
+                        {#if record.private}<Lock size={11} weight="fill" />{:else}<LockOpen size={11} weight="light" />{/if}
+                      </button>
+                    {/if}
+                    <button class="record-icon-btn" title="Sync from tracker" disabled={syncing === record.id} onclick={() => syncRecord(record)}>
+                      <ArrowsClockwise size={11} weight="light" class={syncing === record.id ? "anim-spin" : ""} />
+                    </button>
+                    <button class="record-icon-btn icon-danger" title="Unlink" disabled={isBusy} onclick={() => unbind(record)}>
+                      <X size={11} weight="bold" />
+                    </button>
+                  </div>
                 </div>
 
-                <div class="record-controls">
+                <!-- Linked title -->
+                {#if record.remoteUrl}
+                  <a href={record.remoteUrl} target="_blank" rel="noreferrer" class="record-title">
+                    {record.title} <ArrowSquareOut size={10} weight="light" />
+                  </a>
+                {:else}
+                  <span class="record-title-plain">{record.title}</span>
+                {/if}
+
+                <!-- Status + score row -->
+                <div class="record-selects">
                   <select
-                    class="record-select"
+                    class="record-select record-select-status"
                     value={record.status}
                     disabled={isBusy}
                     onchange={(e) => updateStatus(record, parseInt((e.target as HTMLSelectElement).value))}
@@ -305,7 +331,6 @@
                       <option value={s.value}>{s.name}</option>
                     {/each}
                   </select>
-
                   <select
                     class="record-select record-select-score"
                     value={record.displayScore}
@@ -316,58 +341,19 @@
                       <option value={s}>★ {s}</option>
                     {/each}
                   </select>
-
-                  {#if tracker?.supportsPrivateTracking}
-                    <button
-                      class="record-icon-btn"
-                      class:icon-active={record.private}
-                      title={record.private ? "Private — click to make public" : "Public — click to make private"}
-                      disabled={isBusy}
-                      onclick={() => togglePrivate(record)}
-                    >
-                      {#if record.private}
-                        <Lock size={12} weight="fill" />
-                      {:else}
-                        <LockOpen size={12} weight="light" />
-                      {/if}
-                    </button>
-                  {/if}
-
-                  <button
-                    class="record-icon-btn"
-                    title="Sync from tracker"
-                    disabled={syncing === record.id}
-                    onclick={() => syncRecord(record)}
-                  >
-                    <ArrowsClockwise size={12} weight="light" class={syncing === record.id ? "anim-spin" : ""} />
-                  </button>
-
-                  <button
-                    class="record-icon-btn icon-danger"
-                    title="Unlink"
-                    disabled={isBusy}
-                    onclick={() => unbind(record)}
-                  >
-                    <X size={12} weight="bold" />
-                  </button>
                 </div>
 
+                <!-- Chapter progress -->
                 {#if editingChapter === record.id}
                   <div class="chapter-editor">
                     <div class="chapter-editor-top">
                       <span class="chapter-editor-label">Chapter read</span>
                       <div class="chapter-input-wrap">
                         <input
-                          type="number"
-                          class="chapter-input"
-                          min="0"
-                          max={record.totalChapters > 0 ? record.totalChapters : undefined}
-                          step="0.5"
-                          bind:value={chapterDraft}
-                          onkeydown={(e) => {
-                            if (e.key === "Enter") submitChapter(record);
-                            if (e.key === "Escape") cancelChapterEditor();
-                          }}
+                          type="number" class="chapter-input"
+                          min="0" max={record.totalChapters > 0 ? record.totalChapters : undefined}
+                          step="0.5" bind:value={chapterDraft}
+                          onkeydown={(e) => { if (e.key === "Enter") submitChapter(record); if (e.key === "Escape") cancelChapterEditor(); }}
                           use:autoFocus
                         />
                         {#if record.totalChapters > 0}
@@ -376,40 +362,36 @@
                       </div>
                     </div>
                     {#if record.totalChapters > 0}
-                      <input
-                        type="range"
-                        class="chapter-slider"
-                        min="0"
-                        max={record.totalChapters}
-                        step="1"
-                        bind:value={chapterDraft}
-                      />
+                      <input type="range" class="chapter-slider" min="0" max={record.totalChapters} step="1" bind:value={chapterDraft} />
                     {/if}
                     <div class="chapter-editor-actions">
-                      <button class="chapter-save-btn" onclick={() => submitChapter(record)}>Save</button>
                       <button class="chapter-cancel-btn" onclick={cancelChapterEditor}>Cancel</button>
-                    </div>
-                  </div>
-                {:else if record.totalChapters > 0}
-                  <div class="record-progress clickable" role="button" tabindex="0"
-                    onclick={() => openChapterEditor(record)}
-                    onkeydown={(e) => e.key === "Enter" && openChapterEditor(record)}
-                    title="Click to edit"
-                  >
-                    <span class="record-progress-label">Ch. {record.lastChapterRead} / {record.totalChapters} <span class="edit-hint">✎</span></span>
-                    <div class="record-progress-track">
-                      <div class="record-progress-fill" style="width:{Math.min(100,(record.lastChapterRead/record.totalChapters)*100)}%"></div>
+                      <button class="chapter-save-btn" onclick={() => submitChapter(record)}>Save</button>
                     </div>
                   </div>
                 {:else}
                   <div class="record-progress clickable" role="button" tabindex="0"
                     onclick={() => openChapterEditor(record)}
                     onkeydown={(e) => e.key === "Enter" && openChapterEditor(record)}
-                    title="Click to set chapter"
+                    title="Click to edit"
                   >
-                    <span class="record-progress-label">
-                      {record.lastChapterRead > 0 ? `Ch. ${record.lastChapterRead} read` : "Set chapter…"} <span class="edit-hint">✎</span>
-                    </span>
+                    <div class="record-progress-header">
+                      <span class="record-progress-label">
+                        {#if record.totalChapters > 0}
+                          Ch. {record.lastChapterRead} / {record.totalChapters}
+                        {:else if record.lastChapterRead > 0}
+                          Ch. {record.lastChapterRead} read
+                        {:else}
+                          Set chapter…
+                        {/if}
+                      </span>
+                      <span class="edit-hint">Edit</span>
+                    </div>
+                    {#if record.totalChapters > 0}
+                      <div class="record-progress-track">
+                        <div class="record-progress-fill" style="width:{Math.min(100,(record.lastChapterRead/record.totalChapters)*100)}%"></div>
+                      </div>
+                    {/if}
                   </div>
                 {/if}
 
@@ -540,60 +522,67 @@
   }
   .tab:hover { color: var(--text-muted); }
   .tab-active { color: var(--text-secondary); border-bottom-color: var(--accent); }
-  .tab-icon { width: 13px; height: 13px; border-radius: 2px; object-fit: contain; }
+  :global(.tab-icon) { width: 13px; height: 13px; border-radius: 2px; object-fit: contain; }
   .tab-badge { font-size: 10px; padding: 0 4px; border-radius: var(--radius-full); background: var(--bg-overlay); color: var(--text-faint); min-width: 16px; text-align: center; line-height: 16px; }
   .tab-active .tab-badge { background: var(--accent-muted); color: var(--accent-fg); }
   .tab-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 
   /* Records */
-  .tab-body { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-4); scrollbar-width: none; display: flex; flex-direction: column; gap: 2px; }
+  .tab-body { flex: 1; overflow-y: auto; padding: var(--sp-3); scrollbar-width: none; display: flex; flex-direction: column; gap: var(--sp-2); }
   .tab-body::-webkit-scrollbar { display: none; }
 
-  .record-row {
+  .record-card {
     display: flex; flex-direction: column; gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-4);
-    border-radius: var(--radius-md);
+    padding: var(--sp-4);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-dim);
     background: var(--bg-raised);
-    transition: opacity var(--t-base);
+    transition: opacity var(--t-base), border-color var(--t-base);
   }
-  .record-row:hover { background: var(--bg-overlay); }
-  .record-busy { opacity: 0.45; pointer-events: none; }
+  .record-card:hover { border-color: var(--border-strong); }
+  .record-busy { opacity: 0.4; pointer-events: none; }
 
-  .record-identity { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
-  .record-tracker-icon { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; object-fit: contain; opacity: 0.8; }
-  .record-title { display: inline-flex; align-items: center; gap: 3px; font-size: var(--text-sm); color: var(--accent-fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; transition: opacity var(--t-base); }
-  .record-title:hover { opacity: 0.75; }
-  .record-title-plain { font-size: var(--text-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .record-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+  .record-source { display: flex; align-items: center; gap: var(--sp-2); }
+  :global(.record-tracker-icon) { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; object-fit: contain; opacity: 0.75; }
+  .record-source-name { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
+  .record-head-actions { display: flex; align-items: center; gap: 2px; }
 
-  .record-controls { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  .record-title { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); text-decoration: none; line-height: var(--leading-snug); transition: color var(--t-base); }
+  .record-title:hover { color: var(--accent-fg); }
+  .record-title-plain { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); line-height: var(--leading-snug); }
+
+  .record-selects { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
   .record-select {
     font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide);
-    padding: 3px 22px 3px 8px; border-radius: var(--radius-sm);
-    border: 1px solid transparent; background: var(--bg-overlay);
-    color: var(--text-faint); outline: none; cursor: pointer;
+    padding: 5px 24px 5px 10px; border-radius: var(--radius-md);
+    border: 1px solid var(--border-dim); background: var(--bg-surface);
+    color: var(--text-muted); outline: none; cursor: pointer; flex: 1; min-width: 0;
     appearance: none; -webkit-appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 6px center;
-    transition: border-color var(--t-base), color var(--t-base), background var(--t-base);
+    background-repeat: no-repeat; background-position: right 8px center;
+    transition: border-color var(--t-base), color var(--t-base);
   }
-  .record-select:hover:not(:disabled) { border-color: var(--border-dim); color: var(--text-secondary); background: var(--bg-raised); }
-  .record-select:focus { border-color: var(--border-strong); outline: none; color: var(--text-secondary); }
+  .record-select:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-secondary); }
+  .record-select:focus { border-color: var(--accent-dim); color: var(--text-secondary); }
   .record-select:disabled { opacity: 0.35; cursor: default; }
   .record-select option { background: var(--bg-surface); color: var(--text-secondary); }
-  .record-select-score { max-width: 90px; }
+  .record-select-score { flex: 0 0 auto; min-width: 80px; }
+  .record-select-status { flex: 1; }
 
-  .record-icon-btn { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
+  .record-icon-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
   .record-icon-btn:hover:not(:disabled) { color: var(--text-muted); background: var(--bg-overlay); }
   .record-icon-btn.icon-active { color: var(--accent-fg); }
   .record-icon-btn.icon-danger:hover:not(:disabled) { color: var(--color-error); background: var(--color-error-bg); }
   .record-icon-btn:disabled { opacity: 0.3; cursor: default; }
 
-  .record-progress { display: flex; flex-direction: column; gap: 4px; }
-  .record-progress.clickable { cursor: pointer; border-radius: var(--radius-sm); padding: 3px 4px; margin: -3px -4px; transition: background var(--t-fast); }
+  .record-progress { display: flex; flex-direction: column; gap: 6px; }
+  .record-progress.clickable { cursor: pointer; border-radius: var(--radius-sm); padding: 4px 6px; margin: -4px -6px; transition: background var(--t-fast); }
   .record-progress.clickable:hover { background: var(--bg-overlay); }
-  .record-progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); display: flex; align-items: center; gap: var(--sp-1); }
-  .edit-hint { opacity: 0; font-size: 10px; transition: opacity var(--t-fast); color: var(--text-faint); }
-  .record-progress.clickable:hover .edit-hint { opacity: 1; }
+  .record-progress-header { display: flex; align-items: center; justify-content: space-between; }
+  .record-progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .edit-hint { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); opacity: 0; transition: opacity var(--t-fast); }
+  .record-progress.clickable:hover .edit-hint { opacity: 0.6; }
   .record-progress-track { height: 2px; background: var(--border-strong); border-radius: var(--radius-full); overflow: hidden; }
   .record-progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
 

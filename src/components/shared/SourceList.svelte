@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { MagnifyingGlass, CircleNotch, CaretDown, CaretRight } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_SOURCES } from "../../lib/queries";
   import { store } from "../../store/state.svelte";
   import type { Source } from "../../lib/types";
@@ -74,8 +75,7 @@
         {@const open   = expanded.has(g.name)}
         <div>
           <button class="row" onclick={() => single ? store.activeSource = g.sources[0] : toggleGroup(g.name)}>
-            <img src={thumbUrl(g.icon)} alt={g.name} class="icon"
-              onerror={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
+            <Thumbnail src={g.icon} alt={g.name} class="icon" onerror={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
             <div class="info">
               <span class="name">{g.name}</span>
               <span class="meta">{single ? `${g.sources[0].lang.toUpperCase()}${g.sources[0].isNsfw ? " · NSFW" : ""}` : `${g.sources.length} languages`}</span>

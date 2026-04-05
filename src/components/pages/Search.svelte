@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, FETCH_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw, shouldHideSource, normalizeTitle } from "../../lib/util";
@@ -732,8 +733,7 @@
         {#each kw_results.filter((r) => r.mangas.length > 0 || r.loading || r.error) as { source, mangas, loading, error } (source.id)}
           <div class="sourceSection">
             <div class="sourceHeader">
-              <img src={thumbUrl(source.iconUrl)} alt={source.displayName} class="sourceIcon"
-                onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <Thumbnail src={source.iconUrl} alt={source.displayName} class="sourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               <span class="sourceName">{source.displayName}</span>
               {#if hasMultipleLangs}<span class="sourceLang">{source.lang.toUpperCase()}</span>{/if}
               {#if loading}
@@ -757,7 +757,7 @@
                 {#each mangas.slice(0, (store.settings.renderLimit ?? 48)) as m (m.id)}
                   <button class="card" onclick={() => setPreviewManga(m)}>
                     <div class="coverWrap">
-                      <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
+                      <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
                       {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
                     </div>
                     <p class="cardTitle">{m.title}</p>
@@ -902,7 +902,7 @@
               {#each tag_mergedResults as m (m.id)}
                 <button class="card" onclick={() => setPreviewManga(m)}>
                   <div class="coverWrap">
-                    <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
+                    <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
                   </div>
                   <p class="cardTitle">{m.title}</p>
@@ -961,8 +961,7 @@
           <div class="splitList">
             {#each src_visibleSources as src (src.id)}
               <button class="splitItem splitItemSource" class:splitItemActive={src_activeSource?.id === src.id} onclick={() => srcSelectSource(src)}>
-                <img src={thumbUrl(src.iconUrl)} alt="" class="splitSourceIcon"
-                  onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                <Thumbnail src={src.iconUrl} alt="" class="splitSourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 <span class="splitItemLabel">{src.name}</span>
                 {#if src_selectedLang === "all"}
                   <span class="sourceLang" style="margin-left:auto;margin-right:4px">{src.lang.toUpperCase()}</span>
@@ -989,8 +988,7 @@
         {:else}
           <div class="splitContentHeader">
             <div class="splitSourceTitle">
-              <img src={thumbUrl(src_activeSource.iconUrl)} alt="" class="splitSourceIcon"
-                onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <Thumbnail src={src_activeSource.iconUrl} alt="" class="splitSourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               <span class="splitContentTitle">{src_activeSource.displayName}</span>
               {#if src_loadingBrowse}
                 <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" style="color:var(--text-faint)" aria-hidden="true">
@@ -1030,7 +1028,7 @@
               {#each src_browseResults as m (m.id)}
                 <button class="card" onclick={() => setPreviewManga(m)}>
                   <div class="coverWrap">
-                    <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
+                    <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
                   </div>
                   <p class="cardTitle">{m.title}</p>
@@ -1117,7 +1115,7 @@
   .sourceSection { padding: var(--sp-1) var(--sp-4) var(--sp-3); border-bottom: 1px solid var(--border-dim); }
   .sourceSection:last-child { border-bottom: none; }
   .sourceHeader { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; }
-  .sourceIcon { width: 18px; height: 18px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
+  :global(.sourceIcon) { width: 20px; height: 20px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
   .sourceName { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); }
   .sourceLang { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 1px 5px; }
   .resultCount { margin-left: auto; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
@@ -1125,10 +1123,10 @@
   .sourceRow { display: flex; gap: var(--sp-3); overflow-x: auto; padding-bottom: var(--sp-1); scrollbar-width: none; }
   .sourceRow::-webkit-scrollbar { display: none; }
   .card { display: flex; flex-direction: column; gap: var(--sp-2); cursor: pointer; flex-shrink: 0; width: 110px; text-align: left; background: none; border: none; padding: 0; }
-  .card:hover .cover { filter: brightness(1.06); }
+  .card:hover :global(.cover) { filter: brightness(1.06); }
   .card:hover .cardTitle { color: var(--text-primary); }
   .coverWrap { position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); }
-  .cover { width: 100%; height: 100%; object-fit: cover; transition: filter var(--t-base); }
+  :global(.cover) { width: 100%; height: 100%; object-fit: cover; transition: filter var(--t-base); }
   .inLibBadge { position: absolute; bottom: var(--sp-1); right: var(--sp-1); background: var(--accent-dim); color: var(--accent-fg); font-family: var(--font-ui); font-size: 9px; font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); padding: 1px 5px; border-radius: var(--radius-sm); border: 1px solid var(--accent-muted); }
   .cardTitle { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base); }
   .skCard { display: flex; flex-direction: column; gap: var(--sp-2); flex-shrink: 0; width: 110px; }
@@ -1162,7 +1160,7 @@
   .splitSourceTitle { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; }
   .splitContentTitle { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: var(--tracking-tight); }
   .splitResultCount { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
-  .splitSourceIcon { width: 18px; height: 18px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
+  :global(.splitSourceIcon) { width: 20px; height: 20px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
   .tagActiveBar { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; flex-wrap: wrap; }
   .tagPillRow { display: flex; flex-wrap: wrap; gap: var(--sp-1); flex: 1; min-width: 0; }
   .tagPill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; background: var(--accent-muted); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--accent-fg); }

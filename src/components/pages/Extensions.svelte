@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { MagnifyingGlass, ArrowsClockwise, Plus, CircleNotch, CaretRight, CaretDown, X, Check, GitBranch } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_EXTENSIONS, FETCH_EXTENSIONS, UPDATE_EXTENSION, INSTALL_EXTERNAL_EXTENSION, GET_SETTINGS, SET_EXTENSION_REPOS } from "../../lib/queries";
   import { store } from "../../store/state.svelte";
   import type { Extension } from "../../lib/types";
@@ -225,7 +226,7 @@
         {@const hasVariants = variants.length > 0}
         <div class="group">
           <div class="row">
-            <img src={thumbUrl(primary.iconUrl)} alt={primary.name} class="icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+            <Thumbnail src={primary.iconUrl} alt={primary.name} class="icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
             <div class="info">
               <span class="name">{base}</span>
               <span class="meta"><span class="lang-tag">{primary.lang.toUpperCase()}</span> v{primary.versionName}</span>
@@ -323,7 +324,7 @@
   .group { display: flex; flex-direction: column; }
   .row { display: flex; align-items: center; gap: var(--sp-3); padding: 8px var(--sp-3); border-radius: var(--radius-md); border: 1px solid transparent; transition: background var(--t-fast), border-color var(--t-fast); }
   .row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
-  .icon { width: 32px; height: 32px; border-radius: var(--radius-md); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
+  :global(.icon) { width: 32px; height: 32px; border-radius: var(--radius-md); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
   .info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0; }
   .name { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; align-items: center; gap: var(--sp-2); font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }

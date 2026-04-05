@@ -7,6 +7,8 @@
     Bookmark, BookOpen, MonitorPlay, MapPin, Check,
   } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
+  import { fetchAuthenticated } from "../../lib/auth";
+  import { store as appStore } from "../../store/state.svelte";
   import { FETCH_CHAPTER_PAGES, MARK_CHAPTER_READ, ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD } from "../../lib/queries";
   import { store, closeReader, openReader, addHistory, updateSettings, checkAndMarkCompleted, setSettingsOpen, addBookmark, removeBookmark, addMarker, removeMarker, updateMarker } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
@@ -40,8 +42,17 @@
     if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
     if (!inflight.has(chapterId)) {
       const p = gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
-        .then(d => {
-          const urls = d.fetchChapterPages.pages.map(thumbUrl);
+        .then(async d => {
+          const rawUrls = d.fetchChapterPages.pages.map(thumbUrl);
+          const mode = appStore.settings.serverAuthMode ?? "NONE";
+          const urls = mode === "BASIC_AUTH"
+            ? await Promise.all(rawUrls.map(u =>
+                fetchAuthenticated(u, { method: "GET" })
+                  .then(r => r.blob())
+                  .then(b => URL.createObjectURL(b))
+                  .catch(() => u)
+              ))
+            : rawUrls;
           pageCache.set(chapterId, urls);
           return urls;
         })

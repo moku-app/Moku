@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { X, BookmarkSimple, ArrowSquareOut, Play, CircleNotch, Books, CaretDown, FolderSimplePlus, Folder, LinkSimpleHorizontalBreak } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_MANGA, GET_CHAPTERS, FETCH_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, ENQUEUE_CHAPTERS_DOWNLOAD, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { GET_ALL_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
@@ -248,7 +249,7 @@
 
     <div class="cover-col">
       <div class="cover-wrap">
-        <img src={thumbUrl(store.previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" />
+        <Thumbnail src={store.previewManga.thumbnailUrl} alt={displayManga?.title} class="cover" />
         {#if loadingDetail}
           <div class="cover-spinner"><CircleNotch size={18} weight="light" class="anim-spin" /></div>
         {/if}
@@ -437,7 +438,7 @@
           {#each linkPickerResults as m (m.id)}
             {@const isLinked = linkedIds.includes(m.id)}
             <button class="link-row" class:link-row-linked={isLinked} onclick={() => handleLink(m)}>
-              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="link-thumb" loading="lazy" decoding="async" />
+              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="link-thumb" />
               <div class="link-info">
                 <span class="link-manga-title">{m.title}</span>
                 {#if m.source?.displayName}<span class="link-source">{m.source.displayName}</span>{/if}
@@ -462,7 +463,7 @@
   .modal { width: min(800px, calc(100vw - 48px)); height: min(560px, calc(100vh - 80px)); display: flex; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); overflow: hidden; animation: scaleIn 0.16s ease both; box-shadow: 0 0 0 1px var(--border-dim), 0 24px 64px rgba(0,0,0,0.6); }
   .cover-col { width: 190px; flex-shrink: 0; background: var(--bg-raised); border-right: 1px solid var(--border-dim); display: flex; flex-direction: column; padding: var(--sp-5) var(--sp-4) var(--sp-4); gap: var(--sp-3); overflow: hidden; }
   .cover-wrap { position: relative; width: 100%; }
-  .cover { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--border-dim); display: block; }
+  :global(.cover) { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--border-dim); display: block; }
   .cover-spinner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); border-radius: var(--radius-md); color: var(--text-faint); }
   .cover-actions { display: flex; flex-direction: column; gap: var(--sp-2); }
   .action-btn { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 7px var(--sp-3); border-radius: var(--radius-md); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); border: 1px solid var(--border-strong); background: none; color: var(--text-muted); cursor: pointer; text-align: left; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
@@ -548,7 +549,7 @@
   .link-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 8px var(--sp-3); border-radius: var(--radius-md); border: none; background: none; text-align: left; cursor: pointer; transition: background var(--t-fast); }
   .link-row:hover { background: var(--bg-raised); }
   .link-row-linked { background: var(--accent-muted) !important; }
-  .link-thumb { width: 34px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
+  :global(.link-thumb) { width: 34px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
   .link-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0; }
   .link-manga-title { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .link-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }

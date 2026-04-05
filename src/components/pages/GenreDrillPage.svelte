@@ -1,7 +1,8 @@
 <script lang="ts">
   import { ArrowLeft, BookmarkSimple, FolderSimplePlus, Folder, CircleNotch } from "phosphor-svelte";
   import { untrack } from "svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
   import { dedupeSources, dedupeMangaById, shouldHideNsfw } from "../../lib/util";
@@ -217,7 +218,7 @@
       {#each visibleItems as m (m.id)}
         <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => { e.stopPropagation(); openCtx(e, m); }}>
           <div class="cover-wrap">
-            <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
             {#if m.inLibrary}<span class="in-library-badge">Saved</span>{/if}
           </div>
           <p class="card-title">{m.title}</p>
@@ -247,10 +248,10 @@
   .result-count, .loading-hint { margin-left: auto; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(100px,13vw,140px),1fr)); gap: var(--sp-4); padding: var(--sp-5) var(--sp-6) var(--sp-6); overflow-y: auto; flex: 1; align-content: start; will-change: scroll-position; -webkit-overflow-scrolling: touch; contain: layout style; }
   .card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .card:hover .cover { filter: brightness(1.06); }
+  .card:hover :global(.cover) { filter: brightness(1.06); }
   .card:hover .card-title { color: var(--text-primary); }
   .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); }
-  .cover { width: 100%; height: 100%; object-fit: cover; transition: filter var(--t-base); will-change: filter; }
+  :global(.cover) { width: 100%; height: 100%; object-fit: cover; transition: filter var(--t-base); will-change: filter; }
   .in-library-badge { position: absolute; bottom: var(--sp-1); left: var(--sp-1); font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); padding: 2px 5px; border-radius: var(--radius-sm); }
   .card-title { margin-top: var(--sp-2); font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base); }
   .card-skeleton { padding: 0; }

@@ -264,6 +264,15 @@ EOF
             '';
           };
 
+          tunnelScript = pkgs.writeShellApplication {
+            name = "moku-tunnel";
+            runtimeInputs = with pkgs; [ cloudflared ];
+            text = ''
+              PORT="''${1:-4567}"
+              cloudflared tunnel --url "http://localhost:$PORT"
+            '';
+          };
+
         in
         {
           apps = {
@@ -272,6 +281,7 @@ EOF
             bump          = { type = "app"; program = "${bumpScript}/bin/moku-bump"; };
             flatpak       = { type = "app"; program = "${flatpakScript}/bin/moku-flatpak"; };
             pkgbuild-bump = { type = "app"; program = "${pkgbuildBumpScript}/bin/moku-pkgbuild-bump"; };
+            tunnel        = { type = "app"; program = "${tunnelScript}/bin/moku-tunnel"; };
           };
 
           packages = {
@@ -288,6 +298,7 @@ EOF
               nodejs_22
               pnpm
               suwayomi-server
+              cloudflared
               xdg-utils
             ];
             shellHook = ''
@@ -301,6 +312,7 @@ EOF
               echo "  nix run .#bump          -- <ver>   bump versions only"
               echo "  nix run .#flatpak       -- <ver>   full flatpak build"
               echo "  nix run .#pkgbuild-bump -- <ver>   patch PKGBUILD (after tag push)"
+              echo "  nix run .#tunnel        -- [port]  cloudflare tunnel (default 4567)"
             '';
           };
 

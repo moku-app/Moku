@@ -2,6 +2,8 @@
   import { onMount, untrack } from "svelte";
   import { Play, ArrowRight, ArrowLeft, BookOpen, Clock, Fire, TrendUp, CalendarBlank, CheckCircle, PushPin, X as XIcon, MagnifyingGlass, ListBullets } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
+  import { fetchAuthenticated } from "../../lib/auth";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_LIBRARY, GET_CHAPTERS, GET_MANGA, GET_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
   import { store, openReader, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter, setLibraryFilter } from "../../store/state.svelte";
@@ -114,7 +116,28 @@
 
   let activeIdx = $state(0);
   const activeSlot  = $derived(resolvedSlots[activeIdx]);
-  const heroThumb   = $derived(activeSlot?.kind === "pinned"   ? thumbUrl(activeSlot.manga?.thumbnailUrl ?? "") : activeSlot?.kind === "continue" ? thumbUrl(activeSlot.entry?.thumbnailUrl ?? "") : "");
+  const heroThumbSrc = $derived(
+    activeSlot?.kind === "pinned"   ? (activeSlot.manga?.thumbnailUrl ?? "") :
+    activeSlot?.kind === "continue" ? (activeSlot.entry?.thumbnailUrl ?? "") : ""
+  );
+  let heroThumb = $state("");
+  const heroThumbCache = new Map<string, string>();
+  $effect(() => {
+    const path = heroThumbSrc;
+    const mode = store.settings.serverAuthMode ?? "NONE";
+    if (!path) { heroThumb = ""; return; }
+    if (mode !== "BASIC_AUTH") { heroThumb = thumbUrl(path); return; }
+    if (heroThumbCache.has(path)) { heroThumb = heroThumbCache.get(path)!; return; }
+    heroThumb = "";
+    fetchAuthenticated(thumbUrl(path), { method: "GET" })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        heroThumbCache.set(path, url);
+        heroThumb = url;
+      })
+      .catch(() => {});
+  });
   const heroTitle   = $derived(activeSlot?.kind === "pinned"   ? (activeSlot.manga?.title ?? "")               : activeSlot?.kind === "continue" ? (activeSlot.entry?.mangaTitle ?? "") : "");
   const heroManga   = $derived(activeSlot?.kind === "pinned"   ? activeSlot.manga                               : activeSlot?.kind === "continue" ? libraryManga.find(m => m.id === activeSlot.entry?.mangaId) : null);
   const heroEntry   = $derived(activeSlot?.kind === "continue" ? activeSlot.entry : null);
@@ -387,7 +410,7 @@
         {#if recentHistory.length > 0}
           {#each recentHistory as entry (entry.chapterId)}
             <button class="activity-row" onclick={() => resumeEntry(entry)}>
-              <img src={thumbUrl(entry.thumbnailUrl)} alt={entry.mangaTitle} class="activity-thumb" loading="lazy" decoding="async" />
+              <Thumbnail src={entry.thumbnailUrl} alt={entry.mangaTitle} class="activity-thumb" />
               <div class="activity-info">
                 <span class="activity-title">{entry.mangaTitle}</span>
                 <span class="activity-sub">{entry.chapterName}{entry.pageNumber > 1 ? ` · p.${entry.pageNumber}` : ""}</span>
@@ -431,7 +454,7 @@
             {#each completedManga as m (m.id)}
               <button class="mini-card" onclick={() => store.previewManga = m}>
                 <div class="mini-cover-wrap">
-                  <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="mini-cover" loading="lazy" decoding="async" />
+                  <Thumbnail src={m.thumbnailUrl} alt={m.title} class="mini-cover" />
                   <div class="mini-gradient"></div>
                   <div class="mini-footer">
                     <p class="mini-card-title">{m.title}</p>
@@ -487,7 +510,7 @@
         {:else}
           {#each pickerResults as m (m.id)}
             <button class="picker-row" onclick={() => pinManga(m)}>
-              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="picker-thumb" loading="lazy" />
+              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="picker-thumb" />
               <div class="picker-info">
                 <span class="picker-manga-title">{m.title}</span>
                 {#if m.source?.displayName}<span class="picker-source">{m.source.displayName}</span>{/if}
@@ -577,7 +600,7 @@
   .activity-row { display: flex; align-items: center; gap: var(--sp-3); padding: 7px var(--sp-2); border-radius: var(--radius-md); border: 1px solid transparent; background: none; text-align: left; cursor: pointer; width: 100%; transition: background var(--t-fast), border-color var(--t-fast); }
   .activity-row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
   .activity-row:hover .activity-play { opacity: 1; }
-  .activity-thumb { width: 33px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
+  :global(.activity-thumb) { width: 33px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
   .activity-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0; }
   .activity-title { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .activity-sub { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-muted); letter-spacing: var(--tracking-wide); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -594,10 +617,10 @@
   .mini-row::-webkit-scrollbar { display: none; }
   
   .mini-card { flex: 0 0 120px; width: 120px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .mini-card:hover .mini-cover { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
+  .mini-card:hover :global(.mini-cover) { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
   .mini-card:hover { will-change: transform; }
   .mini-cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); box-shadow: 0 2px 12px rgba(0,0,0,0.35); }
-  .mini-cover { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.15s ease, transform 0.15s ease; }
+  :global(.mini-cover) { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.15s ease, transform 0.15s ease; }
   .mini-gradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.1) 55%, transparent 75%); pointer-events: none; }
   .mini-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: var(--sp-2); pointer-events: none; }
   .mini-card-title { font-size: var(--text-xs); font-weight: var(--weight-medium); color: rgba(255,255,255,0.92); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
@@ -636,7 +659,7 @@
   .picker-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); padding: var(--sp-4) var(--sp-3); text-align: center; }
   .picker-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 8px var(--sp-3); border-radius: var(--radius-md); border: none; background: none; text-align: left; cursor: pointer; transition: background var(--t-fast); }
   .picker-row:hover { background: var(--bg-raised); }
-  .picker-thumb { height: 50px; width: 35px; aspect-ratio: 1 / 1.42; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); background: var(--bg-raised); display: block; }
+  :global(.picker-thumb) { height: 50px; width: 35px; aspect-ratio: 1 / 1.42; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); background: var(--bg-raised); display: block; }
   .picker-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0; }
   .picker-manga-title { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .picker-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }

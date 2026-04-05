@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { BookmarkSimple, FolderSimplePlus, Folder, Sparkle, ArrowsClockwise } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
   import { dedupeSources, dedupeMangaByTitle, dedupeMangaById, shouldHideNsfw, shouldHideSource } from "../../lib/util";
@@ -10,13 +10,13 @@
   import ContextMenu from "../shared/ContextMenu.svelte";
   import type { MenuEntry } from "../shared/ContextMenu.svelte";
   import SourceBrowse from "../shared/SourceBrowse.svelte";
+  import Thumbnail from "../shared/Thumbnail.svelte";
 
-  // ── Constants ─────────────────────────────────────────────────────────────
   const GENRE_TABS  = ["All", "Action", "Romance", "Fantasy", "Comedy", "Drama", "Horror", "Sci-Fi", "Adventure", "Thriller"];
   const GRID_LIMIT  = 200;
   const CONCURRENCY = 6;
-  const PAGES_INIT  = 3;  // pages per source on All tab
-  const PAGES_GENRE = 2;  // pages per source on genre tabs
+  const PAGES_INIT  = 3;
+  const PAGES_GENRE = 2;
 
   const EXPLORE_ALL_MANGA = `
     query ExploreAllManga {
@@ -37,7 +37,6 @@
     return `${srcId}|${type}|${genre}:p${page}`;
   }
 
-  // ── Local component state ─────────────────────────────────────────────────
   let allSources:  Source[]  = $state([]);
   let loadingLib             = $state(true);
   let loadError              = $state(false);
@@ -54,7 +53,6 @@
   const isLoading   = $derived(genreLoading || refreshing || (currentGenre === "All" && loadingLib));
   const visibleGrid = $derived(genreResults.get(currentGenre) ?? []);
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
   function dedup(items: Manga[]): Manga[] {
     return dedupeMangaByTitle(dedupeMangaById(items), store.settings.mangaLinks);
   }
@@ -87,7 +85,6 @@
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
   }
 
-  // Push results into the reactive grid immediately — no batch delay.
   function pushToGrid(genre: string, incoming: Manga[]) {
     const filtered = filterOut(incoming);
     if (!filtered.length) return;
@@ -96,7 +93,6 @@
     genreResults = new Map(genreResults);
   }
 
-  // ── Source fan-out ────────────────────────────────────────────────────────
   async function fanOut(genre: string, ctrl: AbortController) {
     const srcs     = rotatedSources();
     if (!srcs.length) return;
@@ -115,7 +111,6 @@
         let hasNextPage = false;
 
         if (store.discoverCache.has(key)) {
-          // Cache hit — no network call needed
           mangas = store.discoverCache.get(key)!;
         } else {
           const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
@@ -141,13 +136,11 @@
           pushToGrid(genre, matching.length ? matching : mangas);
         }
 
-        // Stop paging early if source is exhausted
         if (!hasNextPage) return;
       }
     }, ctrl.signal);
   }
 
-  // ── Tab switch ────────────────────────────────────────────────────────────
   async function switchGenre(genre: string) {
     if (currentGenre === genre) return;
 
@@ -158,7 +151,6 @@
     activeCtrl  = ctrl;
 
     if (genre === "All") {
-      // Already have results from this session — show instantly, re-fan in background
       if ((genreResults.get("All") ?? []).length > 0) {
         genreLoading = false;
         fanOut("All", ctrl).catch(() => {});
@@ -172,7 +164,6 @@
       return;
     }
 
-    // Genre tab: serve cached local results instantly, always fan out too
     const localKey = `local|${genre}`;
     if (store.discoverCache.has(localKey)) {
       genreResults.set(genre, store.discoverCache.get(localKey)!);
@@ -188,9 +179,7 @@
       );
       if (ctrl.signal.aborted) return;
 
-      const local = dedup(
-        d.mangas.nodes.filter(m => !shouldHideNsfw(m, store.settings))
-      );
+      const local = dedup(d.mangas.nodes.filter(m => !shouldHideNsfw(m, store.settings)));
       store.discoverCache.set(localKey, local);
       genreResults.set(genre, local.slice(0, GRID_LIMIT));
       genreResults = new Map(genreResults);
@@ -203,10 +192,9 @@
     }
   }
 
-  // ── Refresh ───────────────────────────────────────────────────────────────
   async function refresh() {
     activeCtrl?.abort();
-    clearDiscoverCache();   // wipes store.discoverCache + bumps discoverSrcOffset
+    clearDiscoverCache();
     genreResults  = new Map();
     refreshing    = true;
     genreLoading  = true;
@@ -217,17 +205,14 @@
     refreshing = false;
   }
 
-  // ── Initial load ──────────────────────────────────────────────────────────
   function loadAll() {
     loadingLib = true;
     loadError  = false;
 
-    // Already have a session grid — show it immediately
     if ((genreResults.get("All") ?? []).length > 0) {
       loadingLib = false;
     }
 
-    // Refresh library ID set so newly-added manga get filtered out
     cache.get(CACHE_KEYS.DISCOVER, () =>
       gql<{ mangas: { nodes: Manga[] } }>(EXPLORE_ALL_MANGA).then(d => d.mangas.nodes)
     ).then(m => {
@@ -237,7 +222,6 @@
     }).catch(e => { console.error(e); loadError = true; })
       .finally(() => { loadingLib = false; });
 
-    // Load sources then kick off All tab fan-out (only if grid is empty)
     gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
       .then(d => {
         allSources = d.sources.nodes;
@@ -258,7 +242,6 @@
 
   loadAll();
 
-  // ── Context menu ──────────────────────────────────────────────────────────
   function openCtx(e: MouseEvent, m: Manga) {
     e.preventDefault(); e.stopPropagation();
     ctx = { x: e.clientX, y: e.clientY, manga: m };
@@ -316,11 +299,7 @@
       <span class="heading">Discover</span>
       <div class="tab-strip">
         {#each GENRE_TABS as tab (tab)}
-          <button
-            class="genre-tab"
-            class:active={currentGenre === tab}
-            onclick={() => switchGenre(tab)}
-          >
+          <button class="genre-tab" class:active={currentGenre === tab} onclick={() => switchGenre(tab)}>
             {#if tab === "All"}<Sparkle size={10} weight="fill" />{/if}
             {tab}
           </button>
@@ -351,13 +330,9 @@
       {:else}
         <div class="manga-grid">
           {#each visibleGrid as m (m.id)}
-            <button
-              class="manga-card"
-              onclick={() => setPreviewManga(m)}
-              oncontextmenu={(e) => openCtx(e, m)}
-            >
+            <button class="manga-card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => openCtx(e, m)}>
               <div class="cover-wrap">
-                <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="cover" loading="lazy" decoding="async" />
+                <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
                 <div class="cover-gradient"></div>
                 {#if m.inLibrary}<span class="lib-badge">Saved</span>{/if}
                 <div class="card-footer">
@@ -392,11 +367,11 @@
   .body { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-5) var(--sp-6); will-change: scroll-position; -webkit-overflow-scrolling: touch; contain: layout style; }
   .manga-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 11vw, 130px), 1fr)); gap: var(--sp-2); align-content: start; contain: layout style; }
   .manga-card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .manga-card:hover .cover { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
+  .manga-card:hover :global(.cover) { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
   .manga-card:hover .card-title { color: #fff; }
   .manga-card:hover { will-change: transform; }
   .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
-  .cover { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.15s ease, transform 0.15s ease; }
+  :global(.cover) { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.15s ease, transform 0.15s ease; }
   .cover-gradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 50%, transparent 72%); pointer-events: none; }
   .lib-badge { position: absolute; top: var(--sp-1); right: var(--sp-1); font-family: var(--font-ui); font-size: 9px; letter-spacing: var(--tracking-wide); text-transform: uppercase; background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); padding: 1px 5px; border-radius: var(--radius-sm); }
   .card-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: var(--sp-2); pointer-events: none; }

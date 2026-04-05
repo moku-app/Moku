@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ClockCounterClockwise, Trash, MagnifyingGlass, Play, Books, Fire, BookOpen, Clock, TrendUp } from "phosphor-svelte";
-  import { thumbUrl } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { store, clearHistory, openReader, setActiveManga } from "../../store/state.svelte";
   import type { HistoryEntry } from "../../store/state.svelte";
 
@@ -192,7 +192,7 @@
             {#each items as session (session.latestChapterId)}
               <button class="session-row" onclick={() => resume(session)}>
                 <div class="thumb-wrap">
-                  <img src={thumbUrl(session.thumbnailUrl)} alt={session.mangaTitle} class="thumb" />
+                  <Thumbnail src={session.thumbnailUrl} alt={session.mangaTitle} class="thumb" />
                   {#if session.chapterCount > 1}
                     <span class="session-count">{session.chapterCount}</span>
                   {/if}
@@ -290,7 +290,7 @@
   .session-row:hover .play-pill { opacity: 1; transform: translateX(0); }
 
   .thumb-wrap { position: relative; flex-shrink: 0; }
-  .thumb { width: 38px; height: 54px; border-radius: var(--radius-sm); object-fit: cover; display: block; background: var(--bg-raised); border: 1px solid var(--border-dim); }
+  :global(.thumb) { width: 38px; height: 54px; border-radius: var(--radius-sm); object-fit: cover; display: block; background: var(--bg-raised); border: 1px solid var(--border-dim); }
   .session-count {
     position: absolute; bottom: -4px; right: -6px;
     background: var(--accent-muted); border: 1px solid var(--accent-dim); color: var(--accent-fg);

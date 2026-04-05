@@ -1,7 +1,8 @@
 <script lang="ts">
   import { X, MagnifyingGlass, CircleNotch, ArrowRight, Check, Warning, Sparkle } from "phosphor-svelte";
   import { untrack } from "svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_SOURCES, FETCH_SOURCE_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, UPDATE_CHAPTERS_PROGRESS } from "../../lib/queries";
   import { store } from "../../store/state.svelte";
   import type { Manga, Source, Chapter } from "../../lib/types";
@@ -253,8 +254,7 @@
                 class="source-row"
                 class:source-row-active={selectedSource?.id === src.id}
                 onclick={() => pickSource(src)}>
-                <img src={thumbUrl(src.iconUrl)} alt={src.name} class="source-icon"
-                  onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                <Thumbnail src={src.iconUrl} alt={src.name} class="source-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
                 <div class="source-info">
                   <span class="source-name">{src.displayName}</span>
                   <span class="source-meta">{src.lang.toUpperCase()}{src.isNsfw ? " · NSFW" : ""}</span>
@@ -272,8 +272,7 @@
           <!-- Source context pill -->
           {#if selectedSource}
             <div class="search-context">
-              <img src={thumbUrl(selectedSource.iconUrl)} alt="" class="search-context-icon"
-                onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <Thumbnail src={selectedSource.iconUrl} alt="" class="search-context-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
               <span class="search-context-name">{selectedSource.displayName}</span>
               <button class="search-context-change" onclick={() => { step = "source"; results = []; }}>Change</button>
             </div>
@@ -316,7 +315,7 @@
                   onclick={() => selectMatch(m, similarity)}
                   disabled={loadingMatchId !== null}>
                   <div class="result-cover-wrap">
-                    <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="result-cover" />
+                    <Thumbnail src={m.thumbnailUrl} alt={m.title} class="result-cover" />
                   </div>
                   <div class="result-info">
                     <span class="result-title">{m.title}</span>
@@ -350,7 +349,7 @@
           <div class="confirm-row">
             <div class="confirm-manga">
               <div class="confirm-cover-wrap">
-                <img src={thumbUrl(manga.thumbnailUrl)} alt={manga.title} class="confirm-cover" />
+                <Thumbnail src={manga.thumbnailUrl} alt={manga.title} class="confirm-cover" />
               </div>
               <p class="confirm-title">{manga.title}</p>
               <p class="confirm-source">{manga.source?.displayName ?? "Unknown"}</p>
@@ -363,7 +362,7 @@
 
             <div class="confirm-manga">
               <div class="confirm-cover-wrap">
-                <img src={thumbUrl(selectedMatch.manga.thumbnailUrl)} alt={selectedMatch.manga.title} class="confirm-cover" />
+                <Thumbnail src={selectedMatch.manga.thumbnailUrl} alt={selectedMatch.manga.title} class="confirm-cover" />
               </div>
               <p class="confirm-title">{selectedMatch.manga.title}</p>
               <p class="confirm-source">{selectedSource?.displayName ?? "Unknown"}</p>
@@ -455,7 +454,7 @@
   .source-row { display: flex; align-items: center; gap: var(--sp-3); padding: 9px var(--sp-3); border-radius: var(--radius-md); border: 1px solid transparent; background: none; text-align: left; width: 100%; cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast); }
   .source-row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
   .source-row-active { background: var(--accent-muted); border-color: var(--accent-dim); }
-  .source-icon { width: 28px; height: 28px; border-radius: var(--radius-md); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
+  :global(.source-icon) { width: 28px; height: 28px; border-radius: var(--radius-md); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
   .source-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
   .source-name { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .source-meta { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
@@ -477,7 +476,7 @@
   /* Search step */
   .search-step { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); }
   .search-context { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); flex-shrink: 0; }
-  .search-context-icon { width: 18px; height: 18px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; }
+  :global(.search-context-icon) { width: 18px; height: 18px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; }
   .search-context-name { flex: 1; font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .search-context-change { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--accent-fg); background: none; border: none; cursor: pointer; padding: 0; flex-shrink: 0; transition: opacity var(--t-base); }
   .search-context-change:hover { opacity: 0.75; }
@@ -495,7 +494,7 @@
   .result-row:hover:not(:disabled) { background: var(--bg-raised); }
   .result-row:disabled { opacity: 0.5; cursor: default; }
   .result-cover-wrap { width: 36px; height: 54px; border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); flex-shrink: 0; }
-  .result-cover { width: 100%; height: 100%; object-fit: cover; }
+  :global(.result-cover) { width: 100%; height: 100%; object-fit: cover; }
   .result-info { flex: 1; display: flex; flex-direction: column; gap: 4px; overflow: hidden; min-width: 0; }
   .result-title { font-size: var(--text-sm); color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .result-meta { display: flex; align-items: center; gap: var(--sp-2); }
@@ -515,7 +514,7 @@
   .confirm-row { display: flex; align-items: center; justify-content: center; gap: var(--sp-4); }
   .confirm-manga { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); flex: 1; max-width: 160px; }
   .confirm-cover-wrap { width: 100%; aspect-ratio: 2/3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); }
-  .confirm-cover { width: 100%; height: 100%; object-fit: cover; }
+  :global(.confirm-cover) { width: 100%; height: 100%; object-fit: cover; }
   .confirm-title { font-size: var(--text-xs); color: var(--text-secondary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: var(--leading-snug); }
   .confirm-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); text-align: center; }
   .confirm-divider { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }

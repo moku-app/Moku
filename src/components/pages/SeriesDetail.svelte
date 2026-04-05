@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle, ArrowSquareOut, CircleNotch, Play, SortAscending, SortDescending, CaretDown, ArrowsClockwise, List, SquaresFour, FolderSimplePlus, Trash, DownloadSimple, X, LinkSimpleHorizontalBreak, ChartLineUp, MagnifyingGlass, Gear, Eye, MapPin } from "phosphor-svelte";
-  import { gql, thumbUrl } from "../../lib/client";
+  import { gql } from "../../lib/client";
+  import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
@@ -505,7 +506,7 @@
     </button>
 
     <div class="cover-wrap">
-      <img src={thumbUrl(store.activeManga.thumbnailUrl)} alt={store.activeManga.title} class="cover" />
+      <Thumbnail src={store.activeManga.thumbnailUrl} alt={store.activeManga.title} class="cover" />
     </div>
 
     {#if loadingManga}
@@ -892,7 +893,7 @@
           {#each linkPickerResults as m (m.id)}
             {@const isLinked = linkedIds.includes(m.id)}
             <button class="link-row" class:link-row-linked={isLinked} onclick={() => handleLink(m)}>
-              <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} class="link-thumb" loading="lazy" decoding="async" />
+              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="link-thumb" />
               <div class="link-info">
                 <span class="link-manga-title">{m.title}</span>
                 {#if m.source?.displayName}<span class="link-source">{m.source.displayName}</span>{/if}
@@ -916,7 +917,7 @@
   .back:hover { color: var(--text-secondary); }
 
   .cover-wrap { width: 100%; aspect-ratio: 2/3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); flex-shrink: 0; }
-  .cover { width: 100%; height: 100%; object-fit: cover; }
+  :global(.cover) { width: 100%; height: 100%; object-fit: cover; }
 
   .meta-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); }
   .sk-line { border-radius: var(--radius-sm); }
@@ -980,7 +981,7 @@
   .link-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 8px var(--sp-3); border-radius: var(--radius-md); border: none; background: none; text-align: left; cursor: pointer; transition: background var(--t-fast); }
   .link-row:hover { background: var(--bg-raised); }
   .link-row-linked { background: var(--accent-muted) !important; }
-  .link-thumb { width: 34px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
+  :global(.link-thumb) { width: 34px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
   .link-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0; }
   .link-manga-title { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .link-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }

@@ -80,9 +80,7 @@ export async function probeServer(): Promise<"ok" | "auth_required" | "unsupport
     });
 
     if (res.ok) {
-      if (mode === "SIMPLE_LOGIN" || mode === "UI_LOGIN") {
-        updateSettings({ serverAuthMode: "NONE" });
-      }
+      if (mode !== "NONE") updateSettings({ serverAuthMode: "NONE" });
       return "ok";
     }
 
