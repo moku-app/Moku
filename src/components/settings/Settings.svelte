@@ -1759,6 +1759,13 @@
 
               {/if}
 
+              {#if store.settings.serverAuthMode === "BASIC_AUTH"}
+                <div class="step-row">
+                  <div class="toggle-info"></div>
+                  <p class="auth-perf-note">Images are proxied through Tauri when Basic Auth is active, which reduces loading speed.</p>
+                </div>
+              {/if}
+
               <div class="step-row">
                 <div class="toggle-info"></div>
                 <div class="sec-btn-row">
@@ -2455,6 +2462,7 @@
   .sec-eye-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base); }
   .sec-eye-btn:hover { color: var(--text-muted); }
   .sec-btn-row { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+  .auth-perf-note { font-size: var(--text-xs); color: var(--text-faint); max-width: 260px; line-height: var(--leading-snug); }
   .sec-action-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .sec-action-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
   .sec-action-btn:disabled { opacity: 0.35; cursor: default; }

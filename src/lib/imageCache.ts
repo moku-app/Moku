@@ -4,7 +4,7 @@ import { store } from "../store/state.svelte";
 const cache    = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
 
-const MAX_CONCURRENT = 6;
+const MAX_CONCURRENT = 14;
 let   active         = 0;
 
 interface QueueEntry {

@@ -37,13 +37,13 @@
   const pageCache = new Map<number, string[]>();
   const inflight  = new Map<number, Promise<string[]>>();
 
-  const isAuth = () => (appStore.settings.serverAuthMode ?? "NONE") === "BASIC_AUTH";
+  const useBlob = $derived((appStore.settings.serverAuthMode ?? "NONE") === "BASIC_AUTH");
 
   function resolveUrl(url: string, priority = 0): Promise<string> {
-    return isAuth() ? getBlobUrl(url, priority) : Promise.resolve(url);
+    return useBlob ? getBlobUrl(url, priority) : Promise.resolve(url);
   }
 
-  function fetchPages(chapterId: number, signal?: AbortSignal): Promise<string[]> {
+  function fetchPages(chapterId: number, signal?: AbortSignal, priorityPage = 0): Promise<string[]> {
     const cached = pageCache.get(chapterId);
     if (cached) return Promise.resolve(cached);
     if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
@@ -52,7 +52,10 @@
       const p = gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
         .then(d => {
           const urls = d.fetchChapterPages.pages.map(p => plainThumbUrl(p));
-          if (isAuth()) preloadBlobUrls(urls, urls.length);
+          if (useBlob) {
+            if (urls[priorityPage]) getBlobUrl(urls[priorityPage], urls.length + 999);
+            preloadBlobUrls(urls.filter((_, i) => i !== priorityPage), urls.length);
+          }
           pageCache.set(chapterId, urls);
           return urls;
         })
@@ -286,12 +289,13 @@
 
     store.pageNumber = 1;
     try {
-      const urls = await fetchPages(id, ctrl.signal);
+      const urls = await fetchPages(id, ctrl.signal, resumeTo > 1 ? resumeTo - 1 : 0);
       if (ctrl.signal.aborted) return;
       store.pageUrls = urls;
       if (resumeTo > 1) store.pageNumber = Math.min(resumeTo, urls.length || resumeTo);
       pageReady = true;
       loading   = false;
+      if (adjacent.next) fetchPages(adjacent.next.id).catch(() => {});
     } catch (e: any) {
       if (ctrl.signal.aborted) return;
       error   = e instanceof Error ? e.message : String(e);
@@ -480,7 +484,7 @@
     const ahead = store.settings.preloadPages ?? 3;
     const current = store.pageUrls[store.pageNumber - 1];
     if (!current) return;
-    if (isAuth()) {
+    if (useBlob) {
       getBlobUrl(current, 999);
       const upcoming = Array.from({ length: ahead }, (_, i) => store.pageUrls[store.pageNumber + i]).filter(Boolean) as string[];
       const behind   = store.pageUrls[store.pageNumber - 2];
