@@ -263,6 +263,7 @@ export interface Settings {
   customThemes:            CustomTheme[];
   hiddenCategoryIds:       number[];
   defaultLibraryCategoryId: number | null;
+  savedIsDefaultCategory:  boolean;
   nsfwFilteredTags:        string[];
   nsfwAllowedSourceIds:    string[];
   nsfwBlockedSourceIds:    string[];
@@ -334,6 +335,7 @@ export const DEFAULT_SETTINGS: Settings = {
   customThemes:           [],
   hiddenCategoryIds:      [],
   defaultLibraryCategoryId: null,
+  savedIsDefaultCategory:  false,
   nsfwFilteredTags:      ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
   nsfwAllowedSourceIds:  [],
   nsfwBlockedSourceIds:  [],

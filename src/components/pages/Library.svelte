@@ -344,7 +344,7 @@
     // 1. Pick the right base list for this tab
     let items: Manga[];
     if (store.libraryFilter === "library") {
-      items = allManga;
+      items = store.settings.savedIsDefaultCategory ? (categoryMangaMap.get(0) ?? []) : allManga;
     } else if (store.libraryFilter === "downloaded") {
       items = allManga.filter(m => (m.downloadCount ?? 0) > 0);
     } else {
@@ -424,7 +424,7 @@
 
   const counts = $derived((() => {
     const m: Record<string, number> = {
-      library:    allManga.length,
+      library:    store.settings.savedIsDefaultCategory ? (categoryMangaMap.get(0) ?? []).length : allManga.length,
       downloaded: allManga.filter(m => (m.downloadCount ?? 0) > 0).length,
     };
     for (const cat of visibleCategories) {

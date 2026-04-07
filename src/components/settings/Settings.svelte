@@ -1209,6 +1209,10 @@
                 <div class="toggle-info"><span class="toggle-label">Crop cover images</span></div>
                 <button role="switch" aria-checked={store.settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={store.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !store.settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
               </label>
+              <label class="toggle-row">
+                <div class="toggle-info"><span class="toggle-label">Saved shows default folder</span><span class="toggle-desc">Saved tab shows only manga in Suwayomi's uncategorized folder</span></div>
+                <button role="switch" aria-checked={store.settings.savedIsDefaultCategory} aria-label="Saved shows default folder" class="toggle" class:on={store.settings.savedIsDefaultCategory} onclick={() => updateSettings({ savedIsDefaultCategory: !store.settings.savedIsDefaultCategory })}><span class="toggle-thumb"></span></button>
+              </label>
             </div>
             <div class="section">
               <p class="section-title">Chapters</p>
