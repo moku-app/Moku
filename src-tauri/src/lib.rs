@@ -327,6 +327,22 @@ fn resolve_server_binary(
         do_log(log, "[resolve] user path not found, falling through");
     }
 
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin_dir) = exe.parent() {
+            for name in &["tachidesk-server", "suwayomi-launcher"] {
+                let p = bin_dir.join(name);
+                do_log(log, &format!("[resolve] sibling: {:?} exists={}", p, p.exists()));
+                if p.exists() {
+                    return Ok(ServerInvocation {
+                        bin:         p.to_string_lossy().into_owned(),
+                        args:        vec![],
+                        working_dir: Some(bin_dir.to_path_buf()),
+                    });
+                }
+            }
+        }
+    }
+
     #[cfg(not(target_os = "macos"))]
     let resource_dir = {
         let raw = app.path().resource_dir().unwrap_or_default();
@@ -458,11 +474,13 @@ fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnError>
         e
     })?;
 
-    let rootdir_flag = format!(
-        "-Dsuwayomi.tachidesk.config.server.rootDir={}",
-        data_dir.to_string_lossy()
-    );
-    invocation.args.insert(0, rootdir_flag);
+    if invocation.bin.ends_with("java") || invocation.bin.ends_with("java.exe") {
+        let rootdir_flag = format!(
+            "-Dsuwayomi.tachidesk.config.server.rootDir={}",
+            data_dir.to_string_lossy()
+        );
+        invocation.args.insert(0, rootdir_flag);
+    }
 
     let working_dir = invocation.working_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 

@@ -10,14 +10,15 @@ Minor Revisions:
  - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
  - Adjustment in Settings for Theme Editor:
     - Patch Color-Picker to Work Properly
- - Moku Discord RPC 
-  - Write a better library for Discord RPC & Tauri
-  - Integrate Download Directory Changes (Settings)
+ - Integrate Download Directory Changes (Settings)
 
 Priority Bugs:
  - Cache ALL Cover Pictures & Details for Manga in Library
  - Fix Library Build not Updating
  - Check Auth System (Only Supports Basic-Auth)
+ - Loading Buffer for Pictures (Due to Auth Lag)
+ - Create Option for Saved in Library to Respect Default Constraints
+   - Additionally, Added Folders are Displayed in Suwayomi, but not registered in Suwayomi
 
 
 General/Misc Bugs:
@@ -30,14 +31,11 @@ General/Misc Bugs:
 
 In-Progress:
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
-
- - Patch Migrate Modal to Fill Language Options, not Limit to 7-9.
+ 
+ - Add Scanlator Filtering -> Pass to Reader
+ - Automations need to work in Reader (Auto-Delete does not)
 
 
 
 
 Testing:
-
- - Fix TitleBar not Appearing on Windows in Fullscreen (Locks in User)
- - Integrate Download Directory Changes (Settings)
- - Fix Source Allow in Content (Doesn't even work)
