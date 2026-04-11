@@ -6,7 +6,7 @@
   import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, setPreviewManga, checkAndMarkCompleted as storeCheckAndMarkCompleted, clearMarkersForManga } from "../../store/state.svelte";
+  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, setPreviewManga, checkAndMarkCompleted as storeCheckAndMarkCompleted, clearMarkersForManga, addBookmark } from "../../store/state.svelte";
   import type { MangaPrefs } from "../../store/state.svelte";
   import { DEFAULT_MANGA_PREFS } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
@@ -148,13 +148,30 @@
 
   const continueChapter = $derived((() => {
     if (!sortedChapters.length) return null;
-    const asc        = [...sortedChapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
-    const anyRead    = asc.some(c => c.isRead);
+    const asc     = [...sortedChapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
+    const anyRead = asc.some(c => c.isRead);
+
+    const bookmark = store.activeManga
+      ? store.bookmarks.find(b => b.mangaId === store.activeManga!.id)
+      : null;
+    if (bookmark) {
+      const ch = asc.find(c => c.id === bookmark.chapterId);
+      if (ch) {
+        const isLastChapter = asc[asc.length - 1]?.id === ch.id;
+        const allRead = asc.every(c => c.isRead);
+        // If bookmarked chapter is the last one and everything is read,
+        // treat as fully finished — fall through to "reread"
+        if (!(isLastChapter && allRead)) {
+          return { chapter: ch, type: "continue" as const, resumePage: bookmark.pageNumber };
+        }
+      }
+    }
+
     const inProgress = asc.find(c => !c.isRead && (c.lastPageRead ?? 0) > 0);
-    if (inProgress) return { chapter: inProgress, type: "continue" as const };
+    if (inProgress) return { chapter: inProgress, type: "continue" as const, resumePage: inProgress.lastPageRead! };
     const firstUnread = asc.find(c => !c.isRead);
-    if (firstUnread) return { chapter: firstUnread, type: (anyRead ? "continue" : "start") as const };
-    return { chapter: asc[0], type: "reread" as const };
+    if (firstUnread) return { chapter: firstUnread, type: (anyRead ? "continue" : "start") as const, resumePage: null };
+    return { chapter: asc[0], type: "reread" as const, resumePage: null };
   })());
 
   const jumpChapter = $derived.by(() => {
@@ -235,8 +252,11 @@
   }
 
   async function checkAndMarkCompleted(mangaId: number, chaps: Chapter[]) {
-    await storeCheckAndMarkCompleted(mangaId, chaps, allCategories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
-    if (chaps.length) {
+    const mangaStatus = manga?.status;
+    await storeCheckAndMarkCompleted(mangaId, chaps, allCategories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA, mangaStatus);
+    // Never auto-move an ONGOING series into Completed — user must do that manually.
+    const isOngoing = mangaStatus === "ONGOING";
+    if (chaps.length && !isOngoing) {
       const allRead   = chaps.every(c => c.isRead);
       const completed = allCategories.find(c => c.name === "Completed");
       if (completed) {
@@ -529,13 +549,26 @@
     } catch (e) { console.error(e); }
   }
 
-  function openReaderWithAhead(ch: Chapter, list: Chapter[]) {
+  function openReaderWithAhead(ch: Chapter, list: Chapter[], type?: "start" | "continue" | "reread", resumePage?: number | null) {
     const ahead = getPref("downloadAhead");
     if (ahead > 0) {
       const idx = list.indexOf(ch);
       if (idx >= 0) {
         const toQueue = list.slice(idx + 1, idx + 1 + ahead).filter(c => !c.isDownloaded).map(c => c.id);
         if (toQueue.length) enqueueMultiple(toQueue);
+      }
+    }
+    if (type === "continue" && resumePage && resumePage > 1) {
+      const existing = store.bookmarks.find(b => b.chapterId === ch.id);
+      if (!existing || existing.pageNumber < resumePage) {
+        addBookmark({
+          mangaId:      store.activeManga!.id,
+          mangaTitle:   store.activeManga!.title,
+          thumbnailUrl: store.activeManga!.thumbnailUrl,
+          chapterId:    ch.id,
+          chapterName:  ch.name,
+          pageNumber:   resumePage,
+        });
       }
     }
     openReader(ch, list);
@@ -608,11 +641,11 @@
 
     <div class="cta-section">
       {#if continueChapter}
-        <button class="read-btn" onclick={() => openReaderWithAhead(continueChapter!.chapter, sortedChapters)}>
+        <button class="read-btn" onclick={() => openReaderWithAhead(continueChapter!.chapter, sortedChapters, continueChapter!.type, continueChapter!.resumePage)}>
           <Play size={12} weight="fill" />
-          {continueChapter.type === "continue"
-            ? `Continue · Ch.${continueChapter.chapter.chapterNumber}${(continueChapter.chapter.lastPageRead ?? 0) > 0 ? ` p.${continueChapter.chapter.lastPageRead}` : ""}`
-            : continueChapter.type === "reread" ? "Read again" : "Start reading"}
+          {continueChapter.type === "reread" ? "Read again"
+            : continueChapter.type === "start" ? "Start reading"
+            : `Continue · Ch.${continueChapter.chapter.chapterNumber}${continueChapter.resumePage ? ` p.${continueChapter.resumePage}` : ""}`}
         </button>
       {/if}
       <div class="actions">
@@ -888,7 +921,7 @@
           {@const inProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
           {@const isGridSelected = selectedIds.has(ch.id)}
           <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress} class:grid-selected={isGridSelected}
-            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters)}
+            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters, inProgress ? "continue" : undefined)}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: i }; }}
             title={ch.name}>
             <span class="grid-cell-num">{ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber}</span>
@@ -901,9 +934,10 @@
         {#each pageChapters as ch}
           {@const idxInSorted = sortedChapters.indexOf(ch)}
           {@const isSelected = selectedIds.has(ch.id)}
+          {@const chInProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
           <div role="button" tabindex="0" class="ch-row" class:read={ch.isRead} class:ch-selected={isSelected}
-            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters)}
-            onkeydown={(e) => e.key === "Enter" && (hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters))}
+            onclick={(e) => hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters, chInProgress ? "continue" : undefined)}
+            onkeydown={(e) => e.key === "Enter" && (hasSelection ? toggleSelect(ch.id, e) : openReaderWithAhead(ch, sortedChapters, chInProgress ? "continue" : undefined))}
             oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: idxInSorted }; }}>
             <button class="ch-check" class:ch-check-visible={hasSelection} onclick={(e) => toggleSelect(ch.id, e)} title="Select">
               {#if isSelected}<CheckCircle size={15} weight="fill" />{:else}<Circle size={15} weight="light" />{/if}

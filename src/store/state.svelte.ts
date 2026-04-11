@@ -643,8 +643,11 @@ class Store {
     gqlFn:      (query: string, vars: Record<string, unknown>) => Promise<unknown>,
     UPDATE_MANGA_CATEGORIES: string,
     UPDATE_MANGA?: string,
+    mangaStatus?: string,
   ): Promise<void> {
     if (!chaps.length) return;
+    // Never auto-complete an ongoing series — user must set Completed manually.
+    if (mangaStatus === "ONGOING") return;
     const allRead   = chaps.every(c => c.isRead);
     const completed = categories.find(c => c.name === "Completed");
     if (!completed) return;
@@ -722,6 +725,7 @@ export async function checkAndMarkCompleted(
   gqlFn:      (query: string, vars: Record<string, unknown>) => Promise<unknown>,
   UPDATE_MANGA_CATEGORIES: string,
   UPDATE_MANGA?: string,
+  mangaStatus?: string,
 ): Promise<void> {
-  return store.checkAndMarkCompleted(mangaId, chaps, categories, gqlFn, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
+  return store.checkAndMarkCompleted(mangaId, chaps, categories, gqlFn, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA, mangaStatus);
 }

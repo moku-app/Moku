@@ -6,7 +6,7 @@
   import { GET_MANGA, GET_CHAPTERS, FETCH_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, ENQUEUE_CHAPTERS_DOWNLOAD, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { GET_ALL_MANGA } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { store, openReader, addToast, linkManga, unlinkManga, setPreviewManga, setActiveManga, setNavPage, setGenreFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted } from "../../store/state.svelte";
+  import { store, openReader, addToast, linkManga, unlinkManga, setPreviewManga, setActiveManga, setNavPage, setGenreFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, addBookmark } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
 
   let manga: Manga | null      = $state(null);
@@ -87,11 +87,38 @@
 
   const continueChapter = $derived.by(() => {
     if (!chapters.length) return null;
-    const inProgress = chapters.find((c) => !c.isRead && (c.lastPageRead ?? 0) > 0);
-    if (inProgress) return { ch: inProgress, label: `Continue · Ch.${inProgress.chapterNumber}` };
-    const firstUnread = chapters.find((c) => !c.isRead);
-    if (firstUnread) return { ch: firstUnread, label: `Start · Ch.${firstUnread.chapterNumber}` };
-    return { ch: chapters[0], label: "Read again" };
+    const asc     = [...chapters]; // already sorted by sourceOrder from load()
+    const anyRead = asc.some(c => c.isRead);
+
+    const bookmark = displayManga
+      ? store.bookmarks.find(b => b.mangaId === displayManga!.id)
+      : null;
+    if (bookmark) {
+      const ch = asc.find(c => c.id === bookmark.chapterId);
+      if (ch) {
+        const isLastChapter = asc[asc.length - 1]?.id === ch.id;
+        const allRead = asc.every(c => c.isRead);
+        // If bookmarked chapter is the last one and everything is read,
+        // treat as fully finished — fall through to "reread"
+        if (!(isLastChapter && allRead)) {
+          return { ch, type: "continue" as const, resumePage: bookmark.pageNumber };
+        }
+      }
+    }
+
+    const inProgress = asc.find(c => !c.isRead && (c.lastPageRead ?? 0) > 0);
+    if (inProgress) return { ch: inProgress, type: "continue" as const, resumePage: inProgress.lastPageRead! };
+    const firstUnread = asc.find(c => !c.isRead);
+    if (firstUnread) return { ch: firstUnread, type: (anyRead ? "continue" : "start") as const, resumePage: null };
+    return { ch: asc[0], type: "reread" as const, resumePage: null };
+  });
+
+  const continueLabel = $derived.by(() => {
+    if (!continueChapter) return "";
+    const { ch, type, resumePage } = continueChapter;
+    if (type === "reread") return "Read again";
+    if (type === "start")  return `Start · Ch.${ch.chapterNumber}`;
+    return `Continue · Ch.${ch.chapterNumber}${resumePage ? ` p.${resumePage}` : ""}`;
   });
 
   $effect(() => { if (store.previewManga) { load(store.previewManga.id); loadCategories(store.previewManga.id); } });
@@ -187,9 +214,12 @@
   }
 
   async function checkAndMarkCompleted(mangaId: number, chaps: Chapter[]) {
-    await storeCheckAndMarkCompleted(mangaId, chaps, allCategories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
-    // Sync local mangaCategories state after the mutation
-    if (chaps.length) {
+    const mangaStatus = (manga ?? displayManga)?.status;
+    await storeCheckAndMarkCompleted(mangaId, chaps, allCategories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA, mangaStatus);
+    // Sync local mangaCategories state after the mutation.
+    // Never auto-move an ONGOING series into Completed — user must do that manually.
+    const isOngoing = mangaStatus === "ONGOING";
+    if (chaps.length && !isOngoing) {
       const allRead   = chaps.every(c => c.isRead);
       const completed = allCategories.find(c => c.name === "Completed");
       if (completed) {
@@ -357,8 +387,25 @@
               <div class="progress-track"><div class="progress-fill" style="width:{(readCount / totalCount) * 100}%"></div></div>
             {/if}
             {#if continueChapter}
-              <button class="read-btn" onclick={() => { openReader(continueChapter!.ch, chapters, displayManga); close(); }}>
-                <Play size={12} weight="fill" />{continueChapter.label}
+              <button class="read-btn" onclick={() => {
+                const { ch, type, resumePage } = continueChapter!;
+                if (type === "continue" && resumePage && resumePage > 1) {
+                  const existing = store.bookmarks.find(b => b.chapterId === ch.id);
+                  if (!existing || existing.pageNumber < resumePage) {
+                    addBookmark({
+                      mangaId:      displayManga!.id,
+                      mangaTitle:   displayManga!.title,
+                      thumbnailUrl: displayManga!.thumbnailUrl,
+                      chapterId:    ch.id,
+                      chapterName:  ch.name,
+                      pageNumber:   resumePage,
+                    });
+                  }
+                }
+                openReader(ch, chapters, displayManga);
+                close();
+              }}>
+                <Play size={12} weight="fill" />{continueLabel}
               </button>
             {/if}
           {:else if !loadingDetail}
