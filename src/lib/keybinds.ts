@@ -1,12 +1,12 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export interface Keybinds {
-  pageRight:              string;
-  pageLeft:               string;
+  turnPageRight:          string;
+  turnPageLeft:           string;
   firstPage:              string;
   lastPage:               string;
-  chapterRight:           string;
-  chapterLeft:            string;
+  turnChapterRight:       string;
+  turnChapterLeft:        string;
   exitReader:             string;
   toggleReadingDirection: string;
   togglePageStyle:        string;
@@ -17,12 +17,12 @@ export interface Keybinds {
 }
 
 export const DEFAULT_KEYBINDS: Keybinds = {
-  pageRight:              "ArrowRight",
-  pageLeft:               "ArrowLeft",
+  turnPageRight:          "ArrowRight",
+  turnPageLeft:           "ArrowLeft",
   firstPage:              "ctrl+ArrowLeft",
   lastPage:               "ctrl+ArrowRight",
-  chapterRight:           "]",
-  chapterLeft:            "[",
+  turnChapterRight:       "]",
+  turnChapterLeft:        "[",
   exitReader:             "Backspace",
   toggleReadingDirection: "d",
   togglePageStyle:        "q",
@@ -33,12 +33,12 @@ export const DEFAULT_KEYBINDS: Keybinds = {
 };
 
 export const KEYBIND_LABELS: Record<keyof Keybinds, string> = {
-  pageRight:              "Turn page right",
-  pageLeft:               "Turn page left",
+  turnPageRight:          "Turn page right (→)",
+  turnPageLeft:           "Turn page left (←)",
   firstPage:              "Jump to first page",
   lastPage:               "Jump to last page",
-  chapterRight:           "Next chapter",
-  chapterLeft:            "Previous chapter",
+  turnChapterRight:       "Turn chapter right (→)",
+  turnChapterLeft:        "Turn chapter left (←)",
   exitReader:             "Exit reader",
   toggleReadingDirection: "Toggle reading direction",
   togglePageStyle:        "Toggle page style",

@@ -134,7 +134,8 @@
   let markedRead       = new Set<number>();
   let appending        = false;
   let abortCtrl:       AbortController | null = null;
-  let hasNavigated     = false;
+  let hasNavigated    = false;
+  let startAtLastPage = false;
   let resumePage        = $state(0);
   let resumeDismissed   = $state(false);
   let resumeTimer:      ReturnType<typeof setTimeout> | null = null;
@@ -175,8 +176,8 @@
       ? (store.activeChapterList.find(c => c.id === visibleChapterId) ?? store.activeChapter)
       : store.activeChapter
   );
-  const currentBookmark = $derived(displayChapter ? store.bookmarks.find(b => b.chapterId === displayChapter!.id) : undefined);
-  const isBookmarked = $derived(!!currentBookmark && currentBookmark.pageNumber === store.pageNumber);
+  const currentBookmark = $derived(store.activeManga ? store.bookmarks.find(b => b.mangaId === store.activeManga!.id) : undefined);
+  const isBookmarked = $derived(!!currentBookmark && currentBookmark.chapterId === displayChapter?.id && currentBookmark.pageNumber === store.pageNumber);
 
   const currentPageMarkers = $derived(
     displayChapter ? store.getMarkersForPage(displayChapter.id, store.pageNumber) : []
@@ -230,11 +231,12 @@
       : []
   );
 
-  const currentGroup = $derived(
-    style === "double" && pageGroups.length
+  const currentGroup = $derived.by(() => {
+    const group = style === "double" && pageGroups.length
       ? (pageGroups.find(g => g.includes(store.pageNumber)) ?? [store.pageNumber])
-      : [store.pageNumber]
-  );
+      : [store.pageNumber];
+    return rtl ? [...group].reverse() : group;
+  });
 
   const sliderPage = $derived.by(() => {
     if (style === "double" && pageGroups.length) {
@@ -249,7 +251,8 @@
     return lastPage || 1;
   });
 
-  const sliderPct = $derived(sliderMax > 1 ? ((sliderPage - 1) / (sliderMax - 1)) * 100 : 0);
+  const sliderPctRaw = $derived(sliderMax > 1 ? ((sliderPage - 1) / (sliderMax - 1)) * 100 : 0);
+  const sliderPct    = $derived(rtl ? 100 - sliderPctRaw : sliderPctRaw);
 
   $effect(() => {
     const chapter = displayChapter;
@@ -268,6 +271,8 @@
     abortCtrl  = ctrl;
     hasNavigated     = false;
     appending        = false;
+    const goToLast   = startAtLastPage;
+    startAtLastPage  = false;
     markedRead       = new Set();
     loading          = true;
     error            = null;
@@ -292,7 +297,8 @@
       const urls = await fetchPages(id, ctrl.signal, resumeTo > 1 ? resumeTo - 1 : 0);
       if (ctrl.signal.aborted) return;
       store.pageUrls = urls;
-      if (resumeTo > 1) store.pageNumber = Math.min(resumeTo, urls.length || resumeTo);
+      if (goToLast) store.pageNumber = urls.length;
+      else if (resumeTo > 1) store.pageNumber = Math.min(resumeTo, urls.length || resumeTo);
       pageReady = true;
       loading   = false;
       if (adjacent.next) fetchPages(adjacent.next.id).catch(() => {});
@@ -472,7 +478,7 @@
         while (i <= snap.length) {
           const a = aspects[i - 1];
           if (a > 1.2 || i === snap.length) { groups.push([i++]); }
-          else { groups.push(rtl ? [i + 1, i] : [i, i + 1]); i += 2; }
+          else { groups.push([i, i + 1]); i += 2; }
         }
         pageGroups = groups;
       });
@@ -517,6 +523,8 @@
         if (style === "longstrip" && visibleChapterId && chapterId !== visibleChapterId) return;
         addHistory({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, readAt: Date.now() });
         if (autoBookmark) {
+          const existing = store.bookmarks.find(b => b.mangaId === mangaId && b.chapterId !== chapterId);
+          if (existing) removeBookmark(existing.chapterId);
           addBookmark({ mangaId, mangaTitle, thumbnailUrl: thumb, chapterId, chapterName, pageNumber: pageNum });
         }
         if (style !== "longstrip" && store.settings.autoMarkRead && atLast) markChapterRead(chapterId);
@@ -599,7 +607,7 @@
       else closeReader();
     } else {
       if (gi > 0) store.pageNumber = pageGroups[gi - 1][0];
-      else if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
+      else if (adjacent.prev) { startAtLastPage = true; openReader(adjacent.prev, store.activeChapterList); }
     }
   }
 
@@ -631,7 +639,7 @@
   function goBack() {
     if (loading) return;
     if (style === "longstrip") {
-      if (adjacent.prev) openReader(adjacent.prev, store.activeChapterList);
+      if (adjacent.prev) { startAtLastPage = true; openReader(adjacent.prev, store.activeChapterList); }
       return;
     }
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
@@ -639,7 +647,7 @@
     if (store.pageNumber > 1) {
       if (style === "fade") { animateFade(() => { store.pageNumber--; }); }
       else { store.pageNumber--; }
-    } else if (adjacent.prev) { openReader(adjacent.prev, store.activeChapterList); }
+    } else if (adjacent.prev) { startAtLastPage = true; openReader(adjacent.prev, store.activeChapterList); }
   }
 
   const goNext = $derived(rtl ? goBack    : goForward);
@@ -684,6 +692,8 @@
       removeBookmark(ch.id);
       resumeVisible = false;
     } else {
+      const existing = store.bookmarks.find(b => b.mangaId === manga.id && b.chapterId !== ch.id);
+      if (existing) removeBookmark(existing.chapterId);
       addBookmark({ mangaId: manga.id, mangaTitle: manga.title, thumbnailUrl: manga.thumbnailUrl, chapterId: ch.id, chapterName: ch.name, pageNumber: store.pageNumber });
     }
   }
@@ -766,14 +776,9 @@
     adjustZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
   }
 
-  function onSliderInput(e: Event) {
-    jumpToPage(Number((e.currentTarget as HTMLInputElement).value));
-  }
-
   function onKey(e: KeyboardEvent) {
     if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
     const kb = store.settings.keybinds ?? DEFAULT_KEYBINDS;
-    const r  = store.settings.readingDirection === "rtl";
     if (e.key === "Escape") {
       e.preventDefault();
       if (markerOpen) { markerOpen = false; return; }
@@ -785,26 +790,22 @@
     if (e.ctrlKey && e.key === "-")                    { e.preventDefault(); adjustZoom(-ZOOM_STEP * 2); return; }
     if (e.ctrlKey && e.key === "0")                    { e.preventDefault(); resetZoom(); return; }
     if      (matchesKeybind(e, kb.exitReader))             { e.preventDefault(); closeReader(); }
-    else if (matchesKeybind(e, kb.pageRight))              { e.preventDefault(); goForward(); }
-    else if (matchesKeybind(e, kb.pageLeft))               { e.preventDefault(); goBack(); }
+    else if (matchesKeybind(e, kb.turnPageRight))          { e.preventDefault(); goNext(); }
+    else if (matchesKeybind(e, kb.turnPageLeft))           { e.preventDefault(); goPrev(); }
     else if (matchesKeybind(e, kb.firstPage))              { e.preventDefault(); store.pageNumber = 1; }
     else if (matchesKeybind(e, kb.lastPage))               { e.preventDefault(); store.pageNumber = lastPage; }
-    else if (matchesKeybind(e, kb.chapterRight)) {
+    else if (matchesKeybind(e, kb.turnChapterRight)) {
       e.preventDefault();
-      const list = store.activeChapterList;
-      const idx  = list.findIndex(c => c.id === store.activeChapter?.id);
-      const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
-      if (next) { maybeMarkCurrentRead(); openReader(next, list); }
+      const ch = rtl ? adjacent.prev : adjacent.next;
+      if (ch) { maybeMarkCurrentRead(); openReader(ch, store.activeChapterList); }
     }
-    else if (matchesKeybind(e, kb.chapterLeft)) {
+    else if (matchesKeybind(e, kb.turnChapterLeft)) {
       e.preventDefault();
-      const list = store.activeChapterList;
-      const idx  = list.findIndex(c => c.id === store.activeChapter?.id);
-      const prev = idx > 0 ? list[idx - 1] : null;
-      if (prev) openReader(prev, list);
+      const ch = rtl ? adjacent.next : adjacent.prev;
+      if (ch) openReader(ch, store.activeChapterList);
     }
     else if (matchesKeybind(e, kb.togglePageStyle))        { e.preventDefault(); cycleStyle(); }
-    else if (matchesKeybind(e, kb.toggleReadingDirection)) { e.preventDefault(); updateSettings({ readingDirection: r ? "ltr" : "rtl" }); }
+    else if (matchesKeybind(e, kb.toggleReadingDirection)) { e.preventDefault(); updateSettings({ readingDirection: rtl ? "ltr" : "rtl" }); }
     else if (matchesKeybind(e, kb.toggleFullscreen))       { e.preventDefault(); toggleFullscreen().catch(console.error); }
     else if (matchesKeybind(e, kb.openSettings))           { e.preventDefault(); setSettingsOpen(true); }
     else if (matchesKeybind(e, kb.toggleBookmark))         { e.preventDefault(); toggleBookmark(); }
@@ -814,8 +815,7 @@
   function handleTap(e: MouseEvent) {
     if (style === "longstrip") return;
     const x = e.clientX / window.innerWidth;
-    if (!rtl) { if (x > 0.6) goForward(); else if (x < 0.4) goBack(); }
-    else       { if (x < 0.4) goForward(); else if (x > 0.6) goBack(); }
+    if (x > 0.6) goNext(); else if (x < 0.4) goPrev();
   }
 
   async function runDl(fn: () => Promise<unknown>) {
@@ -830,12 +830,18 @@
     window.addEventListener("wheel", onWheel, { passive: false });
     containerEl?.focus({ preventScroll: true });
 
-    const ro = new ResizeObserver(entries => { containerWidth = entries[0].contentRect.width; });
+    let roTimer: ReturnType<typeof setTimeout> | null = null;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0].contentRect.width;
+      if (roTimer) clearTimeout(roTimer);
+      roTimer = setTimeout(() => { containerWidth = w; roTimer = null; }, 50);
+    });
     ro.observe(containerEl);
 
     return () => {
       abortCtrl?.abort();
       if (hideTimer) clearTimeout(hideTimer);
+      if (roTimer) clearTimeout(roTimer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("wheel", onWheel);
       cleanupScroll();
@@ -1081,49 +1087,48 @@
       <div
         class="slider-wrap"
         class:dragging={sliderDragging}
+        role="slider"
+        aria-valuenow={sliderPage}
+        aria-valuemin={1}
+        aria-valuemax={sliderMax}
+        tabindex="-1"
         onmouseenter={() => sliderHover = true}
-        onmouseleave={() => { sliderHover = false; }}
-        role="presentation"
+        onmouseleave={() => { sliderHover = false; sliderDragging = false; }}
+        onmousedown={(e) => {
+          sliderDragging = true;
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          jumpToPage(Math.round(1 + (rtl ? 1 - ratio : ratio) * (sliderMax - 1)));
+        }}
+        onmousemove={(e) => {
+          if (!sliderDragging) return;
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          jumpToPage(Math.round(1 + (rtl ? 1 - ratio : ratio) * (sliderMax - 1)));
+        }}
+        onmouseup={() => sliderDragging = false}
       >
         <div class="slider-track-bg">
-          <div class="slider-fill" style="width: {rtl ? 100 - sliderPct : sliderPct}%"></div>
+          <div class="slider-fill" style={rtl ? `width:${100 - sliderPct}%;margin-left:auto` : `width:${sliderPct}%`}></div>
         </div>
+        <div class="slider-thumb" style="left:{sliderPct}%"></div>
 
-        {#if isBookmarked && currentBookmark}
-          {@const bPct = sliderMax > 1 ? ((currentBookmark.pageNumber - 1) / (sliderMax - 1)) * 100 : 0}
-          <div
-            class="slider-checkpoint bookmark-checkpoint"
-            style="left: {rtl ? 100 - bPct : bPct}%"
-            title="Bookmark: Page {currentBookmark.pageNumber}"
-          ></div>
+
+
+        {#if currentBookmark && currentBookmark.chapterId === displayChapter?.id}
+          {@const bOrd = rtl ? lastPage - currentBookmark.pageNumber + 1 : currentBookmark.pageNumber}
+          {@const bPct = lastPage > 1 ? ((bOrd - 1) / (lastPage - 1)) * 100 : 0}
+          <div class="slider-checkpoint bookmark-checkpoint" style="left: {bPct}%" title="Bookmark: Page {currentBookmark.pageNumber}"></div>
         {/if}
 
         {#each activeChapterMarkers as m (m.id)}
-          {@const mPct = sliderMax > 1 ? ((m.pageNumber - 1) / (sliderMax - 1)) * 100 : 0}
-          <div
-            class="slider-checkpoint marker-checkpoint"
-            style="left: {rtl ? 100 - mPct : mPct}%; background:{MARKER_COLOR_HEX[m.color]}"
-            title="{m.note ? m.note : 'Marker'} · Page {m.pageNumber}"
-          ></div>
+          {@const mOrd = rtl ? lastPage - m.pageNumber + 1 : m.pageNumber}
+          {@const mPct = lastPage > 1 ? ((mOrd - 1) / (lastPage - 1)) * 100 : 0}
+          <div class="slider-checkpoint marker-checkpoint" style="left: {mPct}%; background:{MARKER_COLOR_HEX[m.color]}" title="{m.note ? m.note : 'Marker'} · Page {m.pageNumber}"></div>
         {/each}
 
-        <input
-          type="range"
-          class="slider-input"
-          min={1}
-          max={sliderMax}
-          step={1}
-          value={sliderPage}
-          dir={rtl ? "rtl" : "ltr"}
-          oninput={onSliderInput}
-          onmousedown={() => sliderDragging = true}
-          onmouseup={() => sliderDragging = false}
-          ontouchstart={() => sliderDragging = true}
-          ontouchend={() => sliderDragging = false}
-          aria-label="Page {sliderPage} of {sliderMax}"
-        />
         {#if sliderHover || sliderDragging}
-          <div class="slider-tooltip" style="left: {rtl ? 100 - sliderPct : sliderPct}%">
+          <div class="slider-tooltip" style="left: {sliderPct}%">
             {sliderPage} / {sliderMax}
           </div>
         {/if}
@@ -1257,11 +1262,12 @@
   .nav-btn:disabled { opacity: 0.25; cursor: default; }
 
   .slider-wrap { flex: 1; position: relative; display: flex; align-items: center; height: 34px; cursor: pointer; }
-  .slider-track-bg { position: absolute; left: 0; right: 0; height: 3px; background: var(--border-strong); border-radius: 2px; overflow: hidden; pointer-events: none; }
-  .slider-fill { height: 100%; background: var(--accent-fg); border-radius: 2px; transition: width 0.05s linear; }
-  .slider-input { position: absolute; left: 0; right: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; margin: 0; z-index: 2; }
+  .slider-track-bg { position: absolute; left: 0; right: 0; height: 3px; background: var(--border-strong); border-radius: 2px; pointer-events: none; }
+  .slider-fill { height: 100%; background: var(--accent-fg); border-radius: 2px; transition: width 0.05s linear; position: relative; }
   .slider-checkpoint { position: absolute; top: 50%; width: 4px; height: 10px; border-radius: 2px; transform: translate(-50%, -50%); pointer-events: none; z-index: 1; }
-  .bookmark-checkpoint { background: var(--accent-fg); opacity: 0.7; }
+  .slider-thumb { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; border-radius: 50%; background: var(--accent-fg); pointer-events: none; z-index: 2; box-shadow: 0 0 0 2px rgba(0,0,0,0.5); transition: transform var(--t-fast); }
+  .slider-wrap:hover .slider-thumb, .slider-wrap.dragging .slider-thumb { transform: translate(-50%, -50%) scale(1.3); }
+  .bookmark-checkpoint { background: #ffffff; opacity: 0.8; }
   .marker-checkpoint { opacity: 0.85; }
   .slider-tooltip { position: absolute; bottom: calc(100% + 2px); transform: translateX(-50%); background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-sm); padding: 2px 6px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-secondary); white-space: nowrap; pointer-events: none; z-index: 10; letter-spacing: var(--tracking-wide); }
   .slider-wrap:hover .slider-track-bg, .slider-wrap.dragging .slider-track-bg { height: 5px; }
