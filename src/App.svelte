@@ -4,6 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { platform } from "@tauri-apps/plugin-os";
   import { gql } from "./lib/client";
   import logoUrl from "./assets/moku-icon-splash.svg";
   import { probeServer, loginBasic, authSession, logout } from "./lib/auth";
@@ -69,7 +70,8 @@
   }
 
   const MAX_ATTEMPTS = 10;
-  const win = getCurrentWindow();
+  const win        = getCurrentWindow();
+  const isWindows  = platform() === "windows";
 
   let serverProbeOk = $state(false);
   let appReady      = $state(false);
@@ -433,6 +435,22 @@
         onDismiss={() => { idle = false; resetIdle(); }} />
     {/if}
     {#if !store.activeChapter}<TitleBar />{/if}
+    {#if store.activeChapter && isWindows && !store.isFullscreen}
+      <div class="reader-chrome">
+        <button onclick={() => win.minimize()} title="Minimize" aria-label="Minimize">
+          <svg width="10" height="1" viewBox="0 0 10 1"><line x1="0" y1="0.5" x2="10" y2="0.5" stroke="currentColor" stroke-width="1.5" /></svg>
+        </button>
+        <button onclick={() => win.toggleMaximize()} title="Maximize" aria-label="Maximize">
+          <svg width="9" height="9" viewBox="0 0 9 9"><rect x="0.75" y="0.75" width="7.5" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        </button>
+        <button class="chrome-close" onclick={() => win.close()} title="Close" aria-label="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+    {/if}
     <div class="content">
       {#if store.activeChapter}<Reader />{:else}<Layout />{/if}
     </div>
@@ -451,6 +469,36 @@
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
   .content { flex: 1; overflow: hidden; }
+
+  .reader-chrome {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: calc(var(--z-reader) + 1);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    -webkit-app-region: no-drag;
+  }
+  .reader-chrome:hover { opacity: 1; }
+  .reader-chrome button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: color var(--t-base), background var(--t-base);
+  }
+  .reader-chrome button:hover { color: var(--text-muted); background: rgba(255,255,255,0.08); }
+  .reader-chrome .chrome-close:hover { color: #fff; background: #c0392b; }
 
   /* Auth overlay — floats above the SplashScreen */
   .auth-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; pointer-events: none; }
