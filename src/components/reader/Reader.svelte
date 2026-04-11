@@ -160,6 +160,16 @@
   let sliderDragging    = $state(false);
   let sliderHover       = $state(false);
 
+  let inspectScale      = $state(1);
+  let inspectPanX       = $state(0);
+  let inspectPanY       = $state(0);
+  let inspectDragging   = false;
+  let inspectDragMoved  = false;
+  let inspectDragStartX = 0;
+  let inspectDragStartY = 0;
+  let inspectPanStartX  = 0;
+  let inspectPanStartY  = 0;
+
   const rtl         = $derived(store.settings.readingDirection === "rtl");
   const fit         = $derived((store.settings.fitMode ?? "width") as FitMode);
   const style       = $derived((store.settings.pageStyle ?? "single") as PageStyle);
@@ -337,7 +347,9 @@
     }
   });
 
-  $effect(() => { if (style !== "longstrip" && containerEl) containerEl.scrollTop = 0; });
+  $effect(() => { if (style !== "longstrip") { void store.pageNumber; inspectScale = 1; inspectPanX = 0; inspectPanY = 0; } });
+
+
 
   $effect(() => {
     const chId = visibleChapterId;
@@ -770,10 +782,49 @@
     }
   });
 
+  const INSPECT_ZOOM_STEP = 0.15;
+  const INSPECT_ZOOM_MAX  = 8;
+
+  function getInspectImageEl(): HTMLElement | null {
+    if (!containerEl) return null;
+    return (
+      containerEl.querySelector<HTMLElement>(".inspect-wrap .double-wrap") ??
+      containerEl.querySelector<HTMLElement>(".inspect-wrap img")
+    );
+  }
+
+  function clampInspectPan(scale: number, px: number, py: number): [number, number] {
+    const img = getInspectImageEl();
+    if (!img) return [px, py];
+    const maxX = Math.max(0, (img.offsetWidth  * (scale - 1)) / 2);
+    const maxY = Math.max(0, (img.offsetHeight * (scale - 1)) / 2);
+    return [Math.max(-maxX, Math.min(maxX, px)), Math.max(-maxY, Math.min(maxY, py))];
+  }
+
   function onWheel(e: WheelEvent) {
-    if (!e.ctrlKey) return;
+    if (e.ctrlKey) {
+      e.preventDefault();
+      adjustZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+      return;
+    }
+    if (style === "longstrip") return;
     e.preventDefault();
-    adjustZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+    const delta = e.deltaY < 0 ? INSPECT_ZOOM_STEP : -INSPECT_ZOOM_STEP;
+    const next  = Math.max(1, Math.min(INSPECT_ZOOM_MAX, inspectScale + delta));
+    if (next === inspectScale) return;
+    if (next === 1) { inspectScale = 1; inspectPanX = 0; inspectPanY = 0; return; }
+    const img     = getInspectImageEl();
+    const anchor  = img ?? containerEl;
+    const rect    = anchor?.getBoundingClientRect();
+    const cx      = rect ? e.clientX - rect.left - rect.width  / 2 : 0;
+    const cy      = rect ? e.clientY - rect.top  - rect.height / 2 : 0;
+    const ratio   = next / inspectScale;
+    const rawPanX = cx + (inspectPanX - cx) * ratio;
+    const rawPanY = cy + (inspectPanY - cy) * ratio;
+    const [clampedX, clampedY] = clampInspectPan(next, rawPanX, rawPanY);
+    inspectScale = next;
+    inspectPanX  = clampedX;
+    inspectPanY  = clampedY;
   }
 
   function onKey(e: KeyboardEvent) {
@@ -814,8 +865,34 @@
 
   function handleTap(e: MouseEvent) {
     if (style === "longstrip") return;
+    if (inspectDragMoved) { inspectDragMoved = false; return; }
     const x = e.clientX / window.innerWidth;
     if (x > 0.6) goNext(); else if (x < 0.4) goPrev();
+  }
+
+  function onInspectMouseDown(e: MouseEvent) {
+    if (style === "longstrip" || inspectScale <= 1) return;
+    inspectDragging   = true;
+    inspectDragMoved  = false;
+    inspectDragStartX = e.clientX;
+    inspectDragStartY = e.clientY;
+    inspectPanStartX  = inspectPanX;
+    inspectPanStartY  = inspectPanY;
+    e.preventDefault();
+  }
+
+  function onInspectMouseMove(e: MouseEvent) {
+    if (!inspectDragging) return;
+    if (!inspectDragMoved && Math.abs(e.clientX - inspectDragStartX) + Math.abs(e.clientY - inspectDragStartY) > 4) inspectDragMoved = true;
+    const rawX = inspectPanStartX + (e.clientX - inspectDragStartX);
+    const rawY = inspectPanStartY + (e.clientY - inspectDragStartY);
+    const [cx, cy] = clampInspectPan(inspectScale, rawX, rawY);
+    inspectPanX = cx;
+    inspectPanY = cy;
+  }
+
+  function onInspectMouseUp() {
+    inspectDragging = false;
   }
 
   async function runDl(fn: () => Promise<unknown>) {
@@ -828,6 +905,8 @@
     showUi();
     window.addEventListener("keydown", onKey);
     window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("mousemove", onInspectMouseMove);
+    window.addEventListener("mouseup", onInspectMouseUp);
     containerEl?.focus({ preventScroll: true });
 
     let roTimer: ReturnType<typeof setTimeout> | null = null;
@@ -844,6 +923,8 @@
       if (roTimer) clearTimeout(roTimer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("mousemove", onInspectMouseMove);
+      window.removeEventListener("mouseup", onInspectMouseUp);
       cleanupScroll();
       ro.disconnect();
     };
@@ -1020,11 +1101,13 @@
     bind:this={containerEl}
     class="viewer"
     class:strip={style === "longstrip"}
+    class:inspect-active={inspectScale > 1}
     style={effectiveWidth != null ? `--effective-width:${effectiveWidth}px` : ""}
     role="presentation"
     tabindex="-1"
     onclick={handleTap}
-    onwheel={(e) => { if (e.ctrlKey) e.preventDefault(); }}
+    onmousedown={onInspectMouseDown}
+    onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
     onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); containerEl?.scrollBy({ top: containerEl.clientHeight * 0.85, behavior: "smooth" }); } }}
   >
 
@@ -1048,13 +1131,16 @@
       <div style="height:1px;flex-shrink:0"></div>
 
     {:else if style === "fade" && pageReady}
+      <div class="inspect-wrap" style="transform:scale({inspectScale}) translate({inspectPanX / inspectScale}px,{inspectPanY / inspectScale}px)">
       {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
         <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity:0" />
       {:then src}
         <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" />
       {/await}
+      </div>
 
     {:else if style === "double" && pageReady}
+      <div class="inspect-wrap" style="transform:scale({inspectScale}) translate({inspectPanX / inspectScale}px,{inspectPanY / inspectScale}px)">
       {#if pageGroups.length}
         <div class="double-wrap">
           {#each currentGroup as pg, i}
@@ -1068,13 +1154,16 @@
       {:else}
         <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
       {/if}
+      </div>
 
     {:else if pageReady}
+      <div class="inspect-wrap" style="transform:scale({inspectScale}) translate({inspectPanX / inspectScale}px,{inspectPanY / inspectScale}px)">
       {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
         <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
       {:then src}
         <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
       {/await}
+      </div>
     {/if}
   </div>
 
@@ -1239,6 +1328,10 @@
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
+  .viewer.inspect-active { cursor: grab; overflow: hidden; }
+  .viewer.inspect-active:active { cursor: grabbing; }
+
+  .inspect-wrap { display: flex; align-items: center; justify-content: center; transform-origin: center center; will-change: transform; }
 
   .img { display: block; user-select: none; image-rendering: auto; }
   .img.optimize-contrast { image-rendering: -webkit-optimize-contrast; }
