@@ -63,7 +63,7 @@
         </span>
         <div class="body">
           <p class="title">{t.title}</p>
-          {#if t.body}<p class="sub">{t.body}</p>{/if}
+          <p class="sub">{t.body ?? '\u00a0'}</p>
         </div>
       </div>
     {/each}
@@ -78,22 +78,21 @@
     z-index: 9999;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
     pointer-events: none;
-    max-width: 300px;
   }
 
   .toast {
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
-    padding: 10px var(--sp-3) 10px 0;
+    gap: 10px;
+    padding: 12px var(--sp-3) 12px 0;
     border-radius: var(--radius-md);
     background: var(--bg-raised);
     border: 1px solid var(--border-dim);
     box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.04) inset;
     pointer-events: all;
-    min-width: 200px;
+    width: 280px;
     overflow: hidden;
     cursor: pointer;
     font-family: inherit;
@@ -126,7 +125,7 @@
   @keyframes slideOut {
     0%   { opacity: 1; transform: translateX(0) scale(1);        max-height: var(--exit-h, 80px); margin-bottom: 0; }
     40%  { opacity: 0; transform: translateX(14px) scale(0.96);  max-height: var(--exit-h, 80px); margin-bottom: 0; }
-    100% { opacity: 0; transform: translateX(14px) scale(0.96);  max-height: 0;                   margin-bottom: -6px; }
+    100% { opacity: 0; transform: translateX(14px) scale(0.96);  max-height: 0;                   margin-bottom: -5px; }
   }
 
   .accent-bar {
@@ -134,7 +133,7 @@
     align-self: stretch;
     flex-shrink: 0;
     border-radius: 0 2px 2px 0;
-    margin-right: 2px;
+    margin-right: 0;
   }
 
   .toast-success  .accent-bar { background: var(--accent-fg); }
@@ -159,7 +158,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 3px;
   }
 
   .title {
@@ -168,7 +167,10 @@
     color: var(--text-secondary);
     font-weight: var(--weight-medium);
     letter-spacing: var(--tracking-wide);
-    line-height: 1.3;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .sub {
@@ -176,6 +178,7 @@
     font-size: var(--text-2xs);
     color: var(--text-faint);
     letter-spacing: var(--tracking-wide);
+    line-height: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

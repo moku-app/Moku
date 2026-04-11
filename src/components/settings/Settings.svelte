@@ -9,7 +9,7 @@
   import { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER, GET_SOURCES } from "../../lib/queries";
   import { GET_DOWNLOADS_PATH, SET_DOWNLOADS_PATH, SET_LOCAL_SOURCE_PATH, GET_TRACKERS, LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER, GET_TRACKER_RECORDS, GET_SERVER_SECURITY, SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "../../lib/queries";
   import type { Category, Source } from "../../lib/types";
-  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories } from "../../store/state.svelte";
+  import { store, updateSettings, resetKeybinds, clearHistory, wipeAllData, setSettingsOpen, deleteCustomTheme, toggleHiddenCategory, setCategories, addToast } from "../../store/state.svelte";
   import { authSession } from "../../lib/auth";
   import { cache } from "../../lib/cache";
   import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind } from "../../lib/keybinds";
@@ -325,7 +325,7 @@
      "Slice of Life","School Life","Martial Arts","Magic","Military"].forEach(g => checkKey(`genre:${g}`));
     perfSnapshot = { cacheEntries: entries, cacheKeys: foundKeys, oldestEntryMs: oldest, newestEntryMs: newest };
   }
-  $effect(() => { if (tab === "performance") refreshPerfMetrics(); });
+  $effect(() => { if (tab === "performance" || tab === "devtools") refreshPerfMetrics(); });
   function fmtAge(ts: number | null): string {
     if (ts === null) return "—";
     const secs = Math.floor((Date.now() - ts) / 1000);
@@ -1210,8 +1210,11 @@
                 <button role="switch" aria-checked={store.settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={store.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !store.settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Saved shows default folder</span><span class="toggle-desc">Saved tab shows only manga in Suwayomi's uncategorized folder</span></div>
-                <button role="switch" aria-checked={store.settings.savedIsDefaultCategory} aria-label="Saved shows default folder" class="toggle" class:on={store.settings.savedIsDefaultCategory} onclick={() => updateSettings({ savedIsDefaultCategory: !store.settings.savedIsDefaultCategory })}><span class="toggle-thumb"></span></button>
+                <div class="toggle-info">
+                  <span class="toggle-label">Show all in Saved tab</span>
+                  <span class="toggle-desc">Include manga that are in folders — lets you see your whole library in one place</span>
+                </div>
+                <button role="switch" aria-checked={store.settings.libraryShowAllInSaved ?? true} aria-label="Show all manga in Saved tab" class="toggle" class:on={store.settings.libraryShowAllInSaved ?? true} onclick={() => updateSettings({ libraryShowAllInSaved: !(store.settings.libraryShowAllInSaved ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -2181,19 +2184,42 @@
         {:else if tab === "devtools"}
           <div class="panel">
             <div class="section">
-              <p class="section-title">Splash Screen</p>
+              <p class="section-title">Toasts</p>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Preview idle screen</span><span class="toggle-desc">Show the idle splash — dismiss with any click or key</span></div>
-                <button class="danger-btn" onclick={triggerSplash}
-                  style={splashTriggered ? "background:var(--accent-fg);color:var(--bg-base);border-color:var(--accent-fg);transition:all 0.15s ease" : ""}>
-                  Show idle
-                </button>
+                <div class="toggle-info"><span class="toggle-label">Fire test toast</span><span class="toggle-desc">Triggers each kind with realistic content</span></div>
+                <div class="dev-pill-group">
+                  {#each ([["success","S"],["error","E"],["info","I"],["download","D"]] as const) as [kind, label]}
+                    <button class="dev-pill dev-pill-{kind}" onclick={() => addToast({
+                      kind,
+                      title: kind === "success" ? "Library updated" : kind === "error" ? "Could not reach server" : kind === "info" ? "Already up to date" : "Download complete",
+                      body:  kind === "success" ? "3 new chapters across 2 series" : kind === "error" ? "Connection refused on port 4567" : kind === "info" ? "No new chapters found" : "Berserk · Ch. 372 ready to read",
+                    })}>{label}</button>
+                  {/each}
+                </div>
               </div>
             </div>
             <div class="section">
-              <p class="section-title">Build Info</p>
-              <div class="about-block">
-                <p class="about-line" style="font-family:monospace;font-size:11px;color:var(--text-faint)">Mode: {import.meta.env.MODE}</p>
+              <p class="section-title">Previews</p>
+              <div class="step-row">
+                <div class="toggle-info"><span class="toggle-label">Idle splash</span><span class="toggle-desc">Dismiss with any click or key</span></div>
+                <button class="dev-btn" onclick={triggerSplash} style={splashTriggered ? "background:var(--accent-fg);color:var(--bg-base);border-color:var(--accent-fg)" : ""}>Show</button>
+              </div>
+            </div>
+            <div class="section">
+              <p class="section-title">Runtime</p>
+              <div class="dev-grid">
+                <span class="dev-key">Filter</span>
+                <span class="dev-val">{store.libraryFilter}</span>
+                <span class="dev-key">Folders</span>
+                <span class="dev-val">{store.categories.filter(c => c.id !== 0).map(c => c.name).join(", ") || "none"}</span>
+                <span class="dev-key">History</span>
+                <span class="dev-val">{store.history.length} entries</span>
+                <span class="dev-key">Cache</span>
+                <span class="dev-val">{perfSnapshot?.cacheEntries ?? "—"} entries</span>
+                <span class="dev-key">Toasts</span>
+                <span class="dev-val">{store.toasts.length} queued</span>
+                <span class="dev-key">Version</span>
+                <span class="dev-val">{appVersion} · {import.meta.env.MODE}</span>
               </div>
             </div>
           </div>
@@ -2255,6 +2281,19 @@
   .danger-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 12px; border-radius: var(--radius-md); border: 1px solid var(--color-error); background: none; color: var(--color-error); cursor: pointer; flex-shrink: 0; transition: background var(--t-base); }
   .danger-btn:hover:not(:disabled) { background: var(--color-error-bg); }
   .danger-btn:disabled { opacity: 0.3; cursor: default; }
+  .dev-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 5px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0; transition: background var(--t-base), border-color var(--t-base), color var(--t-base); }
+  .dev-btn:hover { background: var(--bg-overlay); border-color: var(--border-strong); color: var(--text-secondary); }
+  .dev-mono { font-family: monospace; font-size: 11px; color: var(--text-faint); flex-shrink: 0; }
+  .dev-pill-group { display: flex; gap: 4px; flex-shrink: 0; }
+  .dev-pill { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); font-weight: var(--weight-medium); width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast); display: flex; align-items: center; justify-content: center; }
+  .dev-pill:hover { background: var(--bg-overlay); color: var(--text-secondary); border-color: var(--border-strong); }
+  .dev-pill-success:hover  { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .dev-pill-error:hover    { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 40%, transparent); background: var(--color-error-bg); }
+  .dev-pill-info:hover     { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-overlay); }
+  .dev-pill-download:hover { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .dev-grid { display: grid; grid-template-columns: 64px 1fr; gap: 1px 12px; padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+  .dev-key { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-faint); padding: 4px 0; display: flex; align-items: center; }
+  .dev-val { font-family: monospace; font-size: 11px; color: var(--text-secondary); padding: 4px 0; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .scale-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); }
   .scale-slider { flex: 1; }
   .scale-val-input {

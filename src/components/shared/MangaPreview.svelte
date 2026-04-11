@@ -239,6 +239,11 @@
       addTo:      inCat ? [] : [cat.id],
       removeFrom: inCat ? [cat.id] : [],
     }).catch(console.error);
+    if (!inCat && !inLibrary) {
+      await gql(UPDATE_MANGA, { id: mangaId, inLibrary: true }).catch(console.error);
+      if (manga) manga = { ...manga, inLibrary: true };
+      cache.clear(CACHE_KEYS.LIBRARY);
+    }
     mangaCategories = inCat
       ? mangaCategories.filter(c => c.id !== cat.id)
       : [...mangaCategories, cat];
@@ -252,6 +257,11 @@
       const cat = res.createCategory.category;
       allCategories = [...allCategories, cat];
       await gql(UPDATE_MANGA_CATEGORIES, { mangaId: store.previewManga.id, addTo: [cat.id], removeFrom: [] });
+      if (!inLibrary) {
+        await gql(UPDATE_MANGA, { id: store.previewManga.id, inLibrary: true }).catch(console.error);
+        if (manga) manga = { ...manga, inLibrary: true };
+        cache.clear(CACHE_KEYS.LIBRARY);
+      }
       mangaCategories = [...mangaCategories, cat];
     } catch (e) { console.error(e); }
     newFolderName = ""; creatingFolder = false;

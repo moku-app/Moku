@@ -530,6 +530,10 @@
       const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name });
       const cat = res.createCategory.category;
       await gql(UPDATE_MANGA_CATEGORIES, { mangaId: store.activeManga.id, addTo: [cat.id], removeFrom: [] });
+      if (!manga?.inLibrary) {
+        await gql(UPDATE_MANGA, { id: store.activeManga.id, inLibrary: true }).catch(console.error);
+        if (manga) manga = { ...manga, inLibrary: true };
+      }
       allCategories   = [...allCategories, cat];
       mangaCategories = [...mangaCategories, cat];
     } catch (e) { console.error(e); }
@@ -545,6 +549,10 @@
         addTo:      inCat ? [] : [cat.id],
         removeFrom: inCat ? [cat.id] : [],
       });
+      if (!inCat && !manga?.inLibrary) {
+        await gql(UPDATE_MANGA, { id: store.activeManga.id, inLibrary: true }).catch(console.error);
+        if (manga) manga = { ...manga, inLibrary: true };
+      }
       mangaCategories = inCat ? mangaCategories.filter(c => c.id !== cat.id) : [...mangaCategories, cat];
     } catch (e) { console.error(e); }
   }

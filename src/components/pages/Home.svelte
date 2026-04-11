@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { Play, ArrowRight, ArrowLeft, BookOpen, Clock, Fire, TrendUp, CalendarBlank, CheckCircle, PushPin, X as XIcon, MagnifyingGlass, ListBullets } from "phosphor-svelte";
+  import { Play, ArrowRight, ArrowLeft, BookOpen, Clock, Fire, TrendUp, CalendarBlank, CheckCircle, PushPin, X as XIcon, MagnifyingGlass, ListBullets, Bell } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
   import { getBlobUrl } from "../../lib/imageCache";
   import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_LIBRARY, GET_CHAPTERS, GET_MANGA, GET_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS } from "../../lib/cache";
-  import { store, openReader, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter, setLibraryFilter } from "../../store/state.svelte";
+  import { store, openReader, setHeroSlot, setActiveManga, setPreviewManga, setNavPage, setGenreFilter, setLibraryFilter, clearLibraryUpdates } from "../../store/state.svelte";
   import type { HistoryEntry } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
   import { buildReaderChapterList } from "../../lib/chapterList";
@@ -36,26 +36,16 @@
   let libraryManga:       Manga[]            = $state([]);
   let extraManga:         Manga[]            = $state([]);
   let loadingLibrary:     boolean            = $state(true);
-  let completedCategory:  Category | null    = $state(null);
 
   onMount(() => {
     loadLibrary();
   });
 
   function loadLibrary() {
-    const libraryP  = cache.get(CACHE_KEYS.LIBRARY, () =>
+    cache.get(CACHE_KEYS.LIBRARY, () =>
       gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then(d => d.mangas.nodes)
-    );
-    const categoriesP = gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES)
-      .then(d => d.categories.nodes.find(c => c.name === "Completed") ?? null)
-      .catch(() => null);
-
-    Promise.all([libraryP, categoriesP])
-      .then(([m, completed]) => {
-        libraryManga      = m;
-        completedCategory = completed;
-        fetchExtraCompleted(m, completed);
-      })
+    )
+      .then(m => { libraryManga = m; })
       .catch(console.error)
       .finally(() => loadingLibrary = false);
   }
@@ -78,15 +68,6 @@
     if (sessionId === 0) return;
     untrack(() => resetAndReload());
   });
-
-  async function fetchExtraCompleted(library: Manga[], completed: Category | null) {
-    const completedIds = completed?.mangas?.nodes.map(m => m.id) ?? [];
-    const missingIds = completedIds.filter(id => !library.some(m => m.id === id));
-    if (!missingIds.length) return;
-    const results = await Promise.allSettled(missingIds.map(id => gql<{ manga: Manga }>(GET_MANGA, { id }).then(d => d.manga)));
-    const valid = results.flatMap(r => r.status === "fulfilled" && r.value ? [r.value] : []);
-    if (valid.length) extraManga = valid;
-  }
 
   const continueReading = $derived((() => {
     const seen = new Set<number>();
@@ -254,11 +235,20 @@
   function pinManga(m: Manga) { if (pickerSlotIndex !== null) { setHeroSlot(pickerSlotIndex, m.id); closePicker(); } }
   function unpinSlot(i: 1|2|3) { setHeroSlot(i, null); }
 
-  const completedIds   = $derived(completedCategory?.mangas?.nodes.map(m => m.id) ?? []);
-  const completedPool  = $derived([...libraryManga, ...extraManga.filter(m => !libraryManga.some(l => l.id === m.id))]);
-  const completedManga = $derived(completedIds.length > 0 ? completedPool.filter(m => completedIds.includes(m.id)).slice(0, 7) : []);
   const recentHistory  = $derived(store.history.slice(0, 6));
   const stats          = $derived(store.readingStats);
+  const libraryUpdates = $derived(store.libraryUpdates.slice(0, 7));
+  const lastRefresh    = $derived(store.lastLibraryRefresh);
+
+  function timeAgoRefresh(ts: number): string {
+    if (!ts) return "";
+    const diff = Date.now() - ts, m = Math.floor(diff / 60000);
+    if (m < 1)  return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
 
   function handleRowWheel(e: WheelEvent) {
     if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
@@ -450,28 +440,31 @@
     <div class="bottom-row">
       <div class="bottom-col">
         <div class="bottom-section-hd">
-          <span class="section-title"><CheckCircle size={10} weight="bold" /> Completed</span>
-          {#if completedManga.length > 0}
-            <button class="see-all" onclick={() => { if (completedCategory) setLibraryFilter(String(completedCategory.id)); store.navPage = "library"; }}>View all <ArrowRight size={9} weight="bold" /></button>
+          <span class="section-title"><Bell size={10} weight="bold" /> Updates
+            {#if lastRefresh}<span class="refresh-age">{timeAgoRefresh(lastRefresh)}</span>{/if}
+          </span>
+          {#if libraryUpdates.length > 0}
+            <button class="see-all" onclick={() => { clearLibraryUpdates(); setLibraryFilter("all"); setNavPage("library"); }}>Clear <ArrowRight size={9} weight="bold" /></button>
           {/if}
         </div>
-        {#if completedManga.length > 0}
+        {#if libraryUpdates.length > 0}
           <div class="mini-row" onwheel={(e) => { e.preventDefault(); handleRowWheel(e); }}>
-            {#each completedManga as m (m.id)}
-              <button class="mini-card" onclick={() => store.previewManga = m}>
+            {#each libraryUpdates as u (u.mangaId)}
+              {@const m = libraryManga.find(x => x.id === u.mangaId)}
+              <button class="mini-card" onclick={() => { if (m) store.previewManga = m; }}>
                 <div class="mini-cover-wrap">
-                  <Thumbnail src={m.thumbnailUrl} alt={m.title} class="mini-cover" />
+                  <Thumbnail src={u.thumbnailUrl} alt={u.mangaTitle} class="mini-cover" />
                   <div class="mini-gradient"></div>
                   <div class="mini-footer">
-                    <p class="mini-card-title">{m.title}</p>
-                    {#if m.source?.displayName}<p class="mini-card-source">{m.source.displayName}</p>{/if}
+                    <p class="mini-card-title">{u.mangaTitle}</p>
+                    <p class="mini-card-source">+{u.newChapters} chapter{u.newChapters !== 1 ? "s" : ""}</p>
                   </div>
                 </div>
               </button>
             {/each}
           </div>
         {:else}
-          <p class="bottom-empty">Finish a manga to see it here</p>
+          <p class="bottom-empty">{lastRefresh ? "No new chapters found" : "Check for updates in the library"}</p>
         {/if}
       </div>
 
@@ -486,7 +479,7 @@
           <div class="stat-card"><div class="stat-icon-wrap stat-accent"><BookOpen size={16} weight="light" /></div><div class="stat-body"><span class="stat-val">{stats.totalChaptersRead}</span><span class="stat-label">Chapters read</span></div></div>
           <div class="stat-card"><div class="stat-icon-wrap stat-neutral"><Clock size={16} weight="light" /></div><div class="stat-body"><span class="stat-val">{formatReadTime(stats.totalMinutesRead)}</span><span class="stat-label">Read time</span></div></div>
           <div class="stat-card"><div class="stat-icon-wrap stat-neutral"><TrendUp size={16} weight="light" /></div><div class="stat-body"><span class="stat-val">{stats.totalMangaRead}</span><span class="stat-label">Series started</span></div></div>
-          <div class="stat-card"><div class="stat-icon-wrap stat-green"><CheckCircle size={16} weight="light" /></div><div class="stat-body"><span class="stat-val">{completedIds.length}</span><span class="stat-label">Completed</span></div></div>
+          <div class="stat-card"><div class="stat-icon-wrap stat-green"><Bell size={16} weight="light" /></div><div class="stat-body"><span class="stat-val">{libraryUpdates.length}</span><span class="stat-label">New updates</span></div></div>
           <div class="stat-card"><div class="stat-icon-wrap stat-neutral"><CalendarBlank size={16} weight="light" /></div><div class="stat-body"><span class="stat-val">{stats.longestStreakDays}d</span><span class="stat-label">Best streak</span></div></div>
         </div>
       </div>
@@ -619,6 +612,7 @@
   .bottom-col:last-child  { padding-left:  var(--sp-4); }
   .bottom-section-hd { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--sp-2); }
   .bottom-empty { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-1) 0; }
+  .refresh-age { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); margin-left: var(--sp-2); }
   .mini-row { display: flex; flex-direction: row; gap: var(--sp-3); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding-bottom: var(--sp-1); }
   .mini-row::-webkit-scrollbar { display: none; }
   

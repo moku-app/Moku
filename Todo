@@ -12,13 +12,11 @@ Minor Revisions:
     - Patch Color-Picker to Work Properly
  - Integrate Download Directory Changes (Settings)
 
+
+
 Priority Bugs:
- - Cache ALL Cover Pictures & Details for Manga in Library
  - Fix Library Build not Updating
- - Check Auth System (Only Supports Basic-Auth)
  - Loading Buffer for Pictures (Due to Auth Lag)
- - Create Option for Saved in Library to Respect Default Constraints
-   - Additionally, Added Folders are Displayed in Suwayomi, but not registered in Suwayomi
 
 
 General/Misc Bugs:
@@ -32,8 +30,8 @@ General/Misc Bugs:
 In-Progress:
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
  
- - Add Scanlator Filtering -> Pass to Reader
- - Automations need to work in Reader (Auto-Delete does not)
+ - Saved needs Reading Frecency-Based Display too.
+ - Check-For-Updates needs Visual Display of Activation
 
 
 

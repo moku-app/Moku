@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut, SortAscending, Funnel, CaretUp, CaretDown, Check } from "phosphor-svelte";
+  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut, SortAscending, Funnel, CaretUp, CaretDown, Check, ArrowsClockwise } from "phosphor-svelte";
   import { gql, thumbUrl } from "../../lib/client";
-  import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER } from "../../lib/queries";
+  import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, UPDATE_MANGAS, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER, UPDATE_LIBRARY, LIBRARY_UPDATE_STATUS } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw } from "../../lib/util";
-  import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings, setCategories } from "../../store/state.svelte";
-  import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter, LibraryContentFilter } from "../../store/state.svelte";
+  import { store, setLibraryFilter, checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings, setCategories, setLibraryUpdates, addToast } from "../../store/state.svelte";
+  import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter, LibraryContentFilter, LibraryUpdateEntry } from "../../store/state.svelte";
   import type { Manga, Category, Chapter } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
   import Thumbnail from "../shared/Thumbnail.svelte";
@@ -275,11 +275,21 @@
       }));
       allManga = dedupeMangaByTitle(dedupeMangaById(mapped), store.settings.mangaLinks);
       error    = null;
+      await migrateCategorizedToLibrary();
     } catch (e: any) {
       error = e.message;
     } finally {
       loading = false;
     }
+  }
+
+  async function migrateCategorizedToLibrary() {
+    const allCatManga = store.categories.flatMap(c => c.mangas?.nodes ?? []);
+    const orphanIds   = [...new Set(allCatManga.filter(m => !m.inLibrary).map(m => m.id))];
+    if (!orphanIds.length) return;
+    await gql(UPDATE_MANGAS, { ids: orphanIds, inLibrary: true }).catch(console.error);
+    allManga = allManga.map(m => orphanIds.includes(m.id) ? { ...m, inLibrary: true } : m);
+    cache.clearGroup(CACHE_GROUPS.LIBRARY);
   }
 
   $effect(() => {
@@ -344,7 +354,13 @@
     // 1. Pick the right base list for this tab
     let items: Manga[];
     if (store.libraryFilter === "library") {
-      items = store.settings.savedIsDefaultCategory ? (categoryMangaMap.get(0) ?? []) : allManga;
+      // "Saved" shows all in-library manga so that manga in folders are still visible here.
+      // If the user prefers the old behaviour (only uncategorised), they can toggle it off in settings.
+      if (store.settings.libraryShowAllInSaved ?? true) {
+        items = allManga.filter(m => m.inLibrary);
+      } else {
+        items = categoryMangaMap.get(0) ?? [];
+      }
     } else if (store.libraryFilter === "downloaded") {
       items = allManga.filter(m => (m.downloadCount ?? 0) > 0);
     } else {
@@ -424,7 +440,9 @@
 
   const counts = $derived((() => {
     const m: Record<string, number> = {
-      library:    store.settings.savedIsDefaultCategory ? (categoryMangaMap.get(0) ?? []).length : allManga.length,
+      library:    (store.settings.libraryShowAllInSaved ?? true)
+        ? allManga.filter(x => x.inLibrary).length
+        : (categoryMangaMap.get(0) ?? []).length,
       downloaded: allManga.filter(m => (m.downloadCount ?? 0) > 0).length,
     };
     for (const cat of visibleCategories) {
@@ -542,6 +560,11 @@
         addTo:      inCat ? [] : [cat.id],
         removeFrom: inCat ? [cat.id] : [],
       });
+      if (!inCat && !manga.inLibrary) {
+        await gql(UPDATE_MANGA, { id: manga.id, inLibrary: true });
+        allManga = allManga.map(m => m.id === manga.id ? { ...m, inLibrary: true } : m);
+        cache.clearGroup(CACHE_GROUPS.LIBRARY);
+      }
       await reloadCategories();
     } catch (e) {
       console.error(e);
@@ -556,6 +579,11 @@
       const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name: name.trim() });
       const cat = res.createCategory.category;
       await gql(UPDATE_MANGA_CATEGORIES, { mangaId: manga.id, addTo: [cat.id], removeFrom: [] });
+      if (!manga.inLibrary) {
+        await gql(UPDATE_MANGA, { id: manga.id, inLibrary: true });
+        allManga = allManga.map(m => m.id === manga.id ? { ...m, inLibrary: true } : m);
+        cache.clearGroup(CACHE_GROUPS.LIBRARY);
+      }
       await reloadCategories();
     } catch (e) { console.error(e); }
   }
@@ -610,6 +638,92 @@
     await reloadCategories();
   }
 
+  let refreshing:     boolean = $state(false);
+  let refreshProgress = $state({ finished: 0, total: 0 });
+  let pollTimer:      ReturnType<typeof setTimeout> | null = null;
+  let refreshDone:    boolean = $state(false); // brief "done" flash on button
+  let refreshDoneTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showToast(newChapters: number, totalUpdated: number) {
+    if (newChapters > 0) {
+      addToast({ kind: "success", title: "Library updated", body: `${newChapters} new chapter${newChapters !== 1 ? "s" : ""} across ${totalUpdated} series` });
+    } else {
+      addToast({ kind: "info", title: "Already up to date", body: "No new chapters found" });
+    }
+  }
+
+  async function startLibraryRefresh() {
+    if (refreshing) return;
+    refreshing = true;
+    refreshProgress = { finished: 0, total: 0 };
+
+    const prevCounts = new Map(allManga.map(m => [m.id, m.unreadCount ?? 0]));
+
+    let seenWork = false;
+    try {
+      const updateRes = await gql<{ updateLibrary: { updateStatus: { jobsInfo: { isRunning: boolean; totalJobs: number } } } }>(UPDATE_LIBRARY, {});
+      seenWork = updateRes.updateLibrary.updateStatus.jobsInfo.totalJobs > 0;
+    } catch {
+      refreshing = false;
+      return;
+    }
+
+    pollTimer = setTimeout(function poll() {
+      gql<{ libraryUpdateStatus: {
+        jobsInfo: { isRunning: boolean; finishedJobs: number; totalJobs: number };
+        mangaUpdates: { status: string; manga: { id: number; title: string; thumbnailUrl: string; unreadCount: number } }[];
+      } }>(LIBRARY_UPDATE_STATUS, {})
+        .then(d => {
+          const { jobsInfo, mangaUpdates } = d.libraryUpdateStatus;
+          refreshProgress = { finished: jobsInfo.finishedJobs, total: jobsInfo.totalJobs };
+
+          if (jobsInfo.totalJobs > 0) seenWork = true;
+
+          if (!jobsInfo.isRunning && seenWork) {
+            refreshing = false;
+            pollTimer  = null;
+
+            const entries: LibraryUpdateEntry[] = mangaUpdates
+              .filter(u => u.status === "FINISHED")
+              .reduce<LibraryUpdateEntry[]>((acc, u) => {
+                const prev       = prevCounts.get(u.manga.id) ?? 0;
+                const newChapters = Math.max(0, (u.manga.unreadCount ?? 0) - prev);
+                if (newChapters > 0) {
+                  acc.push({
+                    mangaId:      u.manga.id,
+                    mangaTitle:   u.manga.title,
+                    thumbnailUrl: u.manga.thumbnailUrl,
+                    newChapters,
+                    checkedAt:    Date.now(),
+                  });
+                }
+                return acc;
+              }, []);
+
+            setLibraryUpdates(entries);
+            cache.clearGroup(CACHE_GROUPS.LIBRARY);
+            loadData();
+
+            // Done flash on button
+            refreshDone = true;
+            if (refreshDoneTimer) clearTimeout(refreshDoneTimer);
+            refreshDoneTimer = setTimeout(() => { refreshDone = false; }, 2500);
+
+            // Toast summary
+            const totalNew = entries.reduce((s, e) => s + e.newChapters, 0);
+            showToast(totalNew, entries.length);
+            return;
+          }
+
+          pollTimer = setTimeout(poll, 3000);
+        })
+        .catch(() => {
+          refreshing = false;
+          pollTimer  = null;
+        });
+    }, 2000);
+  }
+
   onMount(() => {
     const ro = new ResizeObserver(([e]) => containerWidth = e.contentRect.width);
     ro.observe(scrollEl);
@@ -644,6 +758,7 @@
     return () => {
       ro.disconnect();
       unsub();
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("mousedown", onDocMouseDown, true);
     };
@@ -739,7 +854,19 @@
           <input class="search" placeholder="Search" bind:value={search} />
         </div>
 
-        <!-- Sort panel -->
+        <button
+          class="icon-btn refresh-btn"
+          class:icon-btn-active={refreshing}
+          class:refresh-btn-done={refreshDone}
+          title={refreshing ? `Checking… ${refreshProgress.finished}/${refreshProgress.total}` : refreshDone ? "Library updated" : "Check for updates"}
+          disabled={refreshing}
+          onclick={startLibraryRefresh}
+        >
+          <ArrowsClockwise size={15} weight="bold" class={refreshing ? "anim-spin" : ""} />
+          {#if refreshing && refreshProgress.total > 0}
+            <span class="refresh-progress">{refreshProgress.finished}/{refreshProgress.total}</span>
+          {/if}
+        </button>
         <div class="sort-panel-wrap">
           <button
             class="icon-btn"
@@ -842,6 +969,14 @@
         </div>
       </div>
     </div>
+
+    <!-- ── Refresh progress bar ──────────────────────────────────────────────── -->
+    {#if refreshing && refreshProgress.total > 0}
+      {@const pct = Math.round((refreshProgress.finished / refreshProgress.total) * 100)}
+      <div class="refresh-bar-wrap" aria-hidden="true">
+        <div class="refresh-bar-fill" style="width:{pct}%"></div>
+      </div>
+    {/if}
 
     <!-- ── Selection toolbar ───────────────────────────────────────────────── -->
     {#if selectMode}
@@ -991,6 +1126,9 @@
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .icon-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
   .icon-btn-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .refresh-btn { gap: var(--sp-1); width: auto; padding: 0 8px; }
+  .refresh-btn:disabled { cursor: default; }
+  .refresh-progress { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--accent-fg); }
 
   /* ── Dropdown panels (shared) ───────────────────────────────────────────── */
   .sort-panel-wrap,
@@ -1067,5 +1205,12 @@
   .error-msg { color: var(--color-error); font-size: var(--text-base); }
   .error-detail { color: var(--text-faint); font-size: var(--text-sm); }
   .retry-btn { margin-top: var(--sp-3); padding: 6px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); }
+  /* ── Refresh progress bar ───────────────────────────────────────────────── */
+  .refresh-bar-wrap { height: 2px; background: var(--border-dim); flex-shrink: 0; overflow: hidden; }
+  .refresh-bar-fill { height: 100%; background: var(--accent); border-radius: 0 2px 2px 0; transition: width 0.6s ease; }
+
+  /* Done flash on button */
+  .refresh-btn-done { color: var(--color-success, #5cae6e) !important; border-color: color-mix(in srgb, var(--color-success, #5cae6e) 40%, transparent) !important; background: color-mix(in srgb, var(--color-success, #5cae6e) 10%, transparent) !important; }
+
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 </style>

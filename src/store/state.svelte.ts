@@ -154,6 +154,14 @@ export interface ReadingStats {
   lastStreakDate:    string;
 }
 
+export interface LibraryUpdateEntry {
+  mangaId:      number;
+  mangaTitle:   string;
+  thumbnailUrl: string;
+  newChapters:  number;
+  checkedAt:    number;
+}
+
 const AVG_MIN_PER_CHAPTER = 5;
 
 export const DEFAULT_READING_STATS: ReadingStats = {
@@ -438,18 +446,23 @@ class Store {
   discoverCache:   Map<string, any> = $state(new Map());
   discoverLibraryIds: Set<number>  = $state(new Set());
   discoverSrcOffset: number        = $state(0);
+  readerSessionId: number          = $state(0);
+  libraryUpdates:  LibraryUpdateEntry[] = $state(saved?.libraryUpdates ?? []);
+  lastLibraryRefresh: number       = $state(saved?.lastLibraryRefresh ?? 0);
 
   constructor() {
     $effect.root(() => {
       $effect(() => {
         persist({
-          settings:     this.settings,
-          history:      this.history,
-          bookmarks:    this.bookmarks,
-          markers:      this.markers,
-          readLog:      this.readLog,
-          readingStats: this.readingStats,
-          storeVersion: STORE_VERSION,
+          settings:           this.settings,
+          history:            this.history,
+          bookmarks:          this.bookmarks,
+          markers:            this.markers,
+          readLog:            this.readLog,
+          readingStats:       this.readingStats,
+          libraryUpdates:     this.libraryUpdates,
+          lastLibraryRefresh: this.lastLibraryRefresh,
+          storeVersion:       STORE_VERSION,
         });
       });
     });
@@ -672,6 +685,20 @@ class Store {
     this.discoverLibraryIds = new Set();
     this.discoverSrcOffset++;
   }
+
+  setLibraryUpdates(entries: LibraryUpdateEntry[]) {
+    this.libraryUpdates     = entries;
+    this.lastLibraryRefresh = Date.now();
+  }
+
+  clearLibraryUpdates() {
+    this.libraryUpdates     = [];
+    this.lastLibraryRefresh = 0;
+  }
+
+  bumpReaderSession() {
+    this.readerSessionId++;
+  }
 }
 
 export const store = new Store();
@@ -704,6 +731,9 @@ export function setSettingsOpen(next: boolean)                             { sto
 export function updateSettings(patch: Partial<Settings>)                   { store.updateSettings(patch); }
 export function resetKeybinds()                                            { store.resetKeybinds(); }
 export function clearDiscoverCache()                                         { store.clearDiscoverCache(); }
+export function setLibraryUpdates(entries: LibraryUpdateEntry[])             { store.setLibraryUpdates(entries); }
+export function clearLibraryUpdates()                                        { store.clearLibraryUpdates(); }
+export function bumpReaderSession()                                          { store.bumpReaderSession(); }
 export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) { store.addBookmark(entry, label); }
 export function removeBookmark(chapterId: number)                              { store.removeBookmark(chapterId); }
 export function clearBookmarks()                                               { store.clearBookmarks(); }

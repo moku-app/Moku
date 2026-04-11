@@ -127,6 +127,17 @@ export const UPDATE_MANGA = `
   }
 `;
 
+export const UPDATE_MANGAS = `
+  mutation UpdateMangas($ids: [Int!]!, $inLibrary: Boolean) {
+    updateMangas(input: { ids: $ids, patch: { inLibrary: $inLibrary } }) {
+      mangas {
+        id
+        inLibrary
+      }
+    }
+  }
+`;
+
 export const MARK_CHAPTER_READ = `
   mutation MarkChapterRead($id: Int!, $isRead: Boolean!) {
     updateChapter(input: { id: $id, patch: { isRead: $isRead } }) {
@@ -902,6 +913,42 @@ export const REFRESH_TOKEN = `
   mutation RefreshToken {
     refreshToken {
       accessToken
+    }
+  }
+`;
+
+export const UPDATE_LIBRARY = `
+  mutation UpdateLibrary {
+    updateLibrary(input: {}) {
+      updateStatus {
+        jobsInfo {
+          isRunning
+          finishedJobs
+          totalJobs
+        }
+      }
+    }
+  }
+`;
+
+export const LIBRARY_UPDATE_STATUS = `
+  query LibraryUpdateStatus {
+    libraryUpdateStatus {
+      jobsInfo {
+        isRunning
+        finishedJobs
+        totalJobs
+        skippedMangasCount
+      }
+      mangaUpdates {
+        status
+        manga {
+          id
+          title
+          thumbnailUrl
+          unreadCount
+        }
+      }
     }
   }
 `;
