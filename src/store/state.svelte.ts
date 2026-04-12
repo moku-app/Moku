@@ -449,20 +449,22 @@ class Store {
   readerSessionId: number          = $state(0);
   libraryUpdates:  LibraryUpdateEntry[] = $state(saved?.libraryUpdates ?? []);
   lastLibraryRefresh: number       = $state(saved?.lastLibraryRefresh ?? 0);
+  acknowledgedUpdates: Set<number> = $state(new Set(saved?.acknowledgedUpdateIds ?? []));
 
   constructor() {
     $effect.root(() => {
       $effect(() => {
         persist({
-          settings:           this.settings,
-          history:            this.history,
-          bookmarks:          this.bookmarks,
-          markers:            this.markers,
-          readLog:            this.readLog,
-          readingStats:       this.readingStats,
-          libraryUpdates:     this.libraryUpdates,
-          lastLibraryRefresh: this.lastLibraryRefresh,
-          storeVersion:       STORE_VERSION,
+          settings:              this.settings,
+          history:               this.history,
+          bookmarks:             this.bookmarks,
+          markers:               this.markers,
+          readLog:               this.readLog,
+          readingStats:          this.readingStats,
+          libraryUpdates:        this.libraryUpdates,
+          lastLibraryRefresh:    this.lastLibraryRefresh,
+          acknowledgedUpdateIds: [...this.acknowledgedUpdates],
+          storeVersion:          STORE_VERSION,
         });
       });
     });
@@ -692,8 +694,14 @@ class Store {
   }
 
   clearLibraryUpdates() {
-    this.libraryUpdates     = [];
-    this.lastLibraryRefresh = 0;
+    this.libraryUpdates      = [];
+    this.lastLibraryRefresh  = 0;
+    this.acknowledgedUpdates = new Set();
+  }
+
+  acknowledgeUpdate(mangaId: number) {
+    if (this.acknowledgedUpdates.has(mangaId)) return;
+    this.acknowledgedUpdates = new Set([...this.acknowledgedUpdates, mangaId]);
   }
 
   bumpReaderSession() {
@@ -733,6 +741,7 @@ export function resetKeybinds()                                            { sto
 export function clearDiscoverCache()                                         { store.clearDiscoverCache(); }
 export function setLibraryUpdates(entries: LibraryUpdateEntry[])             { store.setLibraryUpdates(entries); }
 export function clearLibraryUpdates()                                        { store.clearLibraryUpdates(); }
+export function acknowledgeUpdate(mangaId: number)                           { store.acknowledgeUpdate(mangaId); }
 export function bumpReaderSession()                                          { store.bumpReaderSession(); }
 export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) { store.addBookmark(entry, label); }
 export function removeBookmark(chapterId: number)                              { store.removeBookmark(chapterId); }

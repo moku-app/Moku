@@ -6,7 +6,7 @@
   import { GET_MANGA, GET_CHAPTERS, FETCH_CHAPTERS, ENQUEUE_DOWNLOAD, UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS, ENQUEUE_CHAPTERS_DOWNLOAD, GET_ALL_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
   import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle } from "../../lib/util";
-  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, setPreviewManga, checkAndMarkCompleted as storeCheckAndMarkCompleted, clearMarkersForManga, addBookmark } from "../../store/state.svelte";
+  import { store, addToast, updateSettings, openReader, setActiveManga, setGenreFilter, setNavPage, linkManga, unlinkManga, setPreviewManga, checkAndMarkCompleted as storeCheckAndMarkCompleted, clearMarkersForManga, addBookmark, acknowledgeUpdate } from "../../store/state.svelte";
   import type { MangaPrefs } from "../../store/state.svelte";
   import { DEFAULT_MANGA_PREFS } from "../../store/state.svelte";
   import type { Manga, Chapter, Category } from "../../lib/types";
@@ -326,7 +326,7 @@
 
   $effect(() => {
     const m = store.activeManga;
-    if (m) untrack(() => { loadManga(m.id); loadChapters(m.id); loadCategories(m.id); });
+    if (m) untrack(() => { acknowledgeUpdate(m.id); loadManga(m.id); loadChapters(m.id); loadCategories(m.id); });
   });
 
   let prevChapterId: number | null = null;
