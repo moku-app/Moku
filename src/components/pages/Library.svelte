@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut, SortAscending, Funnel, CaretUp, CaretDown, Check, ArrowsClockwise } from "phosphor-svelte";
+  import { MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimple, FolderSimplePlus, Trash, Star, CheckSquare, X, ArrowSquareOut, SortAscending, Funnel, CaretUp, CaretDown, Check, ArrowsClockwise } from "phosphor-svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { gql, thumbUrl } from "../../lib/client";
   import { GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, UPDATE_MANGAS, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_CATEGORY_ORDER, UPDATE_LIBRARY, LIBRARY_UPDATE_STATUS } from "../../lib/queries";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "../../lib/cache";
@@ -596,7 +597,45 @@
     ctx = { x: e.clientX, y: e.clientY, manga: m };
   }
 
-  function buildCtxItems(m: Manga): MenuEntry[] {
+  function sanitize(s: string) { return s.replace(/[\/\\?%*:|"<>]/g, "_"); }
+
+  async function openMangaFolder(m: Manga) {
+    let base = store.settings.serverDownloadsPath?.trim();
+    if (!base) {
+      try { base = await invoke<string>("get_default_downloads_path"); } catch {}
+    }
+    if (!base) {
+      addToast({ kind: "error", title: "No downloads path set", body: "Configure it in Settings → Storage" });
+      return;
+    }
+    const source = m.source?.displayName ?? m.source?.name ?? "";
+    const path   = source
+      ? `${base}/mangas/${sanitize(source)}/${sanitize(m.title)}`
+      : `${base}/mangas/${sanitize(m.title)}`;
+    try {
+      await invoke("open_path", { path });
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Could not open folder", body: e?.toString?.() ?? path });
+    }
+  }
+
+  async function openDownloadsFolder() {
+    let path = store.settings.serverDownloadsPath?.trim();
+    if (!path) {
+      try { path = await invoke<string>("get_default_downloads_path"); } catch {}
+    }
+    if (!path) {
+      addToast({ kind: "error", title: "No downloads path set", body: "Configure it in Settings → Storage" });
+      return;
+    }
+    try {
+      await invoke("open_path", { path });
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Could not open folder", body: e?.toString?.() ?? path });
+    }
+  }
+
+    function buildCtxItems(m: Manga): MenuEntry[] {
     const catEntries: MenuEntry[] = visibleCategories.map(cat => {
       const inCat = (categoryMangaMap.get(cat.id) ?? []).some(x => x.id === m.id);
       return {
@@ -607,6 +646,7 @@
     });
     return [
       { label: m.inLibrary ? "Remove from library" : "Add to library", icon: Books, onClick: () => m.inLibrary ? removeFromLibrary(m) : gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).then(() => { allManga = allManga.map(x => x.id === m.id ? { ...x, inLibrary: true } : x); cache.clear(CACHE_KEYS.LIBRARY); }).catch(console.error) },
+      { label: "Open in file manager", icon: ArrowSquareOut, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => openMangaFolder(m) },
       { label: "Delete all downloads", icon: Trash, danger: true, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => deleteAllDownloads(m) },
       { separator: true },
       { label: "Select this manga", icon: CheckSquare, onClick: () => enterSelectMode(m.id) },
@@ -866,6 +906,13 @@
           {#if refreshing && refreshProgress.total > 0}
             <span class="refresh-progress">{refreshProgress.finished}/{refreshProgress.total}</span>
           {/if}
+        </button>
+        <button
+          class="icon-btn"
+          title="Open downloads folder"
+          onclick={openDownloadsFolder}
+        >
+          <FolderSimple size={15} weight="bold" />
         </button>
         <div class="sort-panel-wrap">
           <button
