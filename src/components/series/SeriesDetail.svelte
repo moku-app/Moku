@@ -558,11 +558,13 @@
   }
 
   function openReaderWithAhead(ch: Chapter, list: Chapter[], type?: "start" | "continue" | "reread", resumePage?: number | null) {
+    const ascList = [...list].sort((a, b) => a.sourceOrder - b.sourceOrder);
+
     const ahead = getPref("downloadAhead");
     if (ahead > 0) {
-      const idx = list.indexOf(ch);
+      const idx = ascList.indexOf(ch);
       if (idx >= 0) {
-        const toQueue = list.slice(idx + 1, idx + 1 + ahead).filter(c => !c.isDownloaded).map(c => c.id);
+        const toQueue = ascList.slice(idx + 1, idx + 1 + ahead).filter(c => !c.isDownloaded).map(c => c.id);
         if (toQueue.length) enqueueMultiple(toQueue);
       }
     }
@@ -579,7 +581,7 @@
         });
       }
     }
-    openReader(ch, list);
+    openReader(ch, ascList);
   }
 
   async function openLinkPicker() {
