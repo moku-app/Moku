@@ -858,12 +858,12 @@
           class="icon-btn refresh-btn"
           class:icon-btn-active={refreshing}
           class:refresh-btn-done={refreshDone}
-          title={refreshing ? (refreshProgress.finished > 0 ? `Checking… ${refreshProgress.finished}/${refreshProgress.total}` : "Checking…") : refreshDone ? "Library updated" : "Check for updates"}
+          title={refreshing ? `Checking… ${refreshProgress.finished}/${refreshProgress.total}` : refreshDone ? "Library updated" : "Check for updates"}
           disabled={refreshing}
           onclick={startLibraryRefresh}
         >
           <ArrowsClockwise size={15} weight="bold" class={refreshing ? "anim-spin" : ""} />
-          {#if refreshing && refreshProgress.finished > 0}
+          {#if refreshing && refreshProgress.total > 0}
             <span class="refresh-progress">{refreshProgress.finished}/{refreshProgress.total}</span>
           {/if}
         </button>
@@ -971,7 +971,7 @@
     </div>
 
     <!-- ── Refresh progress bar ──────────────────────────────────────────────── -->
-    {#if refreshing && refreshProgress.finished > 0}
+    {#if refreshing && refreshProgress.total > 0}
       {@const pct = Math.round((refreshProgress.finished / refreshProgress.total) * 100)}
       <div class="refresh-bar-wrap" aria-hidden="true">
         <div class="refresh-bar-fill" style="width:{pct}%"></div>
@@ -1059,9 +1059,6 @@
               <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" draggable="false" />
               {#if m.downloadCount}<span class="badge-dl">{m.downloadCount}</span>{/if}
               {#if m.unreadCount}<span class="badge-unread">{m.unreadCount}</span>{/if}
-              {#if store.libraryUpdates.some(u => u.mangaId === m.id) && !store.acknowledgedUpdates.has(m.id)}
-                <span class="badge-new" aria-label="New chapters"></span>
-              {/if}
               {#if selectMode}
                 <div class="select-overlay" aria-hidden="true">
                   <div class="select-check" class:checked={isSelected}>
@@ -1189,7 +1186,6 @@
   .cover { width: 100%; height: 100%; transition: filter var(--t-base); will-change: filter; }
   .badge-dl { position: absolute; bottom: var(--sp-1); right: var(--sp-1); min-width: 18px; height: 18px; padding: 0 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--accent-dim); color: var(--accent-fg); border-radius: var(--radius-sm); border: 1px solid var(--accent-muted); }
   .badge-unread { position: absolute; top: var(--sp-1); left: var(--sp-1); min-width: 18px; height: 18px; padding: 0 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--bg-void); color: var(--text-primary); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); }
-  .badge-new { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-fg); border: 2px solid var(--bg-base); box-shadow: 0 0 6px var(--accent); }
 
   /* Select overlay (checkbox) */
   .select-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.18); display: flex; align-items: flex-start; justify-content: flex-end; padding: 6px; pointer-events: none; }
