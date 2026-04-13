@@ -931,6 +931,53 @@ export const UPDATE_LIBRARY = `
   }
 `;
 
+// ── Backup ────────────────────────────────────────────────────────────────────
+
+export const CREATE_BACKUP = `
+  mutation CreateBackup {
+    createBackup(input: {}) {
+      url
+    }
+  }
+`;
+
+export const RESTORE_BACKUP = `
+  mutation RestoreBackup($backup: Upload!) {
+    restoreBackup(input: { backup: $backup }) {
+      id
+      status {
+        mangaProgress
+        state
+        totalManga
+      }
+    }
+  }
+`;
+
+export const GET_RESTORE_STATUS = `
+  query GetRestoreStatus($id: String!) {
+    restoreStatus(id: $id) {
+      mangaProgress
+      state
+      totalManga
+    }
+  }
+`;
+
+export const VALIDATE_BACKUP = `
+  query ValidateBackup($backup: Upload!) {
+    validateBackup(input: { backup: $backup }) {
+      missingSources {
+        id
+        name
+      }
+      missingTrackers {
+        name
+      }
+    }
+  }
+`;
+
 export const LIBRARY_UPDATE_STATUS = `
   query LibraryUpdateStatus {
     libraryUpdateStatus {
