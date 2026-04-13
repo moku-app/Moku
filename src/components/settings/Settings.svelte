@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush, ListChecks, Lock, Eye, EyeSlash, Star, ShieldCheck, Tag, ClockCounterClockwise } from "phosphor-svelte";
+  import ThreeDCard from "../shared/ThreeDCard.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
@@ -428,6 +429,7 @@
     return () => document.removeEventListener("mousedown", onSelectOutside);
   });
   let splashTriggered = $state(false);
+  let expOpen         = $state(false);
   let showAuthPass     = $state(false);
   let showSocksPass    = $state(false);
   let pinInput         = $state(store.settings.appLockPin ?? "");
@@ -1186,23 +1188,25 @@
               <div class="theme-grid">
                 {#each THEMES as theme}
                   {@const active = (store.settings.theme ?? "dark") === theme.id}
-                  <button class="theme-card" class:active onclick={() => updateSettings({ theme: theme.id })} title={theme.description}>
-                    <div class="theme-preview">
-                      <div class="theme-preview-bg" style="background:{theme.swatches[0]}">
-                        <div class="theme-preview-sidebar" style="background:{theme.swatches[1]}"></div>
-                        <div class="theme-preview-content">
-                          <div class="theme-preview-accent" style="background:{theme.swatches[2]}"></div>
-                          <div class="theme-preview-text" style="background:{theme.swatches[3]}55"></div>
-                          <div class="theme-preview-text" style="background:{theme.swatches[3]}33;width:60%"></div>
+                  <div class="theme-card{active ? ' active' : ''}">
+                    <button class="theme-card-inner" onclick={() => updateSettings({ theme: theme.id })} title={theme.description}>
+                      <div class="theme-preview">
+                        <div class="theme-preview-bg" style="background:{theme.swatches[0]}">
+                          <div class="theme-preview-sidebar" style="background:{theme.swatches[1]}"></div>
+                          <div class="theme-preview-content">
+                            <div class="theme-preview-accent" style="background:{theme.swatches[2]}"></div>
+                            <div class="theme-preview-text" style="background:{theme.swatches[3]}55"></div>
+                            <div class="theme-preview-text" style="background:{theme.swatches[3]}33;width:60%"></div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="theme-card-info">
-                      <span class="theme-card-label">{theme.label}</span>
-                      <span class="theme-card-desc">{theme.description}</span>
-                    </div>
-                    {#if active}<span class="theme-card-check">✓</span>{/if}
-                  </button>
+                      <div class="theme-card-info">
+                        <span class="theme-card-label">{theme.label}</span>
+                        <span class="theme-card-desc">{theme.description}</span>
+                      </div>
+                      {#if active}<span class="theme-card-check">✓</span>{/if}
+                    </button>
+                  </div>
                 {/each}
                 {#each store.settings.customThemes ?? [] as custom}
                   {@const active = store.settings.theme === custom.id}
@@ -2533,6 +2537,32 @@
               </div>
             </div>
             <div class="section">
+              <button class="exp-disclosure" onclick={() => expOpen = !expOpen} aria-expanded={expOpen}>
+                <span class="exp-disclosure-label">Experimental</span>
+                <svg class="exp-caret" class:open={expOpen} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+              </button>
+              {#if expOpen}
+                <div class="exp-body">
+                  <p class="exp-hint">3D tilt cards — hover to preview</p>
+                  <div class="exp-demo-wrap">
+                    {#each [
+                      { title: "Berserk",         sub: "Ch. 372", hue: "265" },
+                      { title: "Vinland Saga",    sub: "Ch. 208", hue: "200" },
+                      { title: "Dungeon Meshi",   sub: "Ch. 97",  hue: "140" },
+                    ] as card}
+                      <ThreeDCard class="exp-demo-card">
+                        <div class="exp-demo-cover" style="--hue:{card.hue}"></div>
+                        <div class="exp-demo-info">
+                          <span class="exp-demo-title">{card.title}</span>
+                          <span class="exp-demo-sub">{card.sub}</span>
+                        </div>
+                      </ThreeDCard>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            </div>
+            <div class="section">
               <p class="section-title">Runtime</p>
               <div class="dev-grid">
                 <span class="dev-key">Filter</span>
@@ -2805,6 +2835,36 @@
   .dev-key { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-faint); padding: 4px 0; display: flex; align-items: center; }
   .dev-val { font-family: monospace; font-size: 11px; color: var(--text-secondary); padding: 4px 0; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+  /* ── Experimental disclosure ─────────────────────────────────────────────── */
+  .exp-disclosure {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; padding: var(--sp-2) var(--sp-3);
+    background: none; border: none; cursor: pointer;
+    color: var(--text-faint); transition: color var(--t-fast);
+  }
+  .exp-disclosure:hover { color: var(--text-secondary); }
+  .exp-disclosure-label { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
+  .exp-caret { transition: transform 0.18s ease; flex-shrink: 0; }
+  .exp-caret.open { transform: rotate(180deg); }
+  .exp-body { padding: 0 var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+  .exp-hint { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .exp-demo-wrap { display: flex; justify-content: center; gap: var(--sp-3); padding: var(--sp-2) 0; }
+  :global(.exp-demo-card) {
+    width: 90px; border-radius: var(--radius-lg);
+    background: var(--bg-raised); border: 1px solid var(--border-dim);
+  }
+  .exp-demo-cover {
+    height: 120px;
+    background: linear-gradient(160deg,
+      hsl(var(--hue, 220) 30% 18%) 0%,
+      hsl(var(--hue, 220) 40% 28%) 100%
+    );
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .exp-demo-info { padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .exp-demo-title { font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .exp-demo-sub   { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+
   /* ── Scale / zoom control ────────────────────────────────────────────────── */
   .scale-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); }
   .scale-slider { flex: 1; accent-color: var(--accent); }
@@ -2831,14 +2891,15 @@
 
   /* ── Theme grid ──────────────────────────────────────────────────────────── */
   .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(134px, 1fr)); gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); }
-  .theme-card {
+  :global(.theme-card) {
     background: var(--bg-raised); border: 1px solid var(--border-dim);
     border-radius: var(--radius-lg); overflow: hidden; cursor: pointer;
     text-align: left; transition: border-color var(--t-base), box-shadow var(--t-base);
     position: relative;
   }
-  .theme-card:hover { border-color: var(--border-strong); box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
-  .theme-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  :global(.theme-card:hover) { border-color: var(--border-strong); box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
+  :global(.theme-card.active) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .theme-card-inner { display: flex; flex-direction: column; width: 100%; background: none; border: none; cursor: pointer; text-align: left; }
   .theme-preview { height: 68px; overflow: hidden; }
   .theme-preview-bg { width: 100%; height: 100%; display: flex; }
   .theme-preview-sidebar { width: 20%; height: 100%; flex-shrink: 0; }
@@ -2868,7 +2929,7 @@
   .new-theme-card { display: flex; flex-direction: column; border-style: dashed !important; border-color: var(--border-base) !important; background: transparent !important; transition: border-color var(--t-base) !important, background var(--t-base) !important; }
   .new-theme-card:hover { border-color: var(--accent-dim) !important; background: var(--accent-muted) !important; }
   .new-theme-icon { height: 68px; display: flex; align-items: center; justify-content: center; color: var(--text-faint); transition: color var(--t-base); }
-  .new-theme-card:hover .new-theme-icon { color: var(--accent-fg); }
+  :global(.new-theme-card:hover) .new-theme-icon { color: var(--accent-fg); }
 
   /* ── Keybinds ────────────────────────────────────────────────────────────── */
   .kb-hint  { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: 0 var(--sp-3) var(--sp-3); }

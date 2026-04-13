@@ -14,6 +14,7 @@
   import { DEFAULT_MANGA_PREFS } from "../../store/state.svelte";
   import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS } from "../../lib/keybinds";
   import { setReading } from "../../lib/discord";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import type { FitMode, MarkerColor } from "../../store/state.svelte";
 
   const AVG_MIN_PER_PAGE = 0.33;
@@ -36,6 +37,8 @@
 
   const pageCache = new Map<number, string[]>();
   const inflight  = new Map<number, Promise<string[]>>();
+
+  const win = getCurrentWindow();
 
   const useBlob = $derived((appStore.settings.serverAuthMode ?? "NONE") === "BASIC_AUTH");
 
@@ -123,6 +126,8 @@
   let error: string | null = $state(null);
   let dlOpen           = $state(false);
   let zoomOpen         = $state(false);
+  let winOpen          = $state(false);
+  let isFullscreen     = $state(false);
   let uiVisible        = $state(true);
   let pageReady        = $state(false);
   let pageGroups: number[][] = $state([]);
@@ -430,7 +435,11 @@
       if (store.settings.autoMarkRead && activePage !== null && activeChId) {
         const chunk = stripChaptersRef.find(c => c.chapterId === activeChId);
         const total = chunk ? chunk.urls.length : store.pageUrls.length;
-        if (total > 0 && activePage >= total - 1) markChapterRead(activeChId);
+        if (total > 0 && activePage >= total) markChapterRead(activeChId);
+      }
+      if (containerEl.scrollTop + containerEl.clientHeight >= containerEl.scrollHeight - 40) {
+        const last = stripChaptersRef[stripChaptersRef.length - 1];
+        if (last && store.settings.autoMarkRead) markChapterRead(last.chapterId);
       }
     }
 
@@ -721,6 +730,7 @@
     markerOpen = !markerOpen;
     zoomOpen   = false;
     dlOpen     = false;
+    winOpen    = false;
   }
 
   function commitMarker() {
@@ -766,11 +776,11 @@
   function showUi() {
     uiVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => { if (!markerOpen) uiVisible = false; }, 3000);
+    hideTimer = setTimeout(() => { if (!markerOpen && !winOpen) uiVisible = false; }, 3000);
   }
 
   $effect(() => {
-    if (markerOpen) {
+    if (markerOpen || winOpen) {
       uiVisible = true;
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     }
@@ -829,6 +839,7 @@
       if (markerOpen) { markerOpen = false; return; }
       if (zoomOpen)   { zoomOpen   = false; return; }
       if (dlOpen)     { dlOpen     = false; return; }
+      if (winOpen)    { winOpen    = false; return; }
       closeReader(); return;
     }
     if (e.ctrlKey && (e.key === "=" || e.key === "+")) { e.preventDefault(); adjustZoom(ZOOM_STEP * 2); return; }
@@ -895,13 +906,16 @@
     dlBusy = false; dlOpen = false;
   }
 
-  onMount(() => {
+  onMount(async () => {
     showUi();
     window.addEventListener("keydown", onKey);
     window.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("mousemove", onInspectMouseMove);
     window.addEventListener("mouseup", onInspectMouseUp);
     containerEl?.focus({ preventScroll: true });
+
+    isFullscreen = await win.isFullscreen();
+    const unlistenFs = await win.onResized(async () => { isFullscreen = await win.isFullscreen(); });
 
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const ro = new ResizeObserver(entries => {
@@ -920,6 +934,7 @@
       window.removeEventListener("mousemove", onInspectMouseMove);
       window.removeEventListener("mouseup", onInspectMouseUp);
       cleanupScroll();
+      unlistenFs();
       ro.disconnect();
     };
   });
@@ -992,34 +1007,54 @@
       </button>
 
       <div class="mode-extras">
-        <label class="toggle-row">
-          <input type="checkbox" class="sr-only" checked={store.settings.pageGap ?? true} onchange={(e) => updateSettings({ pageGap: e.currentTarget.checked })} />
-          <span class="toggle-label">Gap</span>
-        </label>
-        <label class="toggle-row">
-          <input type="checkbox" class="sr-only" checked={store.settings.optimizeContrast ?? false} onchange={(e) => updateSettings({ optimizeContrast: e.currentTarget.checked })} />
-          <span class="toggle-label">Contrast</span>
-        </label>
+        {#if style === "double"}
+          <button class="mode-btn" class:active={store.settings.offsetDoubleSpreads} onclick={() => updateSettings({ offsetDoubleSpreads: !store.settings.offsetDoubleSpreads })}>
+            <span class="mode-label">Offset</span>
+          </button>
+        {/if}
+        {#if style === "longstrip"}
+          <button class="mode-btn" class:active={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}>
+            <span class="mode-label">Gap</span>
+          </button>
+          <button class="mode-btn" class:active={autoNext} onclick={() => updateSettings({ autoNextChapter: !autoNext })}>
+            <span class="mode-label">Auto</span>
+          </button>
+        {/if}
+        {#if !autoNext}
+          <button class="mode-btn" class:active={markOnNext} onclick={() => updateSettings({ markReadOnNext: !markOnNext })}>
+            <span class="mode-label">Mk.Read</span>
+          </button>
+        {/if}
       </div>
 
-      <div class="top-sep"></div>
-
-      <div class="dl-wrap">
-        <button class="icon-btn" onclick={() => { dlOpen = !dlOpen; zoomOpen = false; markerOpen = false; }} title="Download">
-          <Download size={15} weight="light" />
-        </button>
-      </div>
+      <button class="mode-btn" onclick={() => dlOpen = true}>
+        <Download size={14} weight="light" />
+      </button>
 
       <div class="marker-wrap">
-        <button class="icon-btn" class:active={markerOpen || hasMarkerOnPage} onclick={openMarkerPopover} title="Page marker">
-          <MapPin size={15} weight={hasMarkerOnPage ? "fill" : "light"} />
+        <button
+          class="icon-btn"
+          class:active={hasMarkerOnPage}
+          class:marker-btn-has={hasMarkerOnPage}
+          onclick={openMarkerPopover}
+          title={hasMarkerOnPage ? "Edit marker" : "Add marker"}
+          style={hasMarkerOnPage ? `--marker-color:${MARKER_COLOR_HEX[currentPageMarkers[0].color]}` : ""}
+        >
+          <MapPin size={14} weight={hasMarkerOnPage ? "fill" : "regular"} />
         </button>
+
         {#if markerOpen}
-          <div class="marker-popover">
+          <div class="marker-popover" role="presentation" onclick={(e) => e.stopPropagation()}
+            onmouseenter={() => { uiVisible = true; if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } }}
+          >
             <div class="marker-pop-header">
-              <span class="marker-pop-title">{markerEditId ? "Edit marker" : "Add marker"}</span>
+              <span class="marker-pop-title">
+                {markerEditId ? "Edit marker" : "New marker"} · p.{store.pageNumber}
+              </span>
               {#if markerEditId}
-                <button class="icon-btn" onclick={deleteCurrentMarker} title="Delete marker"><X size={13} weight="light" /></button>
+                <button class="marker-delete-btn" onclick={deleteCurrentMarker} title="Delete marker">
+                  <X size={12} weight="light" />
+                </button>
               {/if}
             </div>
             <div class="marker-color-row">
@@ -1062,6 +1097,49 @@
       <button class="icon-btn" class:active={isBookmarked} onclick={toggleBookmark} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"}>
         <Bookmark size={15} weight={isBookmarked ? "fill" : "regular"} />
       </button>
+
+      <div class="wc-wrap">
+        <button
+          class="icon-btn"
+          class:active={winOpen}
+          onclick={() => { winOpen = !winOpen; markerOpen = false; zoomOpen = false; dlOpen = false; }}
+          title="Window controls"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="6" cy="1.5"  r="1.2" fill="currentColor"/>
+            <circle cx="6" cy="6"    r="1.2" fill="currentColor"/>
+            <circle cx="6" cy="10.5" r="1.2" fill="currentColor"/>
+          </svg>
+        </button>
+        {#if winOpen}
+          <div class="wc-dropdown" role="presentation" onclick={(e) => e.stopPropagation()}>
+            <button class="wc-btn" onclick={() => { winOpen = false; win.minimize(); }}>
+              <svg width="10" height="1" viewBox="0 0 10 1"><line x1="0" y1="0.5" x2="10" y2="0.5" stroke="currentColor" stroke-width="1.5"/></svg>
+              <span>Minimize</span>
+            </button>
+            <button class="wc-btn" onclick={() => { winOpen = false; win.toggleMaximize(); }}>
+              {#if isFullscreen}
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                  <polyline points="1,4 1,1 4,1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="6,1 9,1 9,4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="9,6 9,9 6,9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="4,9 1,9 1,6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              {:else}
+                <svg width="9" height="9" viewBox="0 0 9 9"><rect x="0.75" y="0.75" width="7.5" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+              {/if}
+              <span>{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
+            </button>
+            <button class="wc-btn wc-close" onclick={() => { winOpen = false; win.close(); }}>
+              <svg width="10" height="10" viewBox="0 0 10 10">
+                <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <span>Close</span>
+            </button>
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -1172,26 +1250,26 @@
         onmouseup={() => sliderDragging = false}
       >
         <div class="slider-track-bg">
-          <div class="slider-fill" style="width:{sliderPct}%">
-          </div>
-          {#each activeChapterMarkers as marker}
-            {@const pct = sliderMax > 1 ? ((marker.pageNumber - 1) / (sliderMax - 1)) * 100 : 0}
-            {@const adjustedPct = rtl ? 100 - pct : pct}
-            <div
-              class="slider-checkpoint marker-checkpoint"
-              style="left:{adjustedPct}%;background:{MARKER_COLOR_HEX[marker.color]}"
-              title="Marker p.{marker.pageNumber}{marker.note ? ': ' + marker.note : ''}"
-            ></div>
-          {/each}
-          {#if currentBookmark && currentBookmark.chapterId === displayChapter?.id}
-            {@const pct = sliderMax > 1 ? ((currentBookmark.pageNumber - 1) / (sliderMax - 1)) * 100 : 0}
-            {@const adjustedPct = rtl ? 100 - pct : pct}
-            <div class="slider-checkpoint bookmark-checkpoint" style="left:{adjustedPct}%" title="Bookmark p.{currentBookmark.pageNumber}"></div>
-          {/if}
+          <div class="slider-fill" style={rtl ? `width:${100 - sliderPct}%;margin-left:auto` : `width:${sliderPct}%`}></div>
         </div>
         <div class="slider-thumb" style="left:{sliderPct}%"></div>
+
+        {#if currentBookmark && currentBookmark.chapterId === displayChapter?.id}
+          {@const bOrd = rtl ? lastPage - currentBookmark.pageNumber + 1 : currentBookmark.pageNumber}
+          {@const bPct = lastPage > 1 ? ((bOrd - 1) / (lastPage - 1)) * 100 : 0}
+          <div class="slider-checkpoint bookmark-checkpoint" style="left: {bPct}%" title="Bookmark: Page {currentBookmark.pageNumber}"></div>
+        {/if}
+
+        {#each activeChapterMarkers as m (m.id)}
+          {@const mOrd = rtl ? lastPage - m.pageNumber + 1 : m.pageNumber}
+          {@const mPct = lastPage > 1 ? ((mOrd - 1) / (lastPage - 1)) * 100 : 0}
+          <div class="slider-checkpoint marker-checkpoint" style="left: {mPct}%; background:{MARKER_COLOR_HEX[m.color]}" title="{m.note ? m.note : 'Marker'} · Page {m.pageNumber}"></div>
+        {/each}
+
         {#if sliderHover || sliderDragging}
-          <div class="slider-tooltip" style="left:{sliderPct}%">p.{sliderPage}</div>
+          <div class="slider-tooltip" style="left: {sliderPct}%">
+            {sliderPage} / {sliderMax}
+          </div>
         {/if}
       </div>
     {/if}
@@ -1201,90 +1279,73 @@
     </button>
   </div>
 
-  {#if dlOpen}
-    <div class="dl-backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) dlOpen = false; }}>
-      <div class="dl-modal">
+  {#if dlOpen && store.activeChapter}
+    {@const queueable = adjacent.remaining.filter(c => !c.isDownloaded)}
+    <div class="dl-backdrop" role="presentation" onclick={() => dlOpen = false}>
+      <div class="dl-modal" role="presentation" onclick={(e) => e.stopPropagation()}>
         <p class="dl-title">Download</p>
-        <button class="dl-option" disabled={dlBusy} onclick={() => runDl(() => gql(ENQUEUE_DOWNLOAD, { chapterId: store.activeChapter?.id }))}>
-          <span>This chapter</span>
-          <span class="dl-sub">{store.pageUrls.length} pages</span>
+        <button class="dl-option" disabled={dlBusy || !!store.activeChapter.isDownloaded}
+          onclick={() => runDl(() => gql(ENQUEUE_DOWNLOAD, { chapterId: store.activeChapter!.id }))}>
+          This chapter
+          <span class="dl-sub">{store.activeChapter.isDownloaded ? "Already downloaded" : store.activeChapter.name}</span>
         </button>
-        {#if adjacent.next}
-          <div class="dl-row">
-            <button class="dl-option" style="flex:1" disabled={dlBusy} onclick={() => {
-              const ids = store.activeChapterList
-                .slice(store.activeChapterList.findIndex(c => c.id === store.activeChapter?.id))
-                .slice(1, 1 + nextN)
-                .map(c => c.id);
-              runDl(() => gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: ids }));
-            }}>
-              <span>Next {nextN} chapters</span>
-              <span class="dl-sub">{Math.min(nextN, adjacent.remaining.length)} available</span>
-            </button>
-            <div class="dl-stepper">
-              <button class="dl-step-btn" disabled={nextN <= 1} onclick={() => nextN = Math.max(1, nextN - 1)}>−</button>
-              <span class="dl-step-val">{nextN}</span>
-              <button class="dl-step-btn" disabled={nextN >= 50} onclick={() => nextN = Math.min(50, nextN + 1)}>+</button>
-            </div>
+        <div class="dl-row">
+          <button class="dl-option" disabled={dlBusy || queueable.length === 0}
+            onclick={() => runDl(() => gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: queueable.slice(0, nextN).map(c => c.id) }))}>
+            Next chapters
+            <span class="dl-sub">{Math.min(nextN, queueable.length)} not yet downloaded</span>
+          </button>
+          <div class="dl-stepper" role="presentation" onclick={(e) => e.stopPropagation()}>
+            <button class="dl-step-btn" onclick={() => nextN = Math.max(1, nextN - 1)} disabled={nextN <= 1}>−</button>
+            <span class="dl-step-val">{nextN}</span>
+            <button class="dl-step-btn" onclick={() => nextN = Math.min(queueable.length || 1, nextN + 1)} disabled={nextN >= queueable.length}>+</button>
           </div>
-        {/if}
-        <button class="dl-option" disabled={dlBusy} onclick={() => {
-          const ids = store.activeChapterList.filter(c => !c.isDownloaded).map(c => c.id);
-          runDl(() => gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: ids }));
-        }}>
-          <span>All undownloaded</span>
-          <span class="dl-sub">{store.activeChapterList.filter(c => !c.isDownloaded).length} chapters</span>
+        </div>
+        <button class="dl-option" disabled={dlBusy || queueable.length === 0}
+          onclick={() => runDl(() => gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: queueable.map(c => c.id) }))}>
+          All remaining
+          <span class="dl-sub">{queueable.length} not yet downloaded</span>
         </button>
       </div>
     </div>
   {/if}
-
 </div>
 
 <style>
-  .root { display: flex; flex-direction: column; height: 100vh; width: 100%; background: var(--bg-void); overflow: hidden; position: relative; }
-  .root.overlay-bars .topbar,
-  .root.overlay-bars .bottombar { position: absolute; left: 0; right: 0; z-index: 10; }
-  .root.overlay-bars .topbar { top: 0; }
-  .root.overlay-bars .bottombar { bottom: 0; }
-  .root.overlay-bars .viewer { height: 100%; }
+  .root { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: var(--z-reader); transform: translateZ(0); will-change: transform; }
+  .overlay-bars { position: fixed; }
+  .overlay-bars .topbar    { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
+  .overlay-bars .bottombar { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; }
+  .overlay-bars .viewer    { height: 100%; }
 
-  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-3); height: 40px; background: var(--bg-void); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; transition: opacity 0.25s ease; gap: var(--sp-2); }
-  .topbar.hidden { opacity: 0; pointer-events: none; }
-  .bottombar.hidden { opacity: 0; pointer-events: none; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-1); padding: 0 var(--sp-3); height: 40px; background: var(--bg-void); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; position: relative; z-index: 2; transition: opacity 0.25s ease; }
+  .topbar.hidden, .bottombar.hidden { opacity: 0; pointer-events: none; }
 
-  .topbar-left  { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; flex: 1; }
+  .topbar-left { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; flex: 1; overflow: hidden; }
   .topbar-right { display: flex; align-items: center; gap: var(--sp-1); flex-shrink: 0; }
+  .mode-extras { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
 
-  .ch-label { display: flex; align-items: center; gap: var(--sp-1); font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); min-width: 0; overflow: hidden; }
-  .ch-title { color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
-  .ch-sep   { color: var(--text-faint); flex-shrink: 0; }
-  .page-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); white-space: nowrap; flex-shrink: 0; padding-left: var(--sp-1); }
-
-  .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
-  .icon-btn:hover { color: var(--text-muted); background: var(--bg-raised); }
-  .icon-btn:disabled { opacity: 0.3; cursor: default; }
+  .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-muted); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
+  .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
+  .icon-btn:disabled { opacity: 0.2; cursor: default; }
   .icon-btn.active { color: var(--accent-fg); }
+  .marker-btn-has { color: var(--marker-color, var(--accent-fg)) !important; }
 
-  .top-sep { width: 1px; height: 16px; background: var(--border-dim); margin: 0 var(--sp-1); flex-shrink: 0; }
+  .ch-label { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ch-sep   { color: var(--text-faint); flex-shrink: 0; }
+  .page-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
+  .top-sep { width: 1px; height: 16px; background: var(--border-dim); flex-shrink: 0; margin: 0 var(--sp-1); }
 
-  .mode-btn { display: flex; align-items: center; gap: 5px; padding: 0 var(--sp-2); height: 28px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
-  .mode-btn:hover { color: var(--text-muted); background: var(--bg-raised); }
-  .mode-btn.active { color: var(--accent-fg); }
-  .mode-label { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); }
+  .mode-btn { display: flex; align-items: center; gap: 4px; padding: 4px var(--sp-2); border-radius: var(--radius-sm); color: var(--text-muted); flex-shrink: 0; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); transition: color var(--t-base), background var(--t-base); }
+  .mode-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
+  .mode-btn.active { color: var(--accent-fg); background: var(--accent-muted); }
+  .mode-label { text-transform: capitalize; }
 
-  .mode-extras { display: flex; align-items: center; gap: var(--sp-1); }
-  .toggle-row { display: flex; align-items: center; gap: 4px; cursor: pointer; padding: 0 var(--sp-1); height: 28px; border-radius: var(--radius-sm); transition: background var(--t-base); }
-  .toggle-row:hover { background: var(--bg-raised); }
-  .toggle-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); user-select: none; }
-  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
-
-  .dl-wrap { position: relative; }
-
-  .zoom-wrap { position: relative; }
-  .zoom-inline { display: flex; align-items: center; height: 28px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); overflow: hidden; }
-  .zoom-step-btn { display: flex; align-items: center; justify-content: center; width: 24px; height: 100%; background: none; border: none; cursor: pointer; color: var(--text-faint); transition: color var(--t-base), background var(--t-base); }
-  .zoom-step-btn:hover:not(:disabled) { color: var(--text-muted); background: var(--bg-raised); }
+  .zoom-wrap { position: relative; flex-shrink: 0; }
+  .zoom-inline { display: flex; align-items: center; gap: 1px; background: var(--bg-overlay); border: 1px solid var(--border-base); border-radius: var(--radius-sm); overflow: hidden; }
+  .zoom-step-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
+  .zoom-step-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
   .zoom-step-btn:disabled { opacity: 0.25; cursor: default; }
   .zoom-pct-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-secondary); padding: 0 var(--sp-2); height: 24px; min-width: 38px; text-align: center; transition: color var(--t-base), background var(--t-base); border-left: 1px solid var(--border-dim); border-right: 1px solid var(--border-dim); }
   .zoom-pct-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
@@ -1313,6 +1374,13 @@
   .marker-save-btn:hover { filter: brightness(1.2); }
   .marker-cancel-btn { flex: 1; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); text-align: center; }
   .marker-cancel-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
+
+  .wc-wrap { position: relative; flex-shrink: 0; }
+  .wc-dropdown { position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); display: flex; flex-direction: column; gap: 2px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; min-width: 148px; animation: scaleIn 0.1s ease both; transform-origin: top right; }
+  .wc-btn { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-2); border-radius: var(--radius-sm); background: none; border: none; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); cursor: pointer; width: 100%; transition: color var(--t-base), background var(--t-base); }
+  .wc-btn svg { flex-shrink: 0; opacity: 0.75; }
+  .wc-btn:hover { color: var(--text-primary); background: var(--bg-overlay); }
+  .wc-close:hover { color: #fff; background: #c0392b; }
 
   .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
