@@ -3075,9 +3075,10 @@
   .perf-stat { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
 
   /* ── Security ────────────────────────────────────────────────────────────── */
+  .sec-banner        { font-family: var(--font-ui); font-size: var(--text-xs); line-height: var(--leading-snug); border-radius: var(--radius-md); padding: var(--sp-3); letter-spacing: var(--tracking-wide); }
   .sec-banner-error  { color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); }
-  .sec-banner-warn   { color: var(--color-error); background: var(--color-error-bg); border: 1px solid var(--color-error); }
-  .sec-banner-warn code { font-family: monospace; font-size: 10px; background: color-mix(in srgb, var(--color-error) 12%, transparent); padding: 1px 4px; border-radius: 3px; }
+  .sec-banner-warn   { color: var(--color-warn, var(--color-error)); background: var(--color-warn-bg, var(--color-error-bg)); border: 1px solid var(--color-warn, var(--color-error)); }
+  .sec-banner-warn code { font-family: monospace; font-size: 10px; background: color-mix(in srgb, var(--color-warn, var(--color-error)) 12%, transparent); padding: 1px 4px; border-radius: 3px; }
   .sec-pill-warn    { border-color: var(--color-error); color: var(--color-error); background: var(--color-error-bg); }
   .section-title-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
   .section-title-row .section-title { padding: 0; }

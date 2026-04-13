@@ -29,7 +29,7 @@ export function fetchAuthenticated(
     return fetch(url, {
       ...init,
       signal,
-      credentials: "include",
+      credentials: "omit",
       headers: {
         ...(init.headers as Record<string, string> ?? {}),
         ...(user && pass ? basicHeader(user, pass) : {}),
@@ -37,15 +37,16 @@ export function fetchAuthenticated(
     });
   }
 
-  return fetch(url, { ...init, signal });
+  return fetch(url, { ...init, signal, credentials: "omit" });
 }
 
 export async function loginBasic(user: string, pass: string): Promise<void> {
   const res = await fetch(`${getServerBase()}/api/graphql`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json", ...basicHeader(user, pass) },
-    body:    JSON.stringify({ query: "{ __typename }" }),
-    signal:  AbortSignal.timeout(5000),
+    method:      "POST",
+    credentials: "omit",
+    headers:     { "Content-Type": "application/json", ...basicHeader(user, pass) },
+    body:        JSON.stringify({ query: "{ __typename }" }),
+    signal:      AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`Authentication failed (${res.status})`);
   updateSettings({ serverAuthMode: "BASIC_AUTH", serverAuthUser: user, serverAuthPass: pass });
@@ -71,15 +72,13 @@ export async function probeServer(): Promise<"ok" | "auth_required" | "unsupport
 
     const res = await fetch(`${base}/api/graphql`, {
       method:      "POST",
-      credentials: "include",
+      credentials: "omit",
       headers,
       body:        JSON.stringify({ query: "{ __typename }" }),
       signal:      AbortSignal.timeout(2000),
     });
 
-    if (res.ok) {
-      return "ok";
-    }
+    if (res.ok) return "ok";
 
     if (res.status === 401) {
       const wwwAuth = res.headers.get("WWW-Authenticate") ?? "";
