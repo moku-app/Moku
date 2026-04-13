@@ -17,6 +17,7 @@
   let refreshing = $state(false);
   let filter: Filter          = $state("installed");
   let search = $state("");
+  let langFilter = $state<string | null>(null);
   let working = $state(new Set<string>());
   let expanded = $state(new Set<string>());
   let panel: Panel            = $state(null);
@@ -100,8 +101,16 @@
     const q = search.toLowerCase();
     const matchSearch = e.name.toLowerCase().includes(q) || e.lang.toLowerCase().includes(q);
     const matchFilter = filter === "installed" ? e.isInstalled : filter === "available" ? !e.isInstalled : filter === "updates" ? e.hasUpdate : true;
-    return matchSearch && matchFilter;
+    const matchLang = langFilter === null || e.lang === langFilter;
+    return matchSearch && matchFilter && matchLang;
   }));
+
+  const availableLangs = $derived(
+    [...new Set(extensions
+      .filter((e) => filter === "installed" ? e.isInstalled : filter === "available" ? !e.isInstalled : filter === "updates" ? e.hasUpdate : true)
+      .map((e) => e.lang)
+    )].sort()
+  );
 
   const groups = $derived.by(() => {
     const map = new Map<string, Extension[]>();
@@ -121,6 +130,8 @@
     { id: "all",       label: "All" },
   ];
 
+  function setFilter(f: Filter) { filter = f; langFilter = null; }
+
   function toggleExpand(base: string) {
     const next = new Set(expanded);
     next.has(base) ? next.delete(base) : next.add(base);
@@ -133,7 +144,7 @@
     <h1 class="heading">Extensions</h1>
     <div class="tabs">
       {#each FILTERS as f}
-        <button class="tab" class:active={filter === f.id} onclick={() => filter = f.id}>
+        <button class="tab" class:active={filter === f.id} onclick={() => setFilter(f.id)}>
           {f.id === "updates" && updateCount > 0 ? `Updates (${updateCount})` : f.label}
         </button>
       {/each}
@@ -154,6 +165,15 @@
       </button>
     </div>
   </div>
+
+  {#if availableLangs.length > 1}
+    <div class="lang-bar">
+      <button class="lang-pill" class:active={langFilter === null} onclick={() => langFilter = null}>All</button>
+      {#each availableLangs as lang}
+        <button class="lang-pill" class:active={langFilter === lang} onclick={() => langFilter = langFilter === lang ? null : lang}>{lang.toUpperCase()}</button>
+      {/each}
+    </div>
+  {/if}
 
   {#if panel === "apk"}
     <div class="ext-panel">
@@ -311,6 +331,10 @@
   .repo-remove { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .repo-remove:hover:not(:disabled) { color: var(--color-error); background: var(--bg-overlay); }
 
+  .lang-bar { display: flex; align-items: center; gap: 4px; padding: var(--sp-2) var(--sp-6); flex-shrink: 0; flex-wrap: wrap; border-bottom: 1px solid var(--border-dim); }
+  .lang-pill { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: 3px 9px; border-radius: var(--radius-full); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast); }
+  .lang-pill:hover { color: var(--text-muted); border-color: var(--border-strong); background: var(--bg-raised); }
+  .lang-pill.active { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }
   .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; }
   .tab { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); }
   .tab:hover { color: var(--text-muted); }
