@@ -33,8 +33,11 @@
   }
 
   $effect(() => {
+    const activeIds = new Set(store.toasts.map(t => t.id));
     store.toasts.forEach(schedule);
-    return () => timers.forEach(clearTimeout);
+    for (const [id, timer] of timers) {
+      if (!activeIds.has(id)) { clearTimeout(timer); timers.delete(id); }
+    }
   });
 
   const icons: Record<Toast["kind"], string> = {
