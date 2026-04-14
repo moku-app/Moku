@@ -98,10 +98,18 @@
       .sort((a, b) => a.localeCompare(b))
   );
 
-  const scanlatorFilter = $derived((getPref("scanlatorFilter") ?? []) as string[]);
+  const scanlatorFilter    = $derived((getPref("scanlatorFilter")    ?? []) as string[]);
+  const scanlatorBlacklist = $derived((getPref("scanlatorBlacklist") ?? []) as string[]);
+  const scanlatorForce     = $derived((getPref("scanlatorForce")     ?? false) as boolean);
+
+  let scanTab: "prefer" | "block" = $state("prefer");
 
   const sortedChapters = $derived.by(() => {
     let base = [...chapters];
+
+    if (scanlatorBlacklist.length > 0) {
+      base = base.filter(c => !scanlatorBlacklist.includes(c.scanlator ?? ""));
+    }
 
     if (sortMode === "chapterNumber") base.sort((a, b) => a.chapterNumber - b.chapterNumber);
     else if (sortMode === "uploadDate") base.sort((a, b) => Number(a.uploadDate ?? 0) - Number(b.uploadDate ?? 0));
@@ -119,7 +127,9 @@
       for (const ch of base) {
         const existing = seen.get(ch.chapterNumber);
         if (!existing) {
-          seen.set(ch.chapterNumber, ch);
+          if (!scanlatorForce || scanlatorFilter.includes(ch.scanlator ?? "")) {
+            seen.set(ch.chapterNumber, ch);
+          }
         } else {
           const np = scanlatorFilter.indexOf(ch.scanlator ?? "");
           const op = scanlatorFilter.indexOf(existing.scanlator ?? "");
@@ -782,33 +792,64 @@
 
         {#if availableScanlators.length > 1}
           <div class="scan-filter-wrap">
-            <button class="icon-btn" class:active={scanlatorFilter.length > 0} onclick={() => scanFilterOpen = !scanFilterOpen} title="Filter by scanlator">
-              <Funnel size={14} weight={scanlatorFilter.length > 0 ? "fill" : "light"} />
+            <button class="icon-btn" class:active={scanlatorFilter.length > 0 || scanlatorBlacklist.length > 0} onclick={() => scanFilterOpen = !scanFilterOpen} title="Filter by scanlator">
+              <Funnel size={14} weight={scanlatorFilter.length > 0 || scanlatorBlacklist.length > 0 ? "fill" : "light"} />
             </button>
             {#if scanFilterOpen}
               <div class="scan-filter-panel" role="menu">
                 <div class="scan-filter-header">
-                  <span class="scan-filter-heading">Scanlators</span>
-                  {#if scanlatorFilter.length > 0}
-                    <button class="scan-filter-clear" onclick={() => { setPref("scanlatorFilter", []); chapterPage = 1; }}>Clear</button>
+                  <div class="scan-filter-tabs">
+                    <button class="scan-filter-tab" class:scan-filter-tab-active={scanTab === "prefer"} onclick={() => scanTab = "prefer"}>Prefer</button>
+                    <button class="scan-filter-tab" class:scan-filter-tab-active={scanTab === "block"}  onclick={() => scanTab = "block"}>Block</button>
+                  </div>
+                  {#if scanTab === "prefer" && scanlatorFilter.length > 0}
+                    <button class="scan-filter-clear" onclick={() => { setPref("scanlatorFilter", []); setPref("scanlatorForce", false); chapterPage = 1; }}>Clear</button>
+                  {:else if scanTab === "block" && scanlatorBlacklist.length > 0}
+                    <button class="scan-filter-clear" onclick={() => { setPref("scanlatorBlacklist", []); chapterPage = 1; }}>Clear</button>
                   {/if}
                 </div>
                 <div class="scan-filter-divider"></div>
-                {#each availableScanlators as s}
-                  <button class="scan-filter-item" class:scan-filter-item-active={scanlatorFilter.includes(s)} role="menuitem"
-                    onclick={() => {
-                      const next = scanlatorFilter.includes(s)
-                        ? scanlatorFilter.filter(x => x !== s)
-                        : [...scanlatorFilter, s];
-                      setPref("scanlatorFilter", next);
-                      chapterPage = 1;
-                    }}>
-                    <span class="scan-filter-check" class:scan-filter-check-on={scanlatorFilter.includes(s)}>
-                      {#if scanlatorFilter.includes(s)}<Check size={9} weight="bold" />{/if}
-                    </span>
-                    {s}
-                  </button>
-                {/each}
+                {#if scanTab === "prefer"}
+                  <div class="scan-filter-force-row">
+                    <span class="scan-filter-force-label" title="Hide chapters with no preferred group match, rather than falling back to any available group.">Enforce</span>
+                    <button class="scan-force-toggle" class:scan-force-on={scanlatorForce}
+                      onclick={() => { setPref("scanlatorForce", !scanlatorForce); chapterPage = 1; }}>
+                      {scanlatorForce ? "On" : "Off"}
+                    </button>
+                  </div>
+                  <div class="scan-filter-divider"></div>
+                  {#each availableScanlators as s}
+                    <button class="scan-filter-item" class:scan-filter-item-active={scanlatorFilter.includes(s)} role="menuitem"
+                      onclick={() => {
+                        const next = scanlatorFilter.includes(s)
+                          ? scanlatorFilter.filter(x => x !== s)
+                          : [...scanlatorFilter, s];
+                        setPref("scanlatorFilter", next);
+                        chapterPage = 1;
+                      }}>
+                      <span class="scan-filter-check" class:scan-filter-check-on={scanlatorFilter.includes(s)}>
+                        {#if scanlatorFilter.includes(s)}<Check size={9} weight="bold" />{/if}
+                      </span>
+                      {s}
+                    </button>
+                  {/each}
+                {:else}
+                  {#each availableScanlators as s}
+                    <button class="scan-filter-item" class:scan-filter-item-active={scanlatorBlacklist.includes(s)} class:scan-filter-item-block={scanlatorBlacklist.includes(s)} role="menuitem"
+                      onclick={() => {
+                        const next = scanlatorBlacklist.includes(s)
+                          ? scanlatorBlacklist.filter(x => x !== s)
+                          : [...scanlatorBlacklist, s];
+                        setPref("scanlatorBlacklist", next);
+                        chapterPage = 1;
+                      }}>
+                      <span class="scan-filter-check" class:scan-filter-check-block={scanlatorBlacklist.includes(s)}>
+                        {#if scanlatorBlacklist.includes(s)}<X size={9} weight="bold" />{/if}
+                      </span>
+                      {s}
+                    </button>
+                  {/each}
+                {/if}
               </div>
             {/if}
           </div>
@@ -1284,6 +1325,18 @@
   .scan-filter-item:hover { background: var(--bg-overlay); color: var(--text-primary); }
   .scan-filter-item-active { color: var(--accent-fg); background: var(--accent-muted); }
   .scan-filter-item-active:hover { background: var(--accent-dim); }
+  .scan-filter-tabs { display: flex; gap: 2px; background: var(--bg-overlay); border: 1px solid var(--border-base); border-radius: var(--radius-sm); padding: 2px; }
+  .scan-filter-tab { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 2px 8px; border-radius: 2px; border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-fast), background var(--t-fast); }
+  .scan-filter-tab:hover { color: var(--text-muted); }
+  .scan-filter-tab.scan-filter-tab-active { background: var(--bg-surface); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+  .scan-filter-force-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 10px; }
+  .scan-filter-force-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); cursor: default; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+  .scan-force-toggle { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .scan-force-toggle:hover { color: var(--text-muted); border-color: var(--border-strong); }
+  .scan-force-toggle.scan-force-on { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .scan-filter-check { width: 13px; height: 13px; border-radius: 2px; border: 1px solid var(--border-strong); background: transparent; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--bg-base); transition: background var(--t-base), border-color var(--t-base); }
   .scan-filter-check-on { background: var(--accent); border-color: var(--accent); }
+  .scan-filter-check-block { background: var(--color-error); border-color: var(--color-error); }
+  .scan-filter-item-block { color: var(--color-error) !important; background: color-mix(in srgb, var(--color-error) 8%, transparent) !important; }
+  .scan-filter-item-block:hover { background: color-mix(in srgb, var(--color-error) 14%, transparent) !important; }
 </style>
