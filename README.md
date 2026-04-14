@@ -37,13 +37,18 @@ Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://gith
 ## Features
 
 - **Library management** — organize manga into folders, track unread counts, filter by genre
+- **Per-folder sorting & filtering** — each folder has its own independent sort (unread, A–Z, recently read, latest chapter, and more) and publication status filter (Ongoing, Completed, Hiatus, etc.)
 - **Built-in reader** — single page, long strip, configurable fit modes, customizable keybinds
+- **Markers** — pin color-coded notes to any page while reading; markers appear as dots on the progress bar and are browseable under Series Detail → Manage → Markers
 - **Extension support** — install and manage Suwayomi extensions directly from the app
 - **Download management** — queue and monitor chapter downloads with progress toasts
+- **Automation** — pre-download titles automatically and optionally delete chapters after they're marked as read (accessible from Series Detail)
 - **Tracker integration** — sync reading progress with AniList, MyAnimeList, Kitsu, and more
+- **Discord Rich Presence** — shows the manga title, current chapter, and an elapsed timer in your Discord status; configurable in Settings → General
 - **Auto-start server** — optionally launch Suwayomi in the background on startup
 - **Multiple themes** — Dark, Light, Midnight, Warm, High Contrast, and more
 - **Auto-updates** — in-app update checker with silent background notifications
+- **Improved NSFW filtering** — expanded tag parser gives the Hide NSFW setting better coverage across sources
 
 ---
 
