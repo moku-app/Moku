@@ -324,8 +324,10 @@
     ro.observe(el);
     syncSize();
 
-    let raf = 0, t0 = -1;
+    let raf = 0, t0 = -1, paused = false;
+
     function frame(now: number) {
+      if (paused) { raf = 0; return; }
       raf = requestAnimationFrame(frame);
       if (!live) return;
       if (t0 < 0) t0 = now;
@@ -333,8 +335,34 @@
       const { cards, trigs, stamps, vignette, CW, CH, scale } = live;
       drawFrame(ctx, (now - t0) / 1000, CW, CH, scale, cards, trigs, stamps, vignette);
     }
+
+    function pause() {
+      paused = true;
+      t0 = -1;
+    }
+
+    function resume() {
+      if (!paused) return;
+      paused = false;
+      raf = requestAnimationFrame(frame);
+    }
+
+    function onVisibility() {
+      document.hidden ? pause() : resume();
+    }
+
+    document.addEventListener("visibilitychange", onVisibility);
+    const unlistenFocus = win.onFocusChanged(({ payload: focused }) => {
+      focused ? resume() : pause();
+    });
+
     raf = requestAnimationFrame(frame);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+      unlistenFocus.then(f => f());
+    };
   }
 </script>
 
