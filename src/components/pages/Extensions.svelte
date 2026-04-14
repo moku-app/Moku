@@ -155,10 +155,10 @@
         <input class="search" placeholder="Search" bind:value={search} />
       </div>
       <button class="icon-btn" class:active={panel === "repos"} onclick={() => openPanel("repos")} title="Manage repos">
-        <GitBranch size={14} weight="light" />
+        <Plus size={14} weight="light" />
       </button>
       <button class="icon-btn" class:active={panel === "apk"} onclick={() => openPanel("apk")} title="Install from URL">
-        <Plus size={14} weight="light" />
+        <GitBranch size={14} weight="light" />
       </button>
       <button class="icon-btn" onclick={fetchFromRepo} disabled={refreshing} title="Refresh repo">
         <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
