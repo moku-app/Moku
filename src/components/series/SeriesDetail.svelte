@@ -644,7 +644,7 @@
         {#if manga?.genre?.length}
           <div class="genres">
             {#each (genresExpanded ? manga.genre : manga.genre.slice(0, 3)) as g}
-              <button class="genre" onclick={() => { setGenreFilter(g); setNavPage("explore"); setActiveManga(null); }}>{g}</button>
+              <button class="genre" onclick={() => { setGenreFilter(g); setNavPage("search"); setActiveManga(null); }}>{g}</button>
             {/each}
             {#if manga.genre.length > 3}
               <button class="genre-toggle" onclick={() => genresExpanded = !genresExpanded}>
@@ -1067,7 +1067,7 @@
         <span class="link-title">Link as same series</span>
         <button class="link-close" onclick={closeLinkPicker}><X size={14} weight="light" /></button>
       </div>
-      <p class="link-hint">Mark two manga as the same series so duplicates are merged in search and discover. Click a linked entry again to unlink.</p>
+      <p class="link-hint">Mark two manga as the same series so duplicates are merged in search. Click a linked entry again to unlink.</p>
       <div class="link-search-wrap">
         <input class="link-search" placeholder="Search your library…" bind:value={linkSearch} use:focusOnMount />
       </div>

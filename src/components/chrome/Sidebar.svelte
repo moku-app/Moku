@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { House, Books, MagnifyingGlass, ClockCounterClockwise, Compass, DownloadSimple, PuzzlePiece, GearSix, ChartLineUp } from "phosphor-svelte";
+  import { House, Books, MagnifyingGlass, ClockCounterClockwise, DownloadSimple, PuzzlePiece, GearSix, ChartLineUp } from "phosphor-svelte";
   import { store, setNavPage, setActiveManga, setActiveSource, setLibraryFilter, setGenreFilter, setSettingsOpen } from "../../store/state.svelte";
   import type { NavPage } from "../../store/state.svelte";
 
@@ -8,17 +8,16 @@
     { id: "library",    label: "Library",    icon: Books },
     { id: "search",     label: "Search",     icon: MagnifyingGlass },
     { id: "history",    label: "History",    icon: ClockCounterClockwise },
-    { id: "explore",    label: "Discover",   icon: Compass },
     { id: "downloads",  label: "Downloads",  icon: DownloadSimple },
     { id: "extensions", label: "Extensions", icon: PuzzlePiece },
     { id: "tracking",   label: "Tracking",   icon: ChartLineUp },
   ];
 
   function navigate(id: NavPage) {
-    store.navPage     = id;
-    store.activeManga = null;
-    store.genreFilter = "";
-    if (id !== "explore") store.activeSource = null;
+    store.navPage      = id;
+    store.activeManga  = null;
+    store.activeSource = null;
+    store.genreFilter  = "";
   }
 
   function goHome() {

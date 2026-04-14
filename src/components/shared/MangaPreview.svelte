@@ -444,7 +444,7 @@
         {#if !loadingDetail && displayManga?.genre?.length}
           <div class="genres">
             {#each displayManga.genre as g}
-              <button class="genre-tag" onclick={() => { setGenreFilter(g); setNavPage("explore"); close(); }}>{g}</button>
+              <button class="genre-tag" onclick={() => { setGenreFilter(g); setNavPage("search"); close(); }}>{g}</button>
             {/each}
           </div>
         {/if}
@@ -480,7 +480,7 @@
         <button class="close-btn" onclick={closeLinkPicker}><X size={14} weight="light" /></button>
       </div>
       <p class="link-hint">
-        Mark two manga as the same series so duplicates are merged in search and discover.
+        Mark two manga as the same series so duplicates are merged in search.
         Click a linked entry again to unlink.
       </p>
       <div class="link-search-wrap">
