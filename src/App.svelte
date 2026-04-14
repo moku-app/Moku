@@ -157,11 +157,31 @@
 
   $effect(() => {
     if (!appReady) return;
-    const poll = () => gql<{ downloadStatus: DownloadStatus }>(GET_DOWNLOAD_STATUS)
-      .then(d => applyQueue(d.downloadStatus.queue)).catch(console.error);
+
+    let paused = false;
+
+    const poll = () => {
+      if (paused) return;
+      gql<{ downloadStatus: DownloadStatus }>(GET_DOWNLOAD_STATUS)
+        .then(d => applyQueue(d.downloadStatus.queue)).catch(console.error);
+    };
+
     poll();
     pollInterval = setInterval(poll, 2000);
-    return () => clearInterval(pollInterval);
+
+    const onVisibility = () => { paused = document.hidden; };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    let unlistenFocus: (() => void) | undefined;
+    win.onFocusChanged(({ payload: focused }) => {
+      paused = !focused;
+    }).then(fn => { unlistenFocus = fn; });
+
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener("visibilitychange", onVisibility);
+      unlistenFocus?.();
+    };
   });
 
   async function checkForUpdateSilently() {
