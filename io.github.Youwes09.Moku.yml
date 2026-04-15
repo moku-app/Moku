@@ -1,4 +1,4 @@
-app-id: dev.moku.app
+app-id: io.github.Youwes09.Moku
 runtime: org.gnome.Platform
 runtime-version: '48'
 sdk: org.gnome.Sdk
@@ -9,16 +9,22 @@ separate-locales: false
 
 finish-args:
   - --socket=wayland
-  - --socket=x11
   - --socket=fallback-x11
   - --share=ipc
   - --device=dri
   - --share=network
-  - --socket=session-bus
-  - --socket=system-bus
-  - --filesystem=home
+
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.FileTransfer
+
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=com.canonical.AppMenu.Registrar
+  - --talk-name=com.canonical.indicator.application
+
+  - --filesystem=xdg-run/discord-ipc-0:ro
   - --filesystem=xdg-data/moku:create
-  - --talk-name=org.freedesktop.Flatpak
+  - --filesystem=xdg-download
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
@@ -33,13 +39,10 @@ modules:
       - tar -xf jdk.tar.gz -C /app/jre --strip-components=1
     sources:
       - type: file
-        url: https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jre_x64_linux_hotspot_21.0.3_9.tar.gz
-        sha256: f1af100c4afca2035f446967323230150cfe5872b5a664d98c86963e5c066e0d
+        url: https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jre_x64_linux_hotspot_21.0.5_11.tar.gz
+        sha256: 553dda64b3b1c3c16f8afe402377ffebe64fb4a1721a46ed426a91fd18185e62
         dest-filename: jdk.tar.gz
 
-  # catch_abort.so — intercepts SIGTRAP/SIGILL from KCEF's CEF subprocess and
-  # exits just that thread instead of killing the whole JVM. Official Suwayomi
-  # fix for headless environments. Source inlined to avoid upstream drift.
   - name: catch-abort
     buildsystem: simple
     build-commands:
@@ -120,7 +123,6 @@ modules:
         fi
 
         # Force-patch the three keys that cause JCEF/GUI crashes every launch.
-        # Suwayomi ignores -D JVM flags when a conf file exists on disk.
         sed -i \
           -e 's|server\.webUIEnabled.*|server.webUIEnabled = false|' \
           -e 's|server\.initialOpenInBrowserEnabled.*|server.initialOpenInBrowserEnabled = false|' \
@@ -138,8 +140,6 @@ modules:
         export _JAVA_OPTIONS="-Djava.awt.headless=true"
         export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
 
-        # Intercepts SIGTRAP/SIGILL from KCEF's CEF subprocess, exits just
-        # that thread instead of crashing the whole JVM process.
         export LD_PRELOAD="/app/lib/catch_abort.so"
 
         exec /app/jre/bin/java \
@@ -171,17 +171,19 @@ modules:
       - tar -xzf frontend-dist.tar.gz
       - . /usr/lib/sdk/rust-stable/enable.sh && PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig cargo build --release --manifest-path src-tauri/Cargo.toml
       - install -Dm755 src-tauri/target/release/moku /app/bin/moku
-      - install -Dm644 packaging/dev.moku.app.desktop /app/share/applications/dev.moku.app.desktop
-      - install -Dm644 src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/dev.moku.app.png
-      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/dev.moku.app.png
-      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/dev.moku.app.png
-      - install -Dm644 packaging/dev.moku.app.metainfo.xml /app/share/metainfo/dev.moku.app.metainfo.xml
+      - install -Dm644 packaging/io.github.Youwes09.Moku.desktop /app/share/applications/io.github.Youwes09.Moku.desktop
+      - install -Dm644 src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.Youwes09.Moku.png
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.Youwes09.Moku.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.Youwes09.Moku.png
+      - install -Dm644 packaging/io.github.Youwes09.Moku.metainfo.xml /app/share/metainfo/io.github.Youwes09.Moku.metainfo.xml
     sources:
-      - type: dir
-        path: .
+      - type: git
+        url: https://github.com/Youwes09/Moku.git
+        tag: v0.8.0
+        commit: 64f63ceaa2574622f07febf2b7b381b616544bd3
       - type: file
         path: packaging/frontend-dist.tar.gz
-        sha256: 32773b16189f30dea3c54f7f3ae4416599f7b73d47edef03090f5b67de9560be
+        sha256: 1ceac38722071fc61dfb241803d93588279af3062aac82e526942e9857329e1e
       - packaging/cargo-sources.json
       - type: inline
         dest: src-tauri/.cargo

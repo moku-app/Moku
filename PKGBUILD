@@ -99,16 +99,16 @@ exec /usr/lib/moku/jre/bin/java \
   -jar /usr/lib/moku/tachidesk/Suwayomi-Server.jar
 EOF
 
-    install -Dm644 packaging/dev.moku.app.desktop \
-        "$pkgdir/usr/share/applications/dev.moku.app.desktop"
+    install -Dm644 packaging/io.github.Youwes09.Moku.app.desktop \
+        "$pkgdir/usr/share/applications/io.github.Youwes09.Moku.app.desktop"
     install -Dm644 src-tauri/icons/32x32.png \
-        "$pkgdir/usr/share/icons/hicolor/32x32/apps/dev.moku.app.png"
+        "$pkgdir/usr/share/icons/hicolor/32x32/apps/io.github.Youwes09.Moku.app.png"
     install -Dm644 src-tauri/icons/128x128.png \
-        "$pkgdir/usr/share/icons/hicolor/128x128/apps/dev.moku.app.png"
+        "$pkgdir/usr/share/icons/hicolor/128x128/apps/io.github.Youwes09.Moku.app.png"
     install -Dm644 src-tauri/icons/128x128@2x.png \
-        "$pkgdir/usr/share/icons/hicolor/256x256/apps/dev.moku.app.png"
-    install -Dm644 packaging/dev.moku.app.metainfo.xml \
-        "$pkgdir/usr/share/metainfo/dev.moku.app.metainfo.xml"
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/io.github.Youwes09.Moku.app.png"
+    install -Dm644 packaging/io.github.Youwes09.Moku.app.metainfo.xml \
+        "$pkgdir/usr/share/metainfo/io.github.Youwes09.Moku.metainfo.xml"
 
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

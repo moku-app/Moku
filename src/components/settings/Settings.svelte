@@ -272,6 +272,14 @@
     migrateFrom = null; migrateTo = null; migrateError = null; migrateProgress = null;
   }
 
+  async function browseDownloadsFolder() {
+    const picked = await invoke<string | null>("pick_downloads_folder");
+    if (picked) {
+      downloadsPathInput = picked;
+      pathsFieldError = { ...pathsFieldError, dl: undefined };
+    }
+  }
+
   function addExtraScanDir() {
     const dir = newScanDir.trim();
     if (!dir || extraScanDirs.includes(dir)) return;
@@ -1633,6 +1641,11 @@
                   onkeydown={(e) => e.key === "Enter" && savePaths()}
                   oninput={() => { pathsFieldError = { ...pathsFieldError, dl: undefined }; }}
                 />
+                {#if !isExternalServer}
+                  <button class="sec-action-btn" onclick={browseDownloadsFolder} title="Browse for folder">
+                    Browse
+                  </button>
+                {/if}
                 <div class="path-actions">
                   {#if pathsFieldError.dl}
                     <span class="path-field-error">{pathsFieldError.dl}</span>

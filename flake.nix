@@ -177,7 +177,7 @@ EOF
               [[ $# -lt 1 ]] && { echo "Usage: nix run .#flatpak -- <version>"; exit 1; }
               VERSION="$1"
               REPO="$(git rev-parse --show-toplevel)"
-              MANIFEST="$REPO/dev.moku.app.yml"
+              MANIFEST="$REPO/io.github.Youwes09.Moku.yml"
 
               echo "── Bumping versions ──"
               sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" \
@@ -226,7 +226,7 @@ EOF
                 --force-clean \
                 "$REPO/build-dir" \
                 "$MANIFEST"
-              flatpak build-bundle "$REPO/repo" "$REPO/moku.flatpak" dev.moku.app
+              flatpak build-bundle "$REPO/repo" "$REPO/moku.flatpak" io.github.Youwes09.Moku
               rm -rf "$REPO/build-dir" "$REPO/repo"
               echo "moku.flatpak created"
 

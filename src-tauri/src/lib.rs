@@ -272,7 +272,7 @@ fn suwayomi_data_dir() -> PathBuf {
     {
         dirs::data_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from("~")))
-            .join("dev.moku.app/tachidesk")
+            .join("io.github.Youwes09.Moku.app/tachidesk")
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
@@ -615,10 +615,21 @@ fn open_path(path: String) -> Result<(), String> {
 }
 
 
+#[tauri::command]
+async fn pick_downloads_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .set_title("Choose Downloads Folder")
+        .blocking_pick_folder()
+        .map(|p| p.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_discord_rpc::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
@@ -638,6 +649,7 @@ pub fn run() {
             download_and_install_update,
             restart_app,
             open_path,
+            pick_downloads_folder,
         ])
         .setup(|_app| Ok(()))
         .on_window_event(|window, event| {
