@@ -642,8 +642,8 @@
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber < lastPage) {
-      if (style === "fade") { animateFade(() => { store.pageNumber = Math.min(lastPage, store.pageNumber + pageStep); }); }
-      else { store.pageNumber = Math.min(lastPage, store.pageNumber + pageStep); }
+      if (style === "fade") { animateFade(() => { store.pageNumber++; }); }
+      else { store.pageNumber++; }
     } else if (adjacent.next) {
       maybeMarkCurrentRead();
       store.pageNumber = 1;
@@ -660,12 +660,10 @@
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber > 1) {
-      if (style === "fade") { animateFade(() => { store.pageNumber = Math.max(1, store.pageNumber - pageStep); }); }
-      else { store.pageNumber = Math.max(1, store.pageNumber - pageStep); }
+      if (style === "fade") { animateFade(() => { store.pageNumber--; }); }
+      else { store.pageNumber--; }
     } else if (adjacent.prev) { startAtLastPage = true; openReader(adjacent.prev, store.activeChapterList); }
   }
-
-  const pageStep = $derived(style === "double" ? 2 : 1);
 
   const goNext = $derived(rtl ? goBack    : goForward);
   const goPrev = $derived(rtl ? goForward : goBack);
@@ -1021,11 +1019,11 @@
           <button class="mode-btn" class:active={autoNext} onclick={() => updateSettings({ autoNextChapter: !autoNext })}>
             <span class="mode-label">Auto</span>
           </button>
-          {#if !autoNext}
-            <button class="mode-btn" class:active={markOnNext} onclick={() => updateSettings({ markReadOnNext: !markOnNext })}>
-              <span class="mode-label">Mk.Read</span>
-            </button>
-          {/if}
+        {/if}
+        {#if !autoNext}
+          <button class="mode-btn" class:active={markOnNext} onclick={() => updateSettings({ markReadOnNext: !markOnNext })}>
+            <span class="mode-label">Mk.Read</span>
+          </button>
         {/if}
       </div>
 
@@ -1363,6 +1361,9 @@
   .marker-popover { position: absolute; top: calc(100% + 8px); right: 0; width: 240px; background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-3); box-shadow: 0 12px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4); z-index: 100; animation: scaleIn 0.1s ease both; transform-origin: top right; }
   .marker-pop-header { display: flex; align-items: center; justify-content: space-between; }
   .marker-pop-title { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
+  .marker-color-row { display: flex; align-items: center; gap: var(--sp-2); }
+  .marker-swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; border-radius: var(--radius-sm); background: none; border: none; cursor: pointer; flex: 1; transition: background var(--t-fast); }
+  .marker-swatch:hover { background: var(--bg-overlay); }
   .swatch-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 0 var(--swatch); transition: box-shadow var(--t-fast), transform var(--t-fast); flex-shrink: 0; }
   .marker-swatch:hover .swatch-dot { transform: scale(1.15); }
   .marker-swatch-active .swatch-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--swatch) 30%, transparent); transform: scale(1.1); }
