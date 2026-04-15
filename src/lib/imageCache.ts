@@ -4,7 +4,7 @@ import { store } from "../store/state.svelte";
 const cache    = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
 
-const MAX_CONCURRENT = 14;
+const MAX_CONCURRENT = 6;
 let   active         = 0;
 
 interface QueueEntry {
@@ -30,9 +30,18 @@ async function doFetch(url: string): Promise<string> {
   return blobUrl;
 }
 
+function insertSorted(entry: QueueEntry) {
+  let lo = 0, hi = queue.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (queue[mid].priority > entry.priority) lo = mid + 1;
+    else hi = mid;
+  }
+  queue.splice(lo, 0, entry);
+}
+
 function drain() {
   while (active < MAX_CONCURRENT && queue.length > 0) {
-    queue.sort((a, b) => b.priority - a.priority);
     const entry = queue.shift()!;
     active++;
     doFetch(entry.url)
@@ -47,7 +56,7 @@ function drain() {
 
 function enqueue(url: string, priority: number): Promise<string> {
   const promise = new Promise<string>((resolve, reject) => {
-    queue.push({ url, priority, resolve, reject });
+    insertSorted({ url, priority, resolve, reject });
   });
   inflight.set(url, promise);
   drain();
@@ -62,8 +71,12 @@ export function getBlobUrl(url: string, priority = 0): Promise<string> {
 
   const existing = inflight.get(url);
   if (existing) {
-    const entry = queue.find(e => e.url === url);
-    if (entry && priority > entry.priority) entry.priority = priority;
+    const idx = queue.findIndex(e => e.url === url);
+    if (idx !== -1 && priority > queue[idx].priority) {
+      const [entry] = queue.splice(idx, 1);
+      entry.priority = priority;
+      insertSorted(entry);
+    }
     return existing;
   }
 

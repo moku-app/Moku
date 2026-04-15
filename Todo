@@ -31,7 +31,14 @@ In-Progress:
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
  
  - Working on 3D Display Cards
+ - Chapter refresh Notification Looks bad (Series Detail)
 
+ - Fix Discover Workout
+   - Fix CSS on Saved State for Search
+   - Fix State & Cache names (Mapped to Discover hence needs Renaming)
+   - Completely Remove Discover
+
+ - Add Small QOL Animations where Appropriate
 
 
 

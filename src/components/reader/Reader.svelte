@@ -642,8 +642,8 @@
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber < lastPage) {
-      if (style === "fade") { animateFade(() => { store.pageNumber++; }); }
-      else { store.pageNumber++; }
+      if (style === "fade") { animateFade(() => { store.pageNumber = Math.min(lastPage, store.pageNumber + pageStep); }); }
+      else { store.pageNumber = Math.min(lastPage, store.pageNumber + pageStep); }
     } else if (adjacent.next) {
       maybeMarkCurrentRead();
       store.pageNumber = 1;
@@ -660,10 +660,12 @@
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
     if (!store.pageUrls.length) return;
     if (store.pageNumber > 1) {
-      if (style === "fade") { animateFade(() => { store.pageNumber--; }); }
-      else { store.pageNumber--; }
+      if (style === "fade") { animateFade(() => { store.pageNumber = Math.max(1, store.pageNumber - pageStep); }); }
+      else { store.pageNumber = Math.max(1, store.pageNumber - pageStep); }
     } else if (adjacent.prev) { startAtLastPage = true; openReader(adjacent.prev, store.activeChapterList); }
   }
+
+  const pageStep = $derived(style === "double" ? 2 : 1);
 
   const goNext = $derived(rtl ? goBack    : goForward);
   const goPrev = $derived(rtl ? goForward : goBack);
@@ -1019,11 +1021,11 @@
           <button class="mode-btn" class:active={autoNext} onclick={() => updateSettings({ autoNextChapter: !autoNext })}>
             <span class="mode-label">Auto</span>
           </button>
-        {/if}
-        {#if !autoNext}
-          <button class="mode-btn" class:active={markOnNext} onclick={() => updateSettings({ markReadOnNext: !markOnNext })}>
-            <span class="mode-label">Mk.Read</span>
-          </button>
+          {#if !autoNext}
+            <button class="mode-btn" class:active={markOnNext} onclick={() => updateSettings({ markReadOnNext: !markOnNext })}>
+              <span class="mode-label">Mk.Read</span>
+            </button>
+          {/if}
         {/if}
       </div>
 
