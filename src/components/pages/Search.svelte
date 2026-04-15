@@ -10,7 +10,8 @@
 
   const SEARCH_PAGES  = 3;
   const SEARCH_LIMIT  = 200;
-  const SEARCH_CONCUR = 6;
+  const SEARCH_BATCH = 20;
+  const SEARCH_VISIBLE_LIMIT = 30;
 
   function dKey(srcId: string, page: number) {
     return `${srcId}|POPULAR|All:p${page}`;
@@ -18,7 +19,12 @@
 
   let srch_results:  Manga[]  = $state([]);
   let srch_loading             = $state(false);
+  let srch_moreLoading         = $state(false);
   let srch_abortCtrl: AbortController | null = null;
+  let srch_sourcePool: Source[] = $state([]);
+  let srch_sourceCursor         = $state(0);
+  let srch_hasMorePopular       = $state(false);
+  let srch_visibleLimit         = $state(SEARCH_VISIBLE_LIMIT);
 
   function srch_filterOut(mangas: Manga[]): Manga[] {
     return dedupeMangaByTitle(
@@ -48,37 +54,37 @@
     ).slice(0, SEARCH_LIMIT);
   }
 
-  async function srch_fanOut(sources: Source[], signal: AbortSignal) {
-    const srcs = srch_rotatedSources(sources);
-    if (!srcs.length) return;
-
-    let i = 0;
-    async function worker() {
-      while (i < srcs.length) {
-        if (signal.aborted) return;
-        const src = srcs[i++];
-        for (let page = 1; page <= SEARCH_PAGES; page++) {
-          if (signal.aborted) return;
-          const key = dKey(src.id, page);
-          let mangas: Manga[];
-          if (store.searchCache?.has(key)) {
-            mangas = store.searchCache.get(key)!;
-          } else {
-            const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-              FETCH_SOURCE_MANGA,
-              { source: src.id, type: "POPULAR", page, query: null },
-              signal,
-            ).then(d => d.fetchSourceManga).catch(() => null);
-            if (!result || signal.aborted) break;
-            mangas = result.mangas;
-            store.searchCache?.set(key, mangas);
-            if (!result.hasNextPage) { srch_push(mangas); break; }
-          }
-          srch_push(mangas);
-        }
-      }
+  async function srch_fanOut(signal: AbortSignal) {
+    const batch = srch_sourcePool.slice(srch_sourceCursor, srch_sourceCursor + SEARCH_BATCH);
+    if (!batch.length) {
+      srch_hasMorePopular = false;
+      return;
     }
-    await Promise.all(Array.from({ length: Math.min(SEARCH_CONCUR, srcs.length) }, worker));
+
+    await Promise.all(batch.map(async (src) => {
+      for (let page = 1; page <= SEARCH_PAGES; page++) {
+        if (signal.aborted) return;
+        const key = dKey(src.id, page);
+        let mangas: Manga[];
+        if (store.searchCache?.has(key)) {
+          mangas = store.searchCache.get(key)!;
+        } else {
+          const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+            FETCH_SOURCE_MANGA,
+            { source: src.id, type: "POPULAR", page, query: null },
+            signal,
+          ).then(d => d.fetchSourceManga).catch(() => null);
+          if (!result || signal.aborted) break;
+          mangas = result.mangas;
+          store.searchCache?.set(key, mangas);
+          if (!result.hasNextPage) { srch_push(mangas); break; }
+        }
+        srch_push(mangas);
+      }
+    }));
+
+    srch_sourceCursor += batch.length;
+    srch_hasMorePopular = srch_sourceCursor < srch_sourcePool.length;
   }
 
   function srch_start(sources: Source[]) {
@@ -86,10 +92,28 @@
     srch_abortCtrl?.abort();
     const ctrl = new AbortController();
     srch_abortCtrl = ctrl;
+    srch_sourcePool = srch_rotatedSources(sources);
+    srch_sourceCursor = 0;
+    srch_hasMorePopular = false;
+    srch_moreLoading = false;
+    srch_visibleLimit = SEARCH_VISIBLE_LIMIT;
     srch_loading = true;
-    srch_fanOut(sources, ctrl.signal)
+    srch_fanOut(ctrl.signal)
       .catch(() => {})
       .finally(() => { if (!ctrl.signal.aborted) srch_loading = false; });
+  }
+
+  function srch_loadMorePopular() {
+    if (srch_moreLoading) return;
+    srch_visibleLimit += SEARCH_VISIBLE_LIMIT;
+    if (!srch_hasMorePopular) return;
+    srch_abortCtrl?.abort();
+    const ctrl = new AbortController();
+    srch_abortCtrl = ctrl;
+    srch_moreLoading = true;
+    srch_fanOut(ctrl.signal)
+      .catch(() => {})
+      .finally(() => { if (!ctrl.signal.aborted) srch_moreLoading = false; });
   }
 
   type SearchTab = "keyword" | "tag" | "source";
@@ -355,6 +379,7 @@
   let kw_results:     SourceResult[] = $state([]);
   let kw_showAdvanced = $state(false);
   let kw_selectedLangs: Set<string>  = $state(new Set());
+  let kw_visibleLimit                = $state(SEARCH_VISIBLE_LIMIT);
   let kw_inputEl:     HTMLInputElement | null = $state(null);
   let kw_abortCtrl:   AbortController | null  = null;
   let kw_debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -403,6 +428,7 @@
   async function kwDoSearch(q: string) {
     const trimmed = q.trim();
     if (!trimmed) return;
+    kw_visibleLimit = SEARCH_VISIBLE_LIMIT;
     const visible = kwGetVisibleSources();
     if (!visible.length) return;
     kw_abortCtrl?.abort();
@@ -427,6 +453,10 @@
         );
       }
     }, ctrl.signal);
+  }
+
+  function kwLoadMore() {
+    kw_visibleLimit += SEARCH_VISIBLE_LIMIT;
   }
 
   function kwToggleLang(lang: string) {
@@ -851,12 +881,12 @@
             <div class="skCard"><div class="skeleton skCover"></div></div>
           {/each}
         </div>
-      {:else if srch_results.length > 0}
+          {:else if srch_results.length > 0}
         <div class="searchHeader">
           <span class="searchLabel">Popular right now</span>
         </div>
         <div class="searchGrid">
-          {#each srch_results as m (m.id)}
+          {#each srch_results.slice(0, srch_visibleLimit) as m (m.id)}
             <button class="srchCard" onclick={() => setPreviewManga(m)}>
               <div class="srchCoverWrap">
                 <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
@@ -868,13 +898,20 @@
                 </div>
               </div>
             </button>
-          {/each}
+            {/each}
           {#if srch_loading}
             {#each Array(6) as _, i (i)}
               <div class="skCard"><div class="skeleton skCover"></div></div>
             {/each}
           {/if}
         </div>
+        {#if srch_hasMorePopular || srch_results.length > srch_visibleLimit}
+          <div class="loadMoreRow loadMoreSticky">
+            <button class="showMoreBtn" onclick={srch_loadMorePopular} disabled={srch_moreLoading}>
+              {srch_moreLoading ? "Loading…" : "Show more"}
+            </button>
+          </div>
+        {/if}
       {:else}
         <div class="empty">
           <svg width="36" height="36" viewBox="0 0 256 256" fill="currentColor" class="emptyIcon" aria-hidden="true">
@@ -896,7 +933,7 @@
           <span class="searchLabel">{kw_flatResults.length} result{kw_flatResults.length !== 1 ? "s" : ""}</span>
         </div>
         <div class="searchGrid">
-          {#each kw_flatResults.slice(0, store.settings.renderLimit ?? 48) as m (m.id)}
+          {#each kw_flatResults.slice(0, kw_visibleLimit) as m (m.id)}
             <button class="srchCard" onclick={() => setPreviewManga(m)}>
               <div class="srchCoverWrap">
                 <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
@@ -908,13 +945,20 @@
                 </div>
               </div>
             </button>
-          {/each}
+            {/each}
           {#if kw_anyLoading}
             {#each Array(6) as _, i (i)}
               <div class="skCard"><div class="skeleton skCover"></div></div>
             {/each}
           {/if}
         </div>
+        {#if kw_flatResults.length > kw_visibleLimit || kw_anyLoading}
+          <div class="loadMoreRow loadMoreSticky">
+            <button class="showMoreBtn" onclick={kwLoadMore}>
+              Show more
+            </button>
+          </div>
+        {/if}
       {:else if kw_anyLoading}
         <div class="searchGrid">
           {#each Array(12) as _, i (i)}
@@ -1333,6 +1377,7 @@
   .showMoreBtn:hover:not(:disabled) { background: var(--bg-raised); color: var(--text-secondary); border-color: var(--border-strong); }
   .showMoreBtn:disabled { opacity: 0.4; cursor: default; }
   .loadMoreRow { display: flex; justify-content: center; padding: var(--sp-3) var(--sp-4); flex-shrink: 0; border-top: 1px solid var(--border-dim); }
+  .loadMoreSticky { position: sticky; top: 0; z-index: 2; width: fit-content; margin: 0 auto; border-top: none; border-left: 1px solid var(--border-dim); border-bottom: 1px solid var(--border-dim); border-bottom-left-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-base) 88%, transparent); backdrop-filter: blur(8px); }
   .sourceBrowseBar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   .srcLangRow { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; gap: var(--sp-2); }
   .langPocketLabel { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
