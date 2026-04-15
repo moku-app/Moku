@@ -155,7 +155,7 @@ export const CACHE_KEYS = {
   LIBRARY:             "library",
   ALL_MANGA:           "all_manga_unfiltered",
   CATEGORIES:          "categories",
-  DISCOVER:            "discover_all_manga",  // Discover's unfiltered fetch — separate from library
+  SEARCH:              "search_all_manga",     // Search's unfiltered fetch — separate from library
   SOURCES:             "sources",
   POPULAR:             "popular",
   GENRE:    (genre: string) => `genre:${genre}`,

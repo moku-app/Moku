@@ -2,34 +2,32 @@
   import { onDestroy, untrack } from "svelte";
   import { gql } from "../../lib/client";
   import Thumbnail from "../shared/Thumbnail.svelte";
-  import ContextMenu from "../shared/ContextMenu.svelte";
-  import type { MenuEntry } from "../shared/ContextMenu.svelte";
-  import { GET_SOURCES, FETCH_SOURCE_MANGA, FETCH_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
-  import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
+  import { GET_SOURCES, FETCH_SOURCE_MANGA, FETCH_MANGA } from "../../lib/queries";
+  import { getPageSet } from "../../lib/cache";
   import { dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw, shouldHideSource, normalizeTitle } from "../../lib/util";
-  import { store, setSearchPrefill, setPreviewManga, clearDiscoverCache } from "../../store/state.svelte";
-  import type { Manga, Source, Category } from "../../lib/types";
+  import { store, setSearchPrefill, setPreviewManga, clearSearchCache } from "../../store/state.svelte";
+  import type { Manga, Source } from "../../lib/types";
 
-  const DISCOVER_PAGES  = 3;
-  const DISCOVER_LIMIT  = 200;
-  const DISCOVER_CONCUR = 6;
+  const SEARCH_PAGES  = 3;
+  const SEARCH_LIMIT  = 200;
+  const SEARCH_CONCUR = 6;
 
   function dKey(srcId: string, page: number) {
     return `${srcId}|POPULAR|All:p${page}`;
   }
 
-  let disc_results:  Manga[]  = $state([]);
-  let disc_loading             = $state(false);
-  let disc_abortCtrl: AbortController | null = null;
+  let srch_results:  Manga[]  = $state([]);
+  let srch_loading             = $state(false);
+  let srch_abortCtrl: AbortController | null = null;
 
-  function disc_filterOut(mangas: Manga[]): Manga[] {
+  function srch_filterOut(mangas: Manga[]): Manga[] {
     return dedupeMangaByTitle(
       dedupeMangaById(mangas.filter(m => !shouldHideNsfw(m, store.settings))),
       store.settings.mangaLinks,
     );
   }
 
-  function disc_rotatedSources(sources: Source[]): Source[] {
+  function srch_rotatedSources(sources: Source[]): Source[] {
     const lang = store.settings?.preferredExtensionLang || "en";
     const eligible = sources.filter(s => s.id !== "0" && !shouldHideSource(s, store.settings));
     const map = new Map<string, Source>();
@@ -41,17 +39,17 @@
     return Array.from(map.values());
   }
 
-  function disc_push(incoming: Manga[]) {
-    const filtered = disc_filterOut(incoming);
+  function srch_push(incoming: Manga[]) {
+    const filtered = srch_filterOut(incoming);
     if (!filtered.length) return;
-    disc_results = dedupeMangaByTitle(
-      dedupeMangaById([...disc_results, ...filtered]),
+    srch_results = dedupeMangaByTitle(
+      dedupeMangaById([...srch_results, ...filtered]),
       store.settings.mangaLinks,
-    ).slice(0, DISCOVER_LIMIT);
+    ).slice(0, SEARCH_LIMIT);
   }
 
-  async function disc_fanOut(sources: Source[], signal: AbortSignal) {
-    const srcs = disc_rotatedSources(sources);
+  async function srch_fanOut(sources: Source[], signal: AbortSignal) {
+    const srcs = srch_rotatedSources(sources);
     if (!srcs.length) return;
 
     let i = 0;
@@ -59,12 +57,12 @@
       while (i < srcs.length) {
         if (signal.aborted) return;
         const src = srcs[i++];
-        for (let page = 1; page <= DISCOVER_PAGES; page++) {
+        for (let page = 1; page <= SEARCH_PAGES; page++) {
           if (signal.aborted) return;
           const key = dKey(src.id, page);
           let mangas: Manga[];
-          if (store.discoverCache?.has(key)) {
-            mangas = store.discoverCache.get(key)!;
+          if (store.searchCache?.has(key)) {
+            mangas = store.searchCache.get(key)!;
           } else {
             const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
               FETCH_SOURCE_MANGA,
@@ -73,25 +71,25 @@
             ).then(d => d.fetchSourceManga).catch(() => null);
             if (!result || signal.aborted) break;
             mangas = result.mangas;
-            store.discoverCache?.set(key, mangas);
-            if (!result.hasNextPage) { disc_push(mangas); break; }
+            store.searchCache?.set(key, mangas);
+            if (!result.hasNextPage) { srch_push(mangas); break; }
           }
-          disc_push(mangas);
+          srch_push(mangas);
         }
       }
     }
-    await Promise.all(Array.from({ length: Math.min(DISCOVER_CONCUR, srcs.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(SEARCH_CONCUR, srcs.length) }, worker));
   }
 
-  function disc_start(sources: Source[]) {
-    if (disc_results.length > 0) return;
-    disc_abortCtrl?.abort();
+  function srch_start(sources: Source[]) {
+    if (srch_results.length > 0) return;
+    srch_abortCtrl?.abort();
     const ctrl = new AbortController();
-    disc_abortCtrl = ctrl;
-    disc_loading = true;
-    disc_fanOut(sources, ctrl.signal)
+    srch_abortCtrl = ctrl;
+    srch_loading = true;
+    srch_fanOut(sources, ctrl.signal)
       .catch(() => {})
-      .finally(() => { if (!ctrl.signal.aborted) disc_loading = false; });
+      .finally(() => { if (!ctrl.signal.aborted) srch_loading = false; });
   }
 
   type SearchTab = "keyword" | "tag" | "source";
@@ -321,7 +319,7 @@
     .then((d) => {
       allSources = d.sources.nodes.filter((src: Source) => src.id !== "0");
       startSourceCacheBuild();
-      disc_start(allSources);
+      srch_start(allSources);
     })
     .catch(console.error)
     .finally(() => { loadingSources = false; });
@@ -353,7 +351,6 @@
   const availableLangs   = $derived(Array.from(new Set<string>(allSources.map((s) => s.lang))).sort());
   const hasMultipleLangs = $derived(availableLangs.length > 1);
 
-  // ── Keyword tab ───────────────────────────────────────────────────────────
   let kw_query        = $state("");
   let kw_results:     SourceResult[] = $state([]);
   let kw_showAdvanced = $state(false);
@@ -454,7 +451,6 @@
     ) as (Manga & { _sourceName?: string })[];
   });
 
-  // ── Tag tab ───────────────────────────────────────────────────────────────
   let tag_activeTags:     string[] = $state([]);
   let tag_activeStatuses: string[] = $state([]);
   let tag_tagMode:        TagMode  = $state("AND");
@@ -471,15 +467,9 @@
   let tag_searchSources    = $state(false);
   let tag_sourceFiltered:  CachedManga[] = $state([]);
 
-  // Active source fan-out results (Discover-style live fetch per genre tag)
   let tag_sourceFanOut:   Manga[]  = $state([]);
   let tag_fanOutLoading            = $state(false);
   let tag_fanOutAbort: AbortController | null = null;
-
-  // Context menu state
-  let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
-  let categories: Category[] = $state([]);
-  let catsLoaded = false;
 
   const tag_filteredGenres = $derived.by(() => {
     const q = tag_tagFilter.trim().toLowerCase();
@@ -510,7 +500,6 @@
     });
   });
 
-  // Fan-out live source search when a single genre tag is active + sources enabled
   $effect(() => {
     const _tags    = tag_activeTags;
     const _search  = tag_searchSources;
@@ -533,7 +522,7 @@
     tag_sourceFanOut = [];
     tag_fanOutLoading = true;
 
-    const srcs = disc_rotatedSources(allSources);
+    const srcs = srch_rotatedSources(allSources);
     const PAGES = 2;
 
     await runConcurrent(srcs, async (src) => {
@@ -543,8 +532,8 @@
         let mangas: Manga[];
         let hasNextPage = false;
 
-        if (store.discoverCache?.has(cacheKey)) {
-          mangas = store.discoverCache.get(cacheKey)!;
+        if (store.searchCache?.has(cacheKey)) {
+          mangas = store.searchCache.get(cacheKey)!;
         } else {
           const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
             FETCH_SOURCE_MANGA,
@@ -554,7 +543,7 @@
           if (!result || ctrl.signal.aborted) return;
           mangas = result.mangas;
           hasNextPage = result.hasNextPage;
-          store.discoverCache?.set(cacheKey, mangas);
+          store.searchCache?.set(cacheKey, mangas);
         }
 
         if (ctrl.signal.aborted) return;
@@ -568,7 +557,7 @@
           tag_sourceFanOut = dedupeMangaByTitle(
             dedupeMangaById([...tag_sourceFanOut, ...toAdd]),
             store.settings.mangaLinks,
-          ).slice(0, DISCOVER_LIMIT);
+          ).slice(0, SEARCH_LIMIT);
         }
 
         if (!hasNextPage) return;
@@ -660,52 +649,6 @@
     tag_searchSources = !tag_searchSources;
   }
 
-  function openCtx(e: MouseEvent, m: Manga) {
-    e.preventDefault(); e.stopPropagation();
-    ctx = { x: e.clientX, y: e.clientY, manga: m };
-    if (!catsLoaded) {
-      catsLoaded = true;
-      gql<{ categories: { nodes: Category[] } }>(GET_CATEGORIES)
-        .then(d => { categories = d.categories.nodes.filter(c => c.id !== 0); })
-        .catch(console.error);
-    }
-  }
-
-  function buildCtxItems(m: Manga): MenuEntry[] {
-    return [
-      {
-        label: m.inLibrary ? "In Library" : "Add to library",
-        disabled: m.inLibrary,
-        onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
-          .then(() => {
-            cache.clear(CACHE_KEYS.LIBRARY);
-            store.discoverLibraryIds = new Set([...store.discoverLibraryIds, m.id]);
-          }).catch(console.error),
-      },
-      ...(categories.length > 0 ? [
-        { separator: true } as MenuEntry,
-        ...categories.map(cat => ({
-          label: (cat.mangas?.nodes ?? []).some((x: any) => x.id === m.id) ? `✓ ${cat.name}` : cat.name,
-          onClick: () => gql(UPDATE_MANGA_CATEGORIES, { mangaId: m.id, addTo: [cat.id], removeFrom: [] }).catch(console.error),
-        })),
-      ] : []),
-      { separator: true },
-      {
-        label: "New folder & add",
-        onClick: async () => {
-          const n = prompt("Folder name:");
-          if (!n?.trim()) return;
-          const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name: n.trim() }).catch(console.error);
-          if (res) {
-            const cat = res.createCategory.category;
-            categories = [...categories, cat];
-            await gql(UPDATE_MANGA_CATEGORIES, { mangaId: m.id, addTo: [cat.id], removeFrom: [] }).catch(console.error);
-          }
-        },
-      },
-    ];
-  }
-
   const tag_localIds = $derived(new Set(tag_localResults.map((m) => m.id)));
 
   const tag_mergedResults = $derived.by(() => {
@@ -729,7 +672,6 @@
 
   const tag_totalVisible = $derived(tag_mergedResults.length);
 
-  // ── Source browse tab ─────────────────────────────────────────────────────
   let src_selectedLang  = $state(preferredLang || "all");
   let src_activeSource: Source | null = $state(null);
   let src_browseResults: Manga[]       = $state([]);
@@ -814,7 +756,7 @@
     tag_fanOutAbort?.abort();
     src_abortCtrl?.abort();
     sourceCacheAbort?.abort();
-    disc_abortCtrl?.abort();
+    srch_abortCtrl?.abort();
   });
 </script>
 
@@ -903,31 +845,31 @@
     </div>
 
     {#if !kw_query.trim()}
-      {#if disc_loading && disc_results.length === 0}
-        <div class="discoverGrid">
+      {#if srch_loading && srch_results.length === 0}
+        <div class="searchGrid">
           {#each Array(24) as _, i (i)}
             <div class="skCard"><div class="skeleton skCover"></div></div>
           {/each}
         </div>
-      {:else if disc_results.length > 0}
-        <div class="discoverHeader">
-          <span class="discoverLabel">Popular right now</span>
+      {:else if srch_results.length > 0}
+        <div class="searchHeader">
+          <span class="searchLabel">Popular right now</span>
         </div>
-        <div class="discoverGrid">
-          {#each disc_results as m (m.id)}
-            <button class="discCard" onclick={() => setPreviewManga(m)}>
-              <div class="discCoverWrap">
+        <div class="searchGrid">
+          {#each srch_results as m (m.id)}
+            <button class="srchCard" onclick={() => setPreviewManga(m)}>
+              <div class="srchCoverWrap">
                 <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
-                <div class="discGradient"></div>
+                <div class="srchGradient"></div>
                 {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
-                <div class="discFooter">
-                  <p class="discTitle">{m.title}</p>
-                  {#if m.source?.displayName}<p class="discSource">{m.source.displayName}</p>{/if}
+                <div class="srchFooter">
+                  <p class="srchTitle">{m.title}</p>
+                  {#if m.source?.displayName}<p class="srchSource">{m.source.displayName}</p>{/if}
                 </div>
               </div>
             </button>
           {/each}
-          {#if disc_loading}
+          {#if srch_loading}
             {#each Array(6) as _, i (i)}
               <div class="skCard"><div class="skeleton skCover"></div></div>
             {/each}
@@ -950,19 +892,19 @@
       {/if}
     {:else}
       {#if kw_flatResults.length > 0}
-        <div class="discoverHeader">
-          <span class="discoverLabel">{kw_flatResults.length} result{kw_flatResults.length !== 1 ? "s" : ""}</span>
+        <div class="searchHeader">
+          <span class="searchLabel">{kw_flatResults.length} result{kw_flatResults.length !== 1 ? "s" : ""}</span>
         </div>
-        <div class="discoverGrid">
+        <div class="searchGrid">
           {#each kw_flatResults.slice(0, store.settings.renderLimit ?? 48) as m (m.id)}
-            <button class="discCard" onclick={() => setPreviewManga(m)}>
-              <div class="discCoverWrap">
+            <button class="srchCard" onclick={() => setPreviewManga(m)}>
+              <div class="srchCoverWrap">
                 <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
-                <div class="discGradient"></div>
+                <div class="srchGradient"></div>
                 {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
-                <div class="discFooter">
-                  <p class="discTitle">{m.title}</p>
-                  {#if (m as any)._sourceName}<p class="discSource">{(m as any)._sourceName}</p>{/if}
+                <div class="srchFooter">
+                  <p class="srchTitle">{m.title}</p>
+                  {#if (m as any)._sourceName}<p class="srchSource">{(m as any)._sourceName}</p>{/if}
                 </div>
               </div>
             </button>
@@ -974,7 +916,7 @@
           {/if}
         </div>
       {:else if kw_anyLoading}
-        <div class="discoverGrid">
+        <div class="searchGrid">
           {#each Array(12) as _, i (i)}
             <div class="skCard"><div class="skeleton skCover"></div></div>
           {/each}
@@ -1110,7 +1052,7 @@
           {:else if tag_mergedResults.length > 0}
             <div class="tagGrid">
               {#each tag_mergedResults as m (m.id)}
-                <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => openCtx(e, m)}>
+                <button class="card" onclick={() => setPreviewManga(m)}>
                   <div class="coverWrap">
                     <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
                     {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
@@ -1278,10 +1220,6 @@
   {/if}
 </div>
 
-{#if ctx}
-  <ContextMenu x={ctx.x} y={ctx.y} items={buildCtxItems(ctx.manga)} onClose={() => ctx = null} />
-{/if}
-
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
   .header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); flex-shrink: 0; border-bottom: 1px solid var(--border-dim); }
@@ -1403,16 +1341,16 @@
   .langSelect:focus { outline: none; border-color: var(--accent-dim); color: var(--text-primary); }
   .langSelect option { background: var(--bg-surface); color: var(--text-secondary); }
   .nsfwBadge { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--color-error); background: var(--color-error-bg, rgba(180, 60, 60, 0.08)); border: 1px solid rgba(180, 60, 60, 0.25); border-radius: var(--radius-sm); padding: 1px 5px; margin-left: auto; flex-shrink: 0; }
-  .discoverHeader { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4) var(--sp-1); flex-shrink: 0; }
-  .discoverLabel { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
-  .discoverGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 11vw, 130px), 1fr)); gap: var(--sp-2); padding: var(--sp-2) var(--sp-4) var(--sp-6); overflow-y: auto; flex: 1; align-content: start; }
-  .discCard { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .discCard:hover :global(.cover) { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
-  .discCoverWrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
-  .discGradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 50%, transparent 72%); pointer-events: none; }
-  .discFooter { position: absolute; bottom: 0; left: 0; right: 0; padding: var(--sp-2); pointer-events: none; }
-  .discTitle { font-size: var(--text-xs); font-weight: var(--weight-medium); color: rgba(255,255,255,0.92); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
-  .discSource { font-family: var(--font-ui); font-size: 9px; color: rgba(255,255,255,0.45); letter-spacing: var(--tracking-wide); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .searchHeader { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4) var(--sp-1); flex-shrink: 0; }
+  .searchLabel { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
+  .searchGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 11vw, 130px), 1fr)); gap: var(--sp-2); padding: var(--sp-2) var(--sp-4) var(--sp-6); overflow-y: auto; flex: 1; align-content: start; }
+  .srchCard { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+  .srchCard:hover :global(.cover) { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
+  .srchCoverWrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+  .srchGradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 50%, transparent 72%); pointer-events: none; }
+  .srchFooter { position: absolute; bottom: 0; left: 0; right: 0; padding: var(--sp-2); pointer-events: none; }
+  .srchTitle { font-size: var(--text-xs); font-weight: var(--weight-medium); color: rgba(255,255,255,0.92); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
+  .srchSource { font-family: var(--font-ui); font-size: 9px; color: rgba(255,255,255,0.45); letter-spacing: var(--tracking-wide); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
   @keyframes anim-spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
   .anim-spin { animation: anim-spin 0.8s linear infinite; }

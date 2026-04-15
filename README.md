@@ -21,7 +21,7 @@ Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://gith
 
 <div align="center">
   <img src="docs/screenshots/Moku-Home.png" width="49%" alt="Home" />
-  <img src="docs/screenshots/Moku-Discover.png" width="49%" alt="Discover" />
+  <img src="docs/screenshots/Moku-TagSearch.png" width="49%" alt="TagSearch" />
   <img src="docs/screenshots/Moku-Reader.png" width="49%" alt="Reader" />
   <img src="docs/screenshots/Moku-Preview.png" width="49%" alt="Preview" />
   <img src="docs/screenshots/Moku-Tracker.png" width="49%" alt="Tracker" />

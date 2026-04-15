@@ -443,9 +443,9 @@ class Store {
   markers:         MarkerEntry[]   = $state(saved?.markers   ?? []);
   readLog:         ReadLogEntry[]  = $state(saved?.readLog   ?? []);
   readingStats:    ReadingStats    = $state(saved?.readingStats ?? { ...DEFAULT_READING_STATS });
-  discoverCache:   Map<string, any> = $state(new Map());
-  discoverLibraryIds: Set<number>  = $state(new Set());
-  discoverSrcOffset: number        = $state(0);
+  searchCache:   Map<string, any> = $state(new Map());
+  searchLibraryIds: Set<number>  = $state(new Set());
+  searchSrcOffset: number        = $state(0);
   readerSessionId: number          = $state(0);
   libraryUpdates:  LibraryUpdateEntry[] = $state(saved?.libraryUpdates ?? []);
   lastLibraryRefresh: number       = $state(saved?.lastLibraryRefresh ?? 0);
@@ -682,10 +682,10 @@ class Store {
     this.settings = { ...this.settings, hiddenCategoryIds: next };
   }
 
-  clearDiscoverCache() {
-    this.discoverCache      = new Map();
-    this.discoverLibraryIds = new Set();
-    this.discoverSrcOffset++;
+  clearSearchCache() {
+    this.searchCache      = new Map();
+    this.searchLibraryIds = new Set();
+    this.searchSrcOffset++;
   }
 
   setLibraryUpdates(entries: LibraryUpdateEntry[]) {
@@ -738,7 +738,7 @@ export function setLibraryTagFilter(next: string[])                        { sto
 export function setSettingsOpen(next: boolean)                             { store.setSettingsOpen(next); }
 export function updateSettings(patch: Partial<Settings>)                   { store.updateSettings(patch); }
 export function resetKeybinds()                                            { store.resetKeybinds(); }
-export function clearDiscoverCache()                                         { store.clearDiscoverCache(); }
+export function clearSearchCache()                                           { store.clearSearchCache(); }
 export function setLibraryUpdates(entries: LibraryUpdateEntry[])             { store.setLibraryUpdates(entries); }
 export function clearLibraryUpdates()                                        { store.clearLibraryUpdates(); }
 export function acknowledgeUpdate(mangaId: number)                           { store.acknowledgeUpdate(mangaId); }
