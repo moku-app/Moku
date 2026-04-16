@@ -35,15 +35,19 @@
     purple: "#a07ac4",
   };
 
-  const pageCache = new Map<number, string[]>();
-  const inflight  = new Map<number, Promise<string[]>>();
+  const pageCache        = new Map<number, string[]>();
+  const inflight         = new Map<number, Promise<string[]>>();
+  const resolvedUrlCache = new Map<string, Promise<string>>();
+  const preloadedUrls    = new Set<string>();
 
   const win = getCurrentWindow();
 
   const useBlob = $derived((appStore.settings.serverAuthMode ?? "NONE") === "BASIC_AUTH");
 
   function resolveUrl(url: string, priority = 0): Promise<string> {
-    return useBlob ? getBlobUrl(url, priority) : Promise.resolve(url);
+    if (!useBlob) return Promise.resolve(url);
+    if (!resolvedUrlCache.has(url)) resolvedUrlCache.set(url, getBlobUrl(url, priority));
+    return resolvedUrlCache.get(url)!;
   }
 
   function fetchPages(chapterId: number, signal?: AbortSignal, priorityPage = 0): Promise<string[]> {
@@ -87,6 +91,8 @@
   }
 
   function preloadImage(url: string) {
+    if (preloadedUrls.has(url)) return;
+    preloadedUrls.add(url);
     resolveUrl(url).then(src => { new Image().src = src; }).catch(() => {});
   }
 
@@ -399,7 +405,7 @@
     if (!next || stripChapters.some(c => c.chapterId === next.id)) return;
     appending = true;
     fetchPages(next.id)
-      .then(urls => { urls.forEach(url => measureAspect(url).catch(() => {})); urls.slice(0, 6).forEach(preloadImage); return urls; })
+      .then(urls => { urls.slice(0, 6).forEach(preloadImage); return urls; })
       .then(urls => {
         if (stripChapters.some(c => c.chapterId === next.id)) { appending = false; return; }
         stripChapters = [...stripChapters, { chapterId: next.id, chapterName: next.name, urls }];
@@ -469,14 +475,9 @@
     if (store.activeChapter && store.activeChapterList.length) {
       const idx = store.activeChapterList.findIndex(c => c.id === store.activeChapter!.id);
       if (idx >= 0) {
-        for (let i = 1; i <= 3; i++) {
-          const entry = store.activeChapterList[idx + i];
-          if (!entry) break;
-          fetchPages(entry.id)
-            .then(urls => { const n = i === 1 ? 8 : i === 2 ? 4 : 2; urls.slice(0, n).forEach(preloadImage); })
-            .catch(() => {});
-        }
-        if (idx > 0) fetchPages(store.activeChapterList[idx - 1].id).catch(() => {});
+        const next = store.activeChapterList[idx + 1];
+        if (next) fetchPages(next.id).then(urls => urls.slice(0, 8).forEach(preloadImage)).catch(() => {});
+        if (idx > 0) fetchPages(store.activeChapterList[idx - 1].id).then(urls => urls.slice(0, 2).forEach(preloadImage)).catch(() => {});
       }
     }
   });
