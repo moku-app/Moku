@@ -10,7 +10,8 @@
 
   const SEARCH_PAGES  = 3;
   const SEARCH_LIMIT  = 200;
-  const SEARCH_CONCUR = 6;
+  const SEARCH_BATCH = 20;
+  const SEARCH_VISIBLE_LIMIT = 30;
 
   function dKey(srcId: string, page: number) {
     return `${srcId}|POPULAR|All:p${page}`;
@@ -18,67 +19,76 @@
 
   let srch_results:  Manga[]  = $state([]);
   let srch_loading             = $state(false);
+  let srch_moreLoading         = $state(false);
   let srch_abortCtrl: AbortController | null = null;
+  let srch_sourcePool: Source[] = $state([]);
+  let srch_sourceCursor         = $state(0);
+  let srch_hasMorePopular       = $state(false);
 
-  function srch_filterOut(mangas: Manga[]): Manga[] {
-    return dedupeMangaByTitle(
-      dedupeMangaById(mangas.filter(m => !shouldHideNsfw(m, store.settings))),
-      store.settings.mangaLinks,
-    );
-  }
-
-  function srch_rotatedSources(sources: Source[]): Source[] {
-    const lang = store.settings?.preferredExtensionLang || "en";
-    const eligible = sources.filter(s => s.id !== "0" && !shouldHideSource(s, store.settings));
+  function dedupeSourcesByLang(sources: Source[], lang: string, applyHide = false): Source[] {
     const map = new Map<string, Source>();
-    for (const s of eligible) {
+    for (const s of sources) {
+      if (s.id === "0") continue;
+      if (applyHide && shouldHideSource(s, store.settings)) continue;
       const existing = map.get(s.name);
       if (!existing) { map.set(s.name, s); continue; }
-      if (s.lang === lang && existing.lang !== lang) map.set(s.name, s);
+      const existingPref = existing.lang === lang;
+      const newPref      = s.lang === lang;
+      if (newPref && !existingPref) map.set(s.name, s);
+      else if (!existingPref && !newPref && s.lang < existing.lang) map.set(s.name, s);
     }
     return Array.from(map.values());
   }
 
+  let srch_seenIds    = new Set<number>();
+  let srch_seenTitles = new Set<string>();
+
   function srch_push(incoming: Manga[]) {
-    const filtered = srch_filterOut(incoming);
-    if (!filtered.length) return;
-    srch_results = dedupeMangaByTitle(
-      dedupeMangaById([...srch_results, ...filtered]),
-      store.settings.mangaLinks,
-    ).slice(0, SEARCH_LIMIT);
+    const toAdd: Manga[] = [];
+    for (const m of incoming) {
+      if (shouldHideNsfw(m, store.settings)) continue;
+      if (srch_seenIds.has(m.id)) continue;
+      const norm = normalizeTitle(m.title, store.settings.mangaLinks);
+      if (srch_seenTitles.has(norm)) continue;
+      srch_seenIds.add(m.id);
+      srch_seenTitles.add(norm);
+      toAdd.push(m);
+    }
+    if (!toAdd.length) return;
+    srch_results = [...srch_results, ...toAdd].slice(0, SEARCH_LIMIT);
   }
 
-  async function srch_fanOut(sources: Source[], signal: AbortSignal) {
-    const srcs = srch_rotatedSources(sources);
-    if (!srcs.length) return;
-
-    let i = 0;
-    async function worker() {
-      while (i < srcs.length) {
-        if (signal.aborted) return;
-        const src = srcs[i++];
-        for (let page = 1; page <= SEARCH_PAGES; page++) {
-          if (signal.aborted) return;
-          const key = dKey(src.id, page);
-          let mangas: Manga[];
-          if (store.searchCache?.has(key)) {
-            mangas = store.searchCache.get(key)!;
-          } else {
-            const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-              FETCH_SOURCE_MANGA,
-              { source: src.id, type: "POPULAR", page, query: null },
-              signal,
-            ).then(d => d.fetchSourceManga).catch(() => null);
-            if (!result || signal.aborted) break;
-            mangas = result.mangas;
-            store.searchCache?.set(key, mangas);
-            if (!result.hasNextPage) { srch_push(mangas); break; }
-          }
-          srch_push(mangas);
-        }
-      }
+  async function srch_fanOut(signal: AbortSignal) {
+    const batch = srch_sourcePool.slice(srch_sourceCursor, srch_sourceCursor + SEARCH_BATCH);
+    if (!batch.length) {
+      srch_hasMorePopular = false;
+      return;
     }
-    await Promise.all(Array.from({ length: Math.min(SEARCH_CONCUR, srcs.length) }, worker));
+
+    await runConcurrent(batch, async (src) => {
+      for (let page = 1; page <= SEARCH_PAGES; page++) {
+        if (signal.aborted) return;
+        const key = dKey(src.id, page);
+        let mangas: Manga[];
+        if (store.searchCache?.has(key)) {
+          mangas = store.searchCache.get(key)!;
+        } else {
+          const result = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+            FETCH_SOURCE_MANGA,
+            { source: src.id, type: "POPULAR", page, query: null },
+            signal,
+          ).then(d => d.fetchSourceManga).catch(() => null);
+          if (!result || signal.aborted) break;
+          mangas = result.mangas;
+          store.searchCache?.set(key, mangas);
+          if (!result.hasNextPage) { srch_push(mangas); break; }
+        }
+        srch_push(mangas);
+      }
+    }, signal);
+
+    srch_sourceCursor += batch.length;
+    srch_hasMorePopular = srch_sourceCursor < srch_sourcePool.length;
   }
 
   function srch_start(sources: Source[]) {
@@ -86,10 +96,21 @@
     srch_abortCtrl?.abort();
     const ctrl = new AbortController();
     srch_abortCtrl = ctrl;
+    srch_seenIds.clear();
+    srch_seenTitles.clear();
+    srch_sourcePool = dedupeSourcesByLang(sources, store.settings?.preferredExtensionLang || "en", true);
+    srch_sourceCursor = 0;
+    srch_hasMorePopular = false;
+    srch_moreLoading = false;
     srch_loading = true;
-    srch_fanOut(sources, ctrl.signal)
-      .catch(() => {})
-      .finally(() => { if (!ctrl.signal.aborted) srch_loading = false; });
+    (async () => {
+      try {
+        while (!ctrl.signal.aborted && srch_sourceCursor < srch_sourcePool.length) {
+          await srch_fanOut(ctrl.signal);
+        }
+      } catch {}
+      if (!ctrl.signal.aborted) srch_loading = false;
+    })();
   }
 
   type SearchTab = "keyword" | "tag" | "source";
@@ -109,6 +130,7 @@
     inLibrary:    boolean;
     status:       string;
     genre:        string[];
+    lowerGenres:  string[];
     sourceId:     string;
     genreEnriched: boolean;
   }
@@ -144,26 +166,6 @@
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
   }
 
-  function dedupSourcesByLang(sources: Source[], preferredLang: string): Source[] {
-    const map = new Map<string, Source>();
-    for (const s of sources) {
-      if (s.id === "0") continue;
-      const key      = s.name;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, s);
-        continue;
-      }
-      const existingIsPreferred = existing.lang === preferredLang;
-      const newIsPreferred      = s.lang === preferredLang;
-      if (newIsPreferred && !existingIsPreferred) {
-        map.set(key, s);
-      } else if (!existingIsPreferred && !newIsPreferred && s.lang < existing.lang) {
-        map.set(key, s);
-      }
-    }
-    return Array.from(map.values());
-  }
 
   const sourceCache = new Map<number, CachedManga>();
   let sourceCacheReady     = $state(false);
@@ -181,22 +183,31 @@
     await runConcurrent(tasks, async ({ src, page }) => {
       if (signal.aborted) return;
       try {
-        const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-          FETCH_SOURCE_MANGA,
-          { source: src.id, type: "POPULAR", page },
-          signal,
-        );
-        if (signal.aborted) return;
-        for (const m of d.fetchSourceManga.mangas) {
+        const cacheKey = `${src.id}|POPULAR|All:p${page}`;
+        let mangas: Manga[];
+        if (store.searchCache?.has(cacheKey)) {
+          mangas = store.searchCache.get(cacheKey)!;
+        } else {
+          const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+            FETCH_SOURCE_MANGA,
+            { source: src.id, type: "POPULAR", page },
+            signal,
+          );
+          if (signal.aborted) return;
+          mangas = d.fetchSourceManga.mangas;
+          store.searchCache?.set(cacheKey, mangas);
+        }
+        for (const m of mangas) {
           if (!sourceCache.has(m.id)) {
             sourceCache.set(m.id, {
-              id:           m.id,
-              title:        m.title,
-              thumbnailUrl: m.thumbnailUrl,
-              inLibrary:    m.inLibrary,
-              status:       (m as any).status ?? "UNKNOWN",
-              genre:        (m as any).genre  ?? [],
-              sourceId:     src.id,
+              id:            m.id,
+              title:         m.title,
+              thumbnailUrl:  m.thumbnailUrl,
+              inLibrary:     m.inLibrary,
+              status:        (m as any).status ?? "UNKNOWN",
+              genre:         (m as any).genre  ?? [],
+              lowerGenres:   ((m as any).genre ?? []).map((g: string) => g.toLowerCase()),
+              sourceId:      src.id,
               genreEnriched: ((m as any).genre?.length ?? 0) > 0,
             });
           }
@@ -284,7 +295,7 @@
 
       let genreMatch = true;
       if (tags.length > 0) {
-        const lowerGenres = m.genre.map((g) => g.toLowerCase());
+        const lowerGenres = m.lowerGenres;
         if (mode === "AND") {
           genreMatch = tags.every((t) => lowerGenres.some((g) => g.includes(t.toLowerCase())));
         } else {
@@ -332,8 +343,7 @@
     sourceCacheLoading = true;
     sourceCache.clear();
 
-    const dedupedSources = dedupSourcesByLang(allSources, preferredLang)
-      .filter((s) => !shouldHideSource(s, store.settings));
+    const dedupedSources = dedupeSourcesByLang(allSources, preferredLang, true);
 
     buildSourceCache(dedupedSources, ctrl.signal)
       .then(() => {
@@ -408,23 +418,26 @@
     kw_abortCtrl?.abort();
     const ctrl = new AbortController();
     kw_abortCtrl = ctrl;
-    kw_results = visible.map((src) => ({ source: src, mangas: [], loading: true, error: null }));
+    const initial: SourceResult[] = visible.map((src) => ({ source: src, mangas: [], loading: true, error: null }));
+    kw_results = initial;
+    const indexBySrcId = new Map(visible.map((src, i) => [src.id, i]));
     await runConcurrent(visible, async (src) => {
       if (ctrl.signal.aborted) return;
+      const idx = indexBySrcId.get(src.id)!;
       try {
         const d = await gql<{ fetchSourceManga: { mangas: Manga[] } }>(
           FETCH_SOURCE_MANGA, { source: src.id, type: "SEARCH", page: 1, query: trimmed }, ctrl.signal,
         );
         if (ctrl.signal.aborted) return;
         const mangas = d.fetchSourceManga.mangas.filter((m) => !shouldHideNsfw(m, store.settings));
-        kw_results = kw_results.map((r) =>
-          r.source.id === src.id ? { ...r, mangas, loading: false } : r,
-        );
+        const next = [...kw_results];
+        next[idx] = { ...next[idx], mangas, loading: false };
+        kw_results = next;
       } catch (e: any) {
         if (ctrl.signal.aborted || e?.name === "AbortError") return;
-        kw_results = kw_results.map((r) =>
-          r.source.id === src.id ? { ...r, loading: false, error: e.message ?? "Error" } : r,
-        );
+        const next = [...kw_results];
+        next[idx] = { ...next[idx], loading: false, error: (e as any).message ?? "Error" };
+        kw_results = next;
       }
     }, ctrl.signal);
   }
@@ -522,7 +535,11 @@
     tag_sourceFanOut = [];
     tag_fanOutLoading = true;
 
-    const srcs = srch_rotatedSources(allSources);
+    const fanOutSeenIds    = new Set<number>();
+    const fanOutSeenTitles = new Set<string>();
+    const genreLower = genre.toLowerCase();
+
+    const srcs = dedupeSourcesByLang(allSources, store.settings?.preferredExtensionLang || "en", true);
     const PAGES = 2;
 
     await runConcurrent(srcs, async (src) => {
@@ -549,15 +566,22 @@
         if (ctrl.signal.aborted) return;
 
         const matching = mangas.filter(m =>
-          ((m as any).genre ?? []).some((g: string) => g.toLowerCase() === genre.toLowerCase())
+          ((m as any).genre ?? []).some((g: string) => g.toLowerCase() === genreLower)
         );
-        const toAdd = (matching.length ? matching : mangas).filter(m => !shouldHideNsfw(m, store.settings));
+        const candidates = (matching.length ? matching : mangas).filter(m => !shouldHideNsfw(m, store.settings));
+
+        const toAdd: Manga[] = [];
+        for (const m of candidates) {
+          if (fanOutSeenIds.has(m.id)) continue;
+          const norm = normalizeTitle(m.title, store.settings.mangaLinks);
+          if (fanOutSeenTitles.has(norm)) continue;
+          fanOutSeenIds.add(m.id);
+          fanOutSeenTitles.add(norm);
+          toAdd.push(m);
+        }
 
         if (toAdd.length) {
-          tag_sourceFanOut = dedupeMangaByTitle(
-            dedupeMangaById([...tag_sourceFanOut, ...toAdd]),
-            store.settings.mangaLinks,
-          ).slice(0, SEARCH_LIMIT);
+          tag_sourceFanOut = [...tag_sourceFanOut, ...toAdd].slice(0, SEARCH_LIMIT);
         }
 
         if (!hasNextPage) return;
@@ -569,16 +593,15 @@
 
   let tag_autoSearchFired = $state(false);
   $effect(() => {
+    // Track filter changes to reset the guard, then auto-enable source search when local results are sparse.
+    const _tags     = tag_activeTags;
+    const _statuses = tag_activeStatuses;
+    untrack(() => { tag_autoSearchFired = false; });
     if (!tag_loadingLocal && tag_hasActiveFilters && !tag_autoSearchFired && !tag_searchSources && sourceCacheReady) {
       if (tag_localResults.length < 20) {
         untrack(() => { tag_autoSearchFired = true; tag_searchSources = true; });
       }
     }
-  });
-  $effect(() => {
-    const _ = tag_activeTags;
-    const __ = tag_activeStatuses;
-    untrack(() => { tag_autoSearchFired = false; });
   });
 
   async function tagFetchLocal(activeTags: string[], tagMode: TagMode, activeStatuses: string[]) {
@@ -632,6 +655,12 @@
       if (!ctrl.signal.aborted) tag_loadingMoreLocal = false;
     }
   }
+
+  $effect(() => {
+    if (tag_localHasNext && !tag_loadingMoreLocal && !tag_loadingLocal) {
+      tagLoadMoreLocal();
+    }
+  });
 
   function tagToggleTag(tag: string) {
     tag_activeTags = tag_activeTags.includes(tag)
@@ -851,7 +880,7 @@
             <div class="skCard"><div class="skeleton skCover"></div></div>
           {/each}
         </div>
-      {:else if srch_results.length > 0}
+          {:else if srch_results.length > 0}
         <div class="searchHeader">
           <span class="searchLabel">Popular right now</span>
         </div>
@@ -870,7 +899,7 @@
             </button>
           {/each}
           {#if srch_loading}
-            {#each Array(6) as _, i (i)}
+            {#each Array(12) as _, i (i)}
               <div class="skCard"><div class="skeleton skCover"></div></div>
             {/each}
           {/if}
@@ -896,7 +925,7 @@
           <span class="searchLabel">{kw_flatResults.length} result{kw_flatResults.length !== 1 ? "s" : ""}</span>
         </div>
         <div class="searchGrid">
-          {#each kw_flatResults.slice(0, store.settings.renderLimit ?? 48) as m (m.id)}
+          {#each kw_flatResults as m (m.id)}
             <button class="srchCard" onclick={() => setPreviewManga(m)}>
               <div class="srchCoverWrap">
                 <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" />
@@ -1061,18 +1090,10 @@
                 </button>
               {/each}
 
-              {#if tag_localHasNext}
-                <div class="showMoreCell">
-                  <button class="showMoreBtn" onclick={tagLoadMoreLocal} disabled={tag_loadingMoreLocal}>
-                    {#if tag_loadingMoreLocal}
-                      <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" aria-hidden="true">
-                        <path d="M232,128a104,104,0,0,1-208,0c0-41,23.81-78.36,60.66-95.27a8,8,0,0,1,6.68,14.54C60.15,61.59,40,93.27,40,128a88,88,0,0,0,176,0c0-34.73-20.15-66.41-51.34-80.73a8,8,0,0,1,6.68-14.54C208.19,49.64,232,87,232,128Z"/>
-                      </svg> Loading…
-                    {:else}
-                      Show more (library)
-                    {/if}
-                  </button>
-                </div>
+              {#if tag_loadingMoreLocal}
+                {#each Array(12) as _, i (i)}
+                  <div class="skCard"><div class="skeleton skCover"></div><div class="skeleton skTitle"></div></div>
+                {/each}
               {/if}
             </div>
           {:else}
@@ -1275,14 +1296,15 @@
   .card { display: flex; flex-direction: column; gap: var(--sp-2); cursor: pointer; flex-shrink: 0; width: 110px; text-align: left; background: none; border: none; padding: 0; }
   .card:hover :global(.cover) { filter: brightness(1.06); }
   .card:hover .cardTitle { color: var(--text-primary); }
-  .coverWrap { position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); }
-  :global(.cover) { width: 100%; height: 100%; object-fit: cover; transition: filter var(--t-base); }
-  .inLibBadge { position: absolute; bottom: var(--sp-1); right: var(--sp-1); background: var(--accent-dim); color: var(--accent-fg); font-family: var(--font-ui); font-size: 9px; font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); padding: 1px 5px; border-radius: var(--radius-sm); border: 1px solid var(--accent-muted); }
+  .coverWrap { position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); contain: layout style; }
+  :global(.cover) { width: 100%; height: 100%; object-fit: cover; }
+  .inLibBadge { position: absolute; top: var(--sp-1); right: var(--sp-1); background: var(--accent-dim); color: var(--accent-fg); font-family: var(--font-ui); font-size: 9px; font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); padding: 1px 5px; border-radius: var(--radius-sm); border: 1px solid var(--accent-muted); }
   .cardTitle { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base); }
   .skCard { display: flex; flex-direction: column; gap: var(--sp-2); flex-shrink: 0; width: 110px; }
   .tagGrid .card  { width: 100%; }
   .tagGrid .skCard { width: 100%; }
-  .skeleton { border-radius: var(--radius-sm); }
+  @keyframes shimmer { from { background-position: -200% 0 } to { background-position: 200% 0 } }
+  .skeleton { border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--bg-raised) 25%, var(--bg-overlay, color-mix(in srgb, var(--bg-raised) 80%, var(--text-primary) 6%)) 50%, var(--bg-raised) 75%); background-size: 200% 100%; animation: shimmer 1.6s ease-in-out infinite; }
   .skCover { aspect-ratio: 2 / 3; width: 100%; border-radius: var(--radius-md); }
   .skTitle { height: 10px; width: 80%; }
   .splitRoot { flex: 1; display: flex; overflow: hidden; }
@@ -1327,12 +1349,13 @@
   .tagClearAll { display: flex; align-items: center; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); padding: 4px 8px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .tagClearAll:hover { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 40%, transparent); background: var(--color-error-bg, color-mix(in srgb, var(--color-error) 8%, transparent)); }
   .tagCheckMark { font-size: var(--text-xs); color: var(--accent-fg); margin-left: auto; }
-  .tagGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: var(--sp-4); padding: var(--sp-4); overflow-y: auto; flex: 1; align-content: start; }
+  .tagGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: var(--sp-4); padding: var(--sp-4); overflow-y: auto; flex: 1; align-content: start; will-change: scroll-position; }
   .showMoreCell { grid-column: 1 / -1; display: flex; justify-content: center; gap: var(--sp-2); padding: var(--sp-2) 0; }
   .showMoreBtn { display: inline-flex; align-items: center; gap: var(--sp-1); padding: 5px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-muted); cursor: pointer; transition: background var(--t-base), color var(--t-base), border-color var(--t-base); }
   .showMoreBtn:hover:not(:disabled) { background: var(--bg-raised); color: var(--text-secondary); border-color: var(--border-strong); }
   .showMoreBtn:disabled { opacity: 0.4; cursor: default; }
   .loadMoreRow { display: flex; justify-content: center; padding: var(--sp-3) var(--sp-4); flex-shrink: 0; border-top: 1px solid var(--border-dim); }
+  .loadMoreSticky { position: sticky; top: 0; z-index: 2; width: fit-content; margin: 0 auto; border-top: none; border-left: 1px solid var(--border-dim); border-bottom: 1px solid var(--border-dim); border-bottom-left-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-base) 88%, transparent); backdrop-filter: blur(8px); }
   .sourceBrowseBar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   .srcLangRow { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; gap: var(--sp-2); }
   .langPocketLabel { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
@@ -1343,10 +1366,10 @@
   .nsfwBadge { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--color-error); background: var(--color-error-bg, rgba(180, 60, 60, 0.08)); border: 1px solid rgba(180, 60, 60, 0.25); border-radius: var(--radius-sm); padding: 1px 5px; margin-left: auto; flex-shrink: 0; }
   .searchHeader { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4) var(--sp-1); flex-shrink: 0; }
   .searchLabel { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
-  .searchGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 11vw, 130px), 1fr)); gap: var(--sp-2); padding: var(--sp-2) var(--sp-4) var(--sp-6); overflow-y: auto; flex: 1; align-content: start; }
+  .searchGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 11vw, 130px), 1fr)); gap: var(--sp-2); padding: var(--sp-2) var(--sp-4) var(--sp-6); overflow-y: auto; flex: 1; align-content: start; will-change: scroll-position; }
   .srchCard { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .srchCard:hover :global(.cover) { filter: brightness(1.08) saturate(1.05); transform: scale(1.02); }
-  .srchCoverWrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+  .srchCard:hover .srchCoverWrap { filter: brightness(1.08) saturate(1.05); }
+  .srchCoverWrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); transition: filter var(--t-base); contain: layout style; }
   .srchGradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 50%, transparent 72%); pointer-events: none; }
   .srchFooter { position: absolute; bottom: 0; left: 0; right: 0; padding: var(--sp-2); pointer-events: none; }
   .srchTitle { font-size: var(--text-xs); font-weight: var(--weight-medium); color: rgba(255,255,255,0.92); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
