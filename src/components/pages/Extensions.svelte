@@ -4,7 +4,7 @@
   import { gql } from "../../lib/client";
   import Thumbnail from "../shared/Thumbnail.svelte";
   import { GET_EXTENSIONS, FETCH_EXTENSIONS, UPDATE_EXTENSION, INSTALL_EXTERNAL_EXTENSION, GET_SETTINGS, SET_EXTENSION_REPOS } from "../../lib/queries";
-  import { store } from "../../store/state.svelte";
+  import { store, addToast } from "../../store/state.svelte";
   import type { Extension } from "../../lib/types";
 
   type Filter = "installed" | "available" | "updates" | "all";
@@ -66,11 +66,24 @@
 
   function removeRepo(url: string) { saveRepos(repos.filter((r) => r !== url)); }
 
-  async function mutate(fn: () => Promise<unknown>, pkgName: string) {
+  async function mutate(fn: () => Promise<unknown>, pkgName: string, op: "install" | "update" | "uninstall") {
     working = new Set(working).add(pkgName);
-    await fn().catch(console.error);
-    await load();
-    working.delete(pkgName); working = new Set(working);
+    const label = extensions.find((e) => e.pkgName === pkgName)?.name ?? pkgName;
+    try {
+      await fn();
+      await load();
+      const toastMap = {
+        install:   { kind: "download" as const, title: "Extension installed", body: label },
+        update:    { kind: "success"  as const, title: "Extension updated",   body: label },
+        uninstall: { kind: "info"     as const, title: "Extension removed",   body: label },
+      };
+      addToast(toastMap[op]);
+    } catch (e: any) {
+      await load();
+      addToast({ kind: "error", title: "Extension error", body: e instanceof Error ? e.message : String(e) });
+    } finally {
+      working.delete(pkgName); working = new Set(working);
+    }
   }
 
   async function installExternal() {
@@ -83,8 +96,12 @@
       await gql(INSTALL_EXTERNAL_EXTENSION, { url });
       installSuccess = true; externalUrl = "";
       await load();
+      addToast({ kind: "download", title: "Extension installed", body: url.split("/").pop() ?? url });
       setTimeout(() => { panel = null; installSuccess = false; }, 1500);
-    } catch (e: any) { installError = e instanceof Error ? e.message : "Install failed"; }
+    } catch (e: any) {
+      installError = e instanceof Error ? e.message : "Install failed";
+      addToast({ kind: "error", title: "Install failed", body: installError });
+    }
     finally { installing = false; }
   }
 
@@ -255,13 +272,13 @@
               <CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" />
             {:else if primary.hasUpdate}
               <div class="row-actions">
-                <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, update: true }), primary.pkgName)}>Update</button>
-                <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName)}>Remove</button>
+                <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, update: true }), primary.pkgName, "update")}>Update</button>
+                <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName, "uninstall")}>Remove</button>
               </div>
             {:else if primary.isInstalled}
-              <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName)}>Remove</button>
+              <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, uninstall: true }), primary.pkgName, "uninstall")}>Remove</button>
             {:else}
-              <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, install: true }), primary.pkgName)}>Install</button>
+              <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: primary.pkgName, install: true }), primary.pkgName, "install")}>Install</button>
             {/if}
             {#if hasVariants}
               <button class="expand-btn" onclick={() => toggleExpand(base)} title="{variants.length + 1} languages">
@@ -282,11 +299,11 @@
                     {#if working.has(v.pkgName)}
                       <CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" />
                     {:else if v.hasUpdate}
-                      <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, update: true }), v.pkgName)}>Update</button>
+                      <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, update: true }), v.pkgName, "update")}>Update</button>
                     {:else if v.isInstalled}
-                      <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, uninstall: true }), v.pkgName)}>Remove</button>
+                      <button class="action-btn-dim" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, uninstall: true }), v.pkgName, "uninstall")}>Remove</button>
                     {:else}
-                      <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, install: true }), v.pkgName)}>Install</button>
+                      <button class="action-btn" onclick={() => mutate(() => gql(UPDATE_EXTENSION, { id: v.pkgName, install: true }), v.pkgName, "install")}>Install</button>
                     {/if}
                   </div>
                 </div>

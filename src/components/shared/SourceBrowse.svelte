@@ -3,7 +3,7 @@
   import { gql } from "../../lib/client";
   import Thumbnail from "../shared/Thumbnail.svelte";
   import { FETCH_SOURCE_MANGA, UPDATE_MANGA, GET_CATEGORIES, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "../../lib/queries";
-  import { store, setActiveSource, setActiveManga, setNavPage } from "../../store/state.svelte";
+  import { store, setActiveSource, setActiveManga, setNavPage, addToast } from "../../store/state.svelte";
   import type { Manga, Category } from "../../lib/types";
   import ContextMenu, { type MenuEntry } from "../shared/ContextMenu.svelte";
 
@@ -58,8 +58,14 @@
     return [
       { label: m.inLibrary ? "In Library" : "Add to library", icon: BookmarkSimple, disabled: m.inLibrary,
         onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
-          .then(() => mangas = mangas.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x))
-          .catch(console.error) },
+          .then(() => {
+            mangas = mangas.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x);
+            addToast({ kind: "success", title: "Added to library", body: m.title });
+          })
+          .catch((e) => {
+            addToast({ kind: "error", title: "Failed to add to library", body: m.title });
+            console.error(e);
+          }) },
       ...(categories.length > 0 ? [
         { separator: true } as MenuEntry,
         ...categories.map((cat): MenuEntry => ({
