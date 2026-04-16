@@ -408,31 +408,116 @@ fn resolve_server_binary(
 
     #[cfg(target_os = "macos")]
     {
+        // Root of Moku.app/Contents/ — scan every subdirectory level by level.
         let resource_dir = app.path().resource_dir().unwrap_or_default();
-        let macos_dir    = resource_dir.parent().map(|p| p.join("MacOS")).unwrap_or_default();
+        let contents_dir = resource_dir
+            .parent()                          // Moku.app/Contents/
+            .unwrap_or(&resource_dir)
+            .to_path_buf();
 
-        let candidates = [
-            "suwayomi-server",
+        do_log(log, &format!("[resolve] macOS contents_dir = {:?}", contents_dir));
+
+        // Native-binary names we recognise (most specific first so arch-specific
+        // names win over the generic "suwayomi-server" if both somehow exist).
+        const NATIVE_NAMES: &[&str] = &[
             "suwayomi-server-aarch64-apple-darwin",
             "suwayomi-server-x86_64-apple-darwin",
+            "suwayomi-server",
             "suwayomi-launcher",
             "suwayomi-launcher.sh",
             "tachidesk-server",
         ];
 
-        for search_dir in &[&macos_dir, &resource_dir] {
-            for name in &candidates {
-                let p = search_dir.join(name);
-                do_log(log, &format!("[resolve] macOS candidate: {:?} exists={}", p, p.exists()));
-                if p.exists() {
-                    return Ok(ServerInvocation {
-                        bin:         p.to_string_lossy().into_owned(),
-                        args:        vec![],
-                        working_dir: None,
-                    });
+        // Collect every directory inside Contents/, grouped by depth so we
+        // search shallower levels first (BFS order via WalkDir min/max_depth).
+        // We go up to depth 8 which is more than enough for any real bundle.
+        let mut found_binary: Option<ServerInvocation> = None;
+        let mut found_java:   Option<(PathBuf, PathBuf)> = None; // (java_exe, jar)
+
+        'outer: for depth in 0u8..=8 {
+            let entries: Vec<PathBuf> = WalkDir::new(&contents_dir)
+                .min_depth(depth as usize)
+                .max_depth(depth as usize)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_dir())
+                .map(|e| e.into_path())
+                .collect();
+
+            for dir in &entries {
+                do_log(log, &format!("[resolve] scanning depth={} dir={:?}", depth, dir));
+
+                // 1. Look for a native server binary in this directory.
+                for name in NATIVE_NAMES {
+                    let p = dir.join(name);
+                    if p.exists() {
+                        do_log(log, &format!("[resolve] found native binary: {:?}", p));
+                        found_binary = Some(ServerInvocation {
+                            bin:         p.to_string_lossy().into_owned(),
+                            args:        vec![],
+                            working_dir: Some(dir.clone()),
+                        });
+                        break 'outer;
+                    }
+                }
+
+                // 2. Look for a JRE java binary paired with a .jar in the same
+                //    or sibling directories.  We record the first hit and keep
+                //    scanning natives; if no native is ever found we fall back
+                //    to this.
+                if found_java.is_none() {
+                    let java_exe = dir.join("bin").join("java");
+                    if java_exe.exists() {
+                        do_log(log, &format!("[resolve] found java: {:?}", java_exe));
+                        // Search upward from the JRE dir for a .jar file.
+                        let mut search = dir.as_path();
+                        'jar: for _ in 0..5 {
+                            if let Ok(rd) = std::fs::read_dir(search) {
+                                for entry in rd.filter_map(|e| e.ok()) {
+                                    if entry.file_name().to_string_lossy().ends_with(".jar") {
+                                        let jar = entry.path();
+                                        do_log(log, &format!("[resolve] found jar: {:?}", jar));
+                                        found_java = Some((java_exe.clone(), jar));
+                                        break 'jar;
+                                    }
+                                }
+                            }
+                            // Also look in a sibling `bin/` directory.
+                            let bin_sibling = search.join("bin");
+                            if let Ok(rd) = std::fs::read_dir(&bin_sibling) {
+                                for entry in rd.filter_map(|e| e.ok()) {
+                                    if entry.file_name().to_string_lossy().ends_with(".jar") {
+                                        let jar = entry.path();
+                                        do_log(log, &format!("[resolve] found jar in bin/: {:?}", jar));
+                                        found_java = Some((java_exe.clone(), jar));
+                                        break 'jar;
+                                    }
+                                }
+                            }
+                            match search.parent() {
+                                Some(p) => search = p,
+                                None    => break,
+                            }
+                        }
+                    }
                 }
             }
         }
+
+        if let Some(inv) = found_binary {
+            return Ok(inv);
+        }
+
+        if let Some((java, jar)) = found_java {
+            let working_dir = jar.parent().map(|p| p.to_path_buf());
+            return Ok(ServerInvocation {
+                bin:  java.to_string_lossy().into_owned(),
+                args: vec!["-jar".to_string(), jar.to_string_lossy().into_owned()],
+                working_dir,
+            });
+        }
+
+        do_log(log, "[resolve] macOS scan found nothing in bundle");
     }
 
     for name in &["suwayomi-server", "tachidesk-server"] {
