@@ -180,10 +180,10 @@ modules:
       - type: git
         url: https://github.com/Youwes09/Moku.git
         tag: v0.8.0
-        commit: ff5fcc4fc0dd97e187fac15480406993bc4231da
+        commit: c573c543187cbd1ca1455b25d6bce0fc62666341
       - type: file
         path: packaging/frontend-dist.tar.gz
-        sha256: f21034da4b8da42d8084978b60e429162aabb28808fa019ffb786e877c4ae95b
+        sha256: d547893e1b76f1678df131d46b0964e9ef34e54e8571d5c435a22cef7316f75a
       - packaging/cargo-sources.json
       - type: inline
         dest: src-tauri/.cargo

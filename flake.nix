@@ -195,7 +195,7 @@ EOF
               echo "Done"
 
               echo "── Repacking frontend-dist.tar.gz ──"
-              tar -czf "$REPO/packaging/frontend-dist.tar.gz" -C "$REPO/dist" .
+              tar -czf "$REPO/packaging/frontend-dist.tar.gz" -C "$REPO" dist
               FRONTEND_SHA=$(sha256sum "$REPO/packaging/frontend-dist.tar.gz" | awk '{print $1}')
               echo "sha256: $FRONTEND_SHA"
 
