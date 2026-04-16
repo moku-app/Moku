@@ -181,7 +181,8 @@
   const zoom        = $derived(store.settings.readerZoom ?? 1.0);
   const autoNext    = $derived(store.settings.autoNextChapter ?? false);
   const markOnNext  = $derived(store.settings.markReadOnNext ?? true);
-  const overlayBars = $derived(store.settings.overlayBars ?? false);
+  const overlayBars      = $derived(store.settings.overlayBars ?? false);
+  const tapToToggleBar   = $derived(store.settings.tapToToggleBar ?? false);
   const lastPage    = $derived(store.pageUrls.length);
   const effectiveWidth = $derived(containerWidth > 0 ? Math.round(containerWidth * zoom) : undefined);
   const zoomPct = $derived(Math.round(zoom * 100));
@@ -776,13 +777,31 @@
   function showUi() {
     uiVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => { if (!markerOpen && !winOpen) uiVisible = false; }, 3000);
+    if (!tapToToggleBar) {
+      hideTimer = setTimeout(() => { if (!markerOpen && !winOpen) uiVisible = false; }, 3000);
+    }
+  }
+
+  function toggleUiVisibility() {
+    if (uiVisible) {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      uiVisible = false;
+    } else {
+      uiVisible = true;
+    }
   }
 
   $effect(() => {
     if (markerOpen || winOpen) {
       uiVisible = true;
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    }
+  });
+
+  $effect(() => {
+    if (tapToToggleBar) {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      uiVisible = true;
     }
   });
 
@@ -940,7 +959,7 @@
   });
 </script>
 
-<div class="root" class:overlay-bars={overlayBars} role="presentation" onmousemove={(e) => { if (e.clientY < 60 || window.innerHeight - e.clientY < 60) showUi(); }}>
+<div class="root" class:overlay-bars={overlayBars} role="presentation" onmousemove={(e) => { if (!tapToToggleBar && (e.clientY < 60 || window.innerHeight - e.clientY < 60)) showUi(); }}>
 
   <div class="topbar" class:hidden={!uiVisible}>
 
@@ -1158,6 +1177,7 @@
     role="presentation"
     tabindex="-1"
     onclick={handleTap}
+    ondblclick={(e) => { if (tapToToggleBar) { const x = e.clientX / window.innerWidth; if (x >= 0.3 && x <= 0.7) toggleUiVisibility(); } }}
     onmousedown={onInspectMouseDown}
     onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
     onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); containerEl?.scrollBy({ top: containerEl.clientHeight * 0.85, behavior: "smooth" }); } }}

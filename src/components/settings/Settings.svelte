@@ -1320,6 +1320,10 @@
                 <div class="toggle-info"><span class="toggle-label">Overlay bars</span><span class="toggle-desc">Floats the nav and chapter bars over the page instead of pushing content</span></div>
                 <button role="switch" aria-checked={store.settings.overlayBars ?? false} aria-label="Overlay bars" class="toggle" class:on={store.settings.overlayBars ?? false} onclick={() => updateSettings({ overlayBars: !(store.settings.overlayBars ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
+              <label class="toggle-row">
+                <div class="toggle-info"><span class="toggle-label">Tap to toggle bar</span><span class="toggle-desc">Double-tap the center of the reader to show or hide the bars — ideal for touchscreens</span></div>
+                <button role="switch" aria-checked={store.settings.tapToToggleBar ?? false} aria-label="Tap to toggle bar" class="toggle" class:on={store.settings.tapToToggleBar ?? false} onclick={() => updateSettings({ tapToToggleBar: !(store.settings.tapToToggleBar ?? false) })}><span class="toggle-thumb"></span></button>
+              </label>
             </div>
             <div class="section">
               <p class="section-title">Fit &amp; Zoom</p>
