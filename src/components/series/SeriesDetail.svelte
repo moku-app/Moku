@@ -496,7 +496,7 @@
     chapterStore.delete(store.activeManga.id);
     gql(FETCH_CHAPTERS, { mangaId: store.activeManga.id })
       .then(() => reloadChapters(store.activeManga!.id))
-      .then(() => addToast({ kind: "success", title: "Chapters refreshed" }))
+      .then(() => addToast({ kind: "success", title: "Chapters refreshed", body: `${chapters.length} chapter${chapters.length !== 1 ? "s" : ""} available` }))
       .catch(e => addToast({ kind: "error", title: "Refresh failed", body: e?.message }))
       .finally(() => refreshing = false);
   }
