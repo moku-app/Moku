@@ -35,10 +35,12 @@ In-Progress:
 
  - Fix Discover Workout
    - Fix CSS on Saved State for Search
-   - Fix State & Cache names (Mapped to Discover hence needs Renaming)
-   - Completely Remove Discover
 
  - Add Small QOL Animations where Appropriate
+
+ - Add Descriptions to Reader Auto Features in Settings (Auto-Advance, etc)
+
+ - Add Flathub Support (Pending Video)
 
 
 

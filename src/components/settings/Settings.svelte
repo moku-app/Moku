@@ -1313,18 +1313,18 @@
                 </div>
               </div>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Page gap</span></div>
+                <div class="toggle-info"><span class="toggle-label">Page gap</span><span class="toggle-desc">Adds spacing between pages in single-page mode</span></div>
                 <button role="switch" aria-checked={store.settings.pageGap} aria-label="Page gap" class="toggle" class:on={store.settings.pageGap} onclick={() => updateSettings({ pageGap: !store.settings.pageGap })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Overlay bars</span></div>
+                <div class="toggle-info"><span class="toggle-label">Overlay bars</span><span class="toggle-desc">Floats the nav and chapter bars over the page instead of pushing content</span></div>
                 <button role="switch" aria-checked={store.settings.overlayBars ?? false} aria-label="Overlay bars" class="toggle" class:on={store.settings.overlayBars ?? false} onclick={() => updateSettings({ overlayBars: !(store.settings.overlayBars ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Fit &amp; Zoom</p>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Default fit mode</span></div>
+                <div class="toggle-info"><span class="toggle-label">Default fit mode</span><span class="toggle-desc">How pages are scaled to fill the reader on open</span></div>
                 <div class="select-wrap" id="fit-mode">
                   <button class="select-btn" onclick={() => toggleSelect("fit-mode")}>
                     <span>{{ "width":"Fit width","height":"Fit height","screen":"Fit screen","original":"Original (1:1)" }[store.settings.fitMode ?? "width"]}</span>
@@ -1375,23 +1375,23 @@
                 {/each}
               </p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Optimize contrast</span></div>
+                <div class="toggle-info"><span class="toggle-label">Optimize contrast</span><span class="toggle-desc">Sharpens dark lines on light pages; best for black-and-white manga</span></div>
                 <button role="switch" aria-checked={store.settings.optimizeContrast} aria-label="Optimize contrast" class="toggle" class:on={store.settings.optimizeContrast} onclick={() => updateSettings({ optimizeContrast: !store.settings.optimizeContrast })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Behaviour</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Auto-mark read</span></div>
+                <div class="toggle-info"><span class="toggle-label">Auto-mark read</span><span class="toggle-desc">Marks a chapter as read when you reach the last page</span></div>
                 <button role="switch" aria-checked={store.settings.autoMarkRead} aria-label="Auto-mark chapters read" class="toggle" class:on={store.settings.autoMarkRead} onclick={() => updateSettings({ autoMarkRead: !store.settings.autoMarkRead })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Auto-advance chapters</span></div>
+                <div class="toggle-info"><span class="toggle-label">Auto-advance chapters</span><span class="toggle-desc">Automatically loads the next chapter when you pass the last page</span></div>
                 <button role="switch" aria-checked={store.settings.autoNextChapter ?? false} aria-label="Auto-advance chapters" class="toggle" class:on={store.settings.autoNextChapter} onclick={() => updateSettings({ autoNextChapter: !(store.settings.autoNextChapter ?? false) })}><span class="toggle-thumb"></span></button>
               </label>
               {#if !(store.settings.autoNextChapter ?? false)}
                 <label class="toggle-row">
-                  <div class="toggle-info"><span class="toggle-label">Mark read when skipping</span></div>
+                  <div class="toggle-info"><span class="toggle-label">Mark read when skipping</span><span class="toggle-desc">Marks the current chapter read when you manually jump to the next</span></div>
                   <button role="switch" aria-checked={store.settings.markReadOnNext ?? true} aria-label="Mark read when skipping" class="toggle" class:on={store.settings.markReadOnNext ?? true} onclick={() => updateSettings({ markReadOnNext: !(store.settings.markReadOnNext ?? true) })}><span class="toggle-thumb"></span></button>
                 </label>
               {/if}
@@ -1402,7 +1402,7 @@
                   }}><span class="toggle-thumb"></span></button>
               </label>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Pages to preload</span></div>
+                <div class="toggle-info"><span class="toggle-label">Pages to preload</span><span class="toggle-desc">How many pages ahead to fetch in the background while reading</span></div>
                 <div class="step-controls">
                   <button class="step-btn" onclick={() => updateSettings({ preloadPages: Math.max(0, store.settings.preloadPages - 1) })} disabled={store.settings.preloadPages <= 0}>−</button>
                   <span class="step-val">{store.settings.preloadPages}</span>
@@ -1416,7 +1416,7 @@
             <div class="section">
               <p class="section-title">Display</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Crop cover images</span></div>
+                <div class="toggle-info"><span class="toggle-label">Crop cover images</span><span class="toggle-desc">Fills the card with the cover art instead of letterboxing</span></div>
                 <button role="switch" aria-checked={store.settings.libraryCropCovers} aria-label="Crop cover images" class="toggle" class:on={store.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !store.settings.libraryCropCovers })}><span class="toggle-thumb"></span></button>
               </label>
               <label class="toggle-row">
@@ -1430,7 +1430,7 @@
             <div class="section">
               <p class="section-title">Chapters</p>
               <div class="step-row">
-                <div class="toggle-info"><span class="toggle-label">Default sort direction</span></div>
+                <div class="toggle-info"><span class="toggle-label">Default sort direction</span><span class="toggle-desc">Initial chapter list order when opening a manga</span></div>
                 <div class="select-wrap" id="sort-dir">
                   <button class="select-btn" onclick={() => toggleSelect("sort-dir")}>
                     <span>{{ "desc":"Newest first","asc":"Oldest first" }[store.settings.chapterSortDir]}</span>
@@ -1485,21 +1485,21 @@
             <div class="section">
               <p class="section-title">Rendering</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">GPU acceleration</span></div>
+                <div class="toggle-info"><span class="toggle-label">GPU acceleration</span><span class="toggle-desc">Uses the GPU for rendering; disable if you see visual glitches</span></div>
                 <button role="switch" aria-checked={store.settings.gpuAcceleration} aria-label="GPU acceleration" class="toggle" class:on={store.settings.gpuAcceleration} onclick={() => updateSettings({ gpuAcceleration: !store.settings.gpuAcceleration })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Idle / Splash Screen</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Animated card background</span></div>
+                <div class="toggle-info"><span class="toggle-label">Animated card background</span><span class="toggle-desc">Shows cover art cards floating in the background on the idle screen</span></div>
                 <button role="switch" aria-checked={store.settings.splashCards ?? true} aria-label="Animated card background" class="toggle" class:on={store.settings.splashCards ?? true} onclick={() => updateSettings({ splashCards: !(store.settings.splashCards ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
               <p class="section-title">Interface</p>
               <label class="toggle-row">
-                <div class="toggle-info"><span class="toggle-label">Compact sidebar</span></div>
+                <div class="toggle-info"><span class="toggle-label">Compact sidebar</span><span class="toggle-desc">Collapses the sidebar to icons only</span></div>
                 <button role="switch" aria-checked={store.settings.compactSidebar} aria-label="Compact sidebar" class="toggle" class:on={store.settings.compactSidebar} onclick={() => updateSettings({ compactSidebar: !store.settings.compactSidebar })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
@@ -1562,7 +1562,7 @@
         {:else if tab === "storage"}
           <div class="panel">
 
-            <!-- ── Migration banner ──────────────────────────────────────── -->
+
             {#if migrateFrom && !isExternalServer}
               <div class="migrate-banner">
                 <div class="migrate-banner-body">
@@ -1588,7 +1588,7 @@
               </div>
             {/if}
 
-            <!-- ── Disk Usage ─────────────────────────────────────────────── -->
+
             <div class="section">
               <div class="section-title-row"><p class="section-title">Disk Usage</p><button class="sec-action-btn" onclick={fetchStorage} disabled={storageLoading}>{storageLoading ? "…" : "↻"}</button></div>
               {#if storageLoading}
@@ -1623,7 +1623,7 @@
               {/if}
             </div>
 
-            <!-- ── Downloads path ─────────────────────────────────────────── -->
+
             <div class="section">
               <p class="section-title">Downloads Path</p>
               {#if isExternalServer}
@@ -1664,7 +1664,7 @@
               </div>
             </div>
 
-            <!-- ── Storage Limit ───────────────────────────────────────────── -->
+
             <div class="section">
               <p class="section-title">Storage Limit</p>
               <div class="step-row">
@@ -1688,7 +1688,7 @@
               </div>
             </div>
 
-            <!-- ── Cache ──────────────────────────────────────────────────── -->
+
             <div class="section">
               <p class="section-title">Cache</p>
               <div class="step-row">
@@ -1699,7 +1699,7 @@
               </div>
             </div>
 
-            <!-- ── Advanced (collapsible) ──────────────────────────────────── -->
+
             <div class="section adv-section">
               <button class="adv-toggle" onclick={() => advStorageOpen = !advStorageOpen}>
                 <span class="section-title" style="padding:0">Advanced</span>
@@ -1707,7 +1707,7 @@
               </button>
               {#if advStorageOpen}
                 <div class="adv-body">
-                  <!-- Local source -->
+
                   <div class="step-row">
                     <div class="toggle-info">
                       <span class="toggle-label">Local source path</span>
@@ -1729,7 +1729,7 @@
                       {#if pathsFieldError.loc}<span style="font-family:var(--font-ui);font-size:10px;color:var(--color-error)">{pathsFieldError.loc}</span>{/if}
                     </div>
                   </div>
-                  <!-- Extra scan dirs -->
+
                   {#each extraScanDirs as dir}
                     <div class="step-row">
                       <div class="toggle-info">
@@ -1739,7 +1739,7 @@
                       <button class="danger-btn" onclick={() => removeExtraScanDir(dir)}>Remove</button>
                     </div>
                   {/each}
-                  <!-- Add extra dir -->
+
                   <div class="step-row">
                     <div class="toggle-info">
                       <span class="toggle-label">Additional scan path</span>
@@ -1752,7 +1752,7 @@
                       <button class="sec-action-btn" onclick={addExtraScanDir} disabled={!newScanDir.trim() || extraScanDirs.includes(newScanDir.trim())}>Add</button>
                     </div>
                   </div>
-                  <!-- Save -->
+
                   <div class="step-row" style="padding-top:0">
                     <div class="toggle-info"></div>
                     <button class="sec-action-btn sec-action-primary" onclick={savePaths} disabled={pathsSaving}>
@@ -1763,7 +1763,7 @@
               {/if}
             </div>
 
-            <!-- ── Backup (collapsible) ───────────────────────────────────── -->
+
             <div class="section adv-section">
               <button class="adv-toggle" onclick={() => backupSectionOpen = !backupSectionOpen}>
                 <span class="section-title" style="padding:0">Backup</span>
@@ -1772,7 +1772,7 @@
               {#if backupSectionOpen}
                 <div class="adv-body">
 
-                  <!-- Create -->
+
                   <div class="step-row">
                     <div class="toggle-info">
                       <span class="toggle-label">Create backup</span>
@@ -1787,7 +1787,7 @@
                     <p class="storage-loading" style="color:var(--color-error)">{backupError}</p>
                   {/if}
 
-                  <!-- Backup list -->
+
                   {#if backupList.length === 0}
                     <p class="storage-loading">No backups yet — create one above.</p>
                   {:else}
@@ -1813,7 +1813,7 @@
                     </div>
                   {/if}
 
-                  <!-- Restore -->
+
                   <div class="step-row">
                     <div class="toggle-info">
                       <span class="toggle-label">Restore from file</span>
