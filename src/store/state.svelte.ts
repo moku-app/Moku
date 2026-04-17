@@ -283,6 +283,7 @@ export interface Settings {
   extraScanDirs:           string[];
   serverDownloadsPath:     string;
   serverLocalSourcePath:   string;
+  qolAnimations:           boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -353,6 +354,7 @@ export const DEFAULT_SETTINGS: Settings = {
   extraScanDirs:          [],
   serverDownloadsPath:    "",
   serverLocalSourcePath:  "",
+  qolAnimations:          true,
 };
 
 const STORE_VERSION = 3;

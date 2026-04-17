@@ -33,10 +33,18 @@ In-Progress:
  - Working on 3D Display Cards
 
  - Add Small QOL Animations where Appropriate
+   - Sidebar Animations (C)
+      - Sliding
+      - Hover
+   - Library Animations
+      - Card Hover (C)
+      - Completed/Unread Re-Design
+   - Search Animations
+      - Card Hover
+   - SeriesDetail Animations
+      - 3D Card
 
  - Add Flathub Support (Pending Video)
-
- - Working on Optimizing Reader (CURRENT)
 
 
 

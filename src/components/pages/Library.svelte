@@ -16,13 +16,12 @@
   const CARD_GAP       = 16;
   const COMPLETED_NAME = "Completed";
 
-  // Drag type discriminators (tab reorder only — manga cards no longer use drag).
+  const anims = $derived(store.settings.qolAnimations ?? true);
+
   const DT_TAB = "application/x-moku-tab";
 
   let activeDragKind: "tab" | null = $state(null);
   let dragInsertIdx:  number       = $state(-1);
-
-  // ── Sort / filter panel ───────────────────────────────────────────────────
 
   let sortPanelOpen:   boolean = $state(false);
   let filterPanelOpen: boolean = $state(false);
@@ -65,7 +64,6 @@
     "ALL", "ONGOING", "COMPLETED", "CANCELLED", "HIATUS", "UNKNOWN",
   ];
 
-  // Per-tab reactive state — $derived so Svelte tracks changes to libraryFilter and settings
   const tabSortMode = $derived(
     store.settings.libraryTabSort[store.libraryFilter]?.mode ?? "az" as LibrarySortMode
   );
@@ -139,16 +137,25 @@
   let search:         string       = $state("");
   let renderVisible:  number       = $state(0);
   let scrollEl:       HTMLDivElement;
+  let tabsEl:         HTMLDivElement;
   let containerWidth: number       = $state(800);
   let ctx:     { x: number; y: number; manga: Manga } | null = $state(null);
   let emptyCtx:{ x: number; y: number } | null               = $state(null);
 
-  // ── Multi-select ──────────────────────────────────────────────────────────
+  let tabIndicator: { left: number; width: number } = $state({ left: 0, width: 0 });
+
+  function updateTabIndicator() {
+    if (!tabsEl) return;
+    const active = tabsEl.querySelector<HTMLElement>(".tab.active");
+    if (!active) return;
+    const parent = tabsEl.getBoundingClientRect();
+    const rect   = active.getBoundingClientRect();
+    tabIndicator = { left: rect.left - parent.left, width: rect.width };
+  }
 
   let selectedIds:   Set<number> = $state(new Set());
   let selectMode:    boolean     = $state(false);
   let bulkWorking:   boolean     = $state(false);
-  // Which folder-move popup is open (shows inline folder list)
   let bulkMoveOpen:  boolean     = $state(false);
 
   function enterSelectMode(id?: number) {
@@ -173,7 +180,6 @@
     selectedIds = new Set(visibleManga.map(m => m.id));
   }
 
-  // Long-press to enter select mode on touch devices
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   function onCardPointerDown(e: PointerEvent, m: Manga) {
     if (e.button !== 0) return; // only primary
@@ -194,7 +200,6 @@
       toggleSelect(m.id);
       return;
     }
-    // Cmd/Ctrl+click or Shift+click enters select mode
     if (e.metaKey || e.ctrlKey || e.shiftKey) {
       e.preventDefault();
       enterSelectMode(m.id);
@@ -202,8 +207,6 @@
     }
     store.activeManga = m;
   }
-
-  // ── Bulk mutations ────────────────────────────────────────────────────────
 
   async function bulkMoveToCategory(cat: Category) {
     bulkWorking  = true;
@@ -238,8 +241,6 @@
     }
   }
 
-  // ── Completed category auto-create ────────────────────────────────────────
-
   async function ensureCompletedCategory(cats: Category[]): Promise<Category[]> {
     if (cats.some(c => c.name === COMPLETED_NAME)) return cats;
     try {
@@ -247,8 +248,6 @@
       return [...cats, res.createCategory.category];
     } catch { return cats; }
   }
-
-  // ── Data loading ──────────────────────────────────────────────────────────
 
   async function reloadCategories() {
     try {
@@ -311,8 +310,9 @@
     }
   });
 
-  // Exit select mode when the filter changes
   $effect(() => { store.libraryFilter; untrack(() => exitSelectMode()); });
+
+  $effect(() => { store.libraryFilter; setTimeout(updateTabIndicator); });
 
   let prevChapterId: number | null = null;
   $effect(() => {
@@ -323,8 +323,6 @@
       untrack(() => loadData());
     }
   });
-
-  // ── Derived ───────────────────────────────────────────────────────────────
 
   const visibleCategories = $derived((() => {
     const defaultId = store.settings.defaultLibraryCategoryId ?? null;
@@ -352,11 +350,8 @@
     const dir    = tabSortDir;
     const status = tabStatus;
 
-    // 1. Pick the right base list for this tab
     let items: Manga[];
     if (store.libraryFilter === "library") {
-      // "Saved" shows all in-library manga so that manga in folders are still visible here.
-      // If the user prefers the old behaviour (only uncategorised), they can toggle it off in settings.
       if (store.settings.libraryShowAllInSaved ?? true) {
         items = allManga.filter(m => m.inLibrary);
       } else {
@@ -368,13 +363,10 @@
       items = categoryMangaMap.get(Number(store.libraryFilter)) ?? [];
     }
 
-    // 2. NSFW filter — always applied before text search or sort
     items = items.filter(m => !shouldHideNsfw(m, store.settings));
 
-    // 3. Text search
     if (q) items = items.filter(m => m.title.toLowerCase().includes(q));
 
-    // 4. Status filter
     if (status !== "ALL") {
       items = items.filter(m => {
         const s = m.status?.toUpperCase().replace(/\s+/g, "_") ?? "UNKNOWN";
@@ -382,14 +374,12 @@
       });
     }
 
-    // 4b. Content filters (additive — each active filter further narrows the list)
     const filters = store.settings.libraryTabFilters?.[store.libraryFilter] ?? {};
     if (filters.unread)     items = items.filter(m => (m.unreadCount ?? 0) > 0);
     if (filters.started)    items = items.filter(m => (m.unreadCount ?? 0) > 0 && (m.chapterCount ?? 0) > (m.unreadCount ?? 0));
     if (filters.downloaded) items = items.filter(m => (m.downloadCount ?? 0) > 0);
     if (filters.bookmarked) items = items.filter(m => !!(m as any).hasBookmark);
 
-    // 5. Sort
     const recentlyReadMap = new Map<number, number>();
     if (mode === "recentlyRead") {
       for (const h of store.history) {
@@ -410,7 +400,6 @@
           cmp = (a.chapterCount ?? 0) - (b.chapterCount ?? 0);
           break;
         case "recentlyAdded":
-          // id is monotonically increasing on Suwayomi — higher = newer
           cmp = a.id - b.id;
           break;
         case "recentlyRead": {
@@ -419,8 +408,6 @@
           cmp = ra - rb;
           break;
         }
-        // latestFetched / latestUploaded: no per-manga date available at list level;
-        // fall back to id ordering so the option still does something sensible.
         case "latestFetched":
         case "latestUploaded":
           cmp = a.id - b.id;
@@ -453,8 +440,6 @@
   })());
 
   function loadMore() { renderVisible += store.settings.renderLimit ?? 48; }
-
-  // ── Drag: tab reorder ─────────────────────────────────────────────────────
 
   let dragTabId:     number | null = $state(null);
   let dragOverTabId: number | null = $state(null);
@@ -526,8 +511,6 @@
     dragInsertIdx = -1;
   }
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
-
   async function removeFromLibrary(manga: Manga) {
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
     allManga = allManga.filter(m => m.id !== manga.id);
@@ -588,8 +571,6 @@
       await reloadCategories();
     } catch (e) { console.error(e); }
   }
-
-  // ── Context menu ──────────────────────────────────────────────────────────
 
   function openCtx(e: MouseEvent, m: Manga) {
     if (selectMode) { toggleSelect(m.id); return; }
@@ -671,8 +652,6 @@
     }];
   }
 
-  // ── Completed auto-assign ─────────────────────────────────────────────────
-
   export async function checkAndMarkCompleted(mangaId: number, chaps: Chapter[]) {
     await storeCheckAndMarkCompleted(mangaId, chaps, store.categories, gql, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA);
     await reloadCategories();
@@ -681,7 +660,7 @@
   let refreshing:     boolean = $state(false);
   let refreshProgress = $state({ finished: 0, total: 0 });
   let pollTimer:      ReturnType<typeof setTimeout> | null = null;
-  let refreshDone:    boolean = $state(false); // brief "done" flash on button
+  let refreshDone:    boolean = $state(false);
   let refreshDoneTimer: ReturnType<typeof setTimeout> | null = null;
 
   function showToast(newChapters: number, totalUpdated: number) {
@@ -744,12 +723,10 @@
             cache.clearGroup(CACHE_GROUPS.LIBRARY);
             loadData();
 
-            // Done flash on button
             refreshDone = true;
             if (refreshDoneTimer) clearTimeout(refreshDoneTimer);
             refreshDoneTimer = setTimeout(() => { refreshDone = false; }, 2500);
 
-            // Toast summary
             const totalNew = entries.reduce((s, e) => s + e.newChapters, 0);
             showToast(totalNew, entries.length);
             return;
@@ -774,7 +751,6 @@
       store.libraryFilter = String(defaultId);
     }
 
-    // Escape key exits select mode
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && (sortPanelOpen || filterPanelOpen)) {
         sortPanelOpen = false; filterPanelOpen = false; return;
@@ -794,6 +770,8 @@
 
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("mousedown", onDocMouseDown, true);
+
+    updateTabIndicator();
 
     return () => {
       ro.disconnect();
@@ -846,7 +824,10 @@
     <div class="header">
       <div class="header-left">
         <span class="heading">Library</span>
-        <div class="tabs">
+        <div class="tabs" class:tabs-anims={anims} bind:this={tabsEl}>
+          {#if anims && tabIndicator.width > 0}
+            <div class="tab-slide-indicator" style="left:{tabIndicator.left}px;width:{tabIndicator.width}px" aria-hidden="true"></div>
+          {/if}
           {#each [["library","Saved"], ["downloaded","Downloaded"]] as [f, label]}
             <button class="tab" class:active={store.libraryFilter === f} onclick={() => store.libraryFilter = f}>
               {#if f === "library"}<Books size={11} weight="bold" />
@@ -963,7 +944,6 @@
           {/if}
         </div>
 
-        <!-- Filter panel -->
         <div class="filter-panel-wrap">
           <button
             class="icon-btn"
@@ -1017,7 +997,6 @@
       </div>
     </div>
 
-    <!-- ── Refresh progress bar ──────────────────────────────────────────────── -->
     {#if refreshing && refreshProgress.total > 0}
       {@const pct = Math.round((refreshProgress.finished / refreshProgress.total) * 100)}
       <div class="refresh-bar-wrap" aria-hidden="true">
@@ -1025,7 +1004,6 @@
       </div>
     {/if}
 
-    <!-- ── Selection toolbar ───────────────────────────────────────────────── -->
     {#if selectMode}
       <div class="select-bar">
         <div class="select-bar-left">
@@ -1092,20 +1070,42 @@
       <div class="grid" style="--cols:{cols}">
         {#each visibleManga as m (m.id)}
           {@const isSelected = selectedIds.has(m.id)}
+          {@const isCompleted = !m.unreadCount && (m.chapterCount ?? 0) > 0}
           <button
             class="card"
             class:card-selected={isSelected}
             class:select-mode={selectMode}
+            class:anims={anims}
             onclick={(e) => onCardClick(e, m)}
             oncontextmenu={(e) => openCtx(e, m)}
             onpointerdown={(e) => onCardPointerDown(e, m)}
             onpointerup={onCardPointerUp}
             onpointerleave={onCardPointerLeave}
           >
-            <div class="cover-wrap">
+            <div class="cover-wrap" class:completed={isCompleted}>
               <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" style="object-fit:{store.settings.libraryCropCovers ? 'cover' : 'contain'}" draggable="false" />
-              {#if m.downloadCount}<span class="badge-dl">{m.downloadCount}</span>{/if}
-              {#if m.unreadCount}<span class="badge-unread">{m.unreadCount}</span>{/if}
+              <div
+                class="card-info-overlay"
+                class:anim={store.settings.qolAnimations !== false}
+                class:instant={store.settings.qolAnimations === false}
+              >
+                {#if isCompleted}
+                  <span class="info-chip info-chip-done">✓ complete</span>
+                {:else if m.unreadCount}
+                  <span class="info-chip info-chip-unread">
+                    <span class="info-chip-dot"></span>
+                    {m.unreadCount} unread
+                  </span>
+                {:else}
+                  <span></span>
+                {/if}
+                {#if m.downloadCount}
+                  <span class="info-chip info-chip-dl">
+                    <span class="info-chip-dot"></span>
+                    {m.downloadCount}
+                  </span>
+                {/if}
+              </div>
               {#if selectMode}
                 <div class="select-overlay" aria-hidden="true">
                   <div class="select-check" class:checked={isSelected}>
@@ -1131,7 +1131,7 @@
         </div>
       {/if}
     {/if}
-    </div><!-- .content -->
+    </div>
   {/if}
 </div>
 
@@ -1151,10 +1151,12 @@
   .header { position: relative; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); gap: var(--sp-4); flex-wrap: wrap; flex-shrink: 0; }
   .header-left { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
-  .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; }
-  .tab { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: grab; }
+  .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; }
+  .tab-slide-indicator { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-sm); background: var(--accent-muted); border: 1px solid var(--accent-dim); pointer-events: none; z-index: 0; transition: left 0.22s cubic-bezier(0.16,1,0.3,1), width 0.22s cubic-bezier(0.16,1,0.3,1); }
+  .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: grab; }
   .tab:hover { color: var(--text-muted); }
   .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); }
+  .tabs-anims .tab.active { background: transparent; border-color: transparent; }
   .tab-default { color: var(--text-muted); }
   .tab-dragging { opacity: 0.4; cursor: grabbing; }
   .tab-drop-target { background: var(--accent-muted) !important; color: var(--accent-fg) !important; outline: 1px dashed var(--accent); }
@@ -1166,10 +1168,8 @@
   .search::placeholder { color: var(--text-faint); }
   .search:focus { border-color: var(--border-strong); }
 
-  /* ── Header right cluster ───────────────────────────────────────────────── */
   .header-right { display: flex; align-items: center; gap: var(--sp-2); }
 
-  /* ── Icon buttons (sort / filter triggers) ──────────────────────────────── */
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .icon-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
   .icon-btn-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
@@ -1177,7 +1177,6 @@
   .refresh-btn:disabled { cursor: default; }
   .refresh-progress { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--accent-fg); }
 
-  /* ── Dropdown panels (shared) ───────────────────────────────────────────── */
   .sort-panel-wrap,
   .filter-panel-wrap { position: relative; }
   .dropdown-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 9999; min-width: 220px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); box-shadow: 0 8px 32px rgba(0,0,0,0.5); animation: fadeIn 0.1s ease both; }
@@ -1187,19 +1186,16 @@
   .panel-item-active { color: var(--accent-fg); background: var(--accent-muted); font-weight: var(--weight-medium, 500); }
   .panel-item-active:hover { background: var(--accent-dim); }
   .panel-divider { height: 1px; background: var(--border-dim); margin: 4px 2px; }
-  /* Panel header row — shared by sort + filter panels */
   .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px 4px; }
   .panel-heading { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-secondary); font-weight: var(--weight-medium, 500); }
   .panel-clear-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 0; transition: color var(--t-base); }
   .panel-clear-btn:hover { color: var(--color-error); }
-  /* Check items */
   .panel-item-check { justify-content: flex-start; gap: var(--sp-2); }
   .panel-check { width: 13px; height: 13px; border-radius: 2px; border: 1px solid var(--border-strong); background: transparent; flex-shrink: 0; transition: background var(--t-base), border-color var(--t-base); display: flex; align-items: center; justify-content: center; color: var(--bg-base); }
   .panel-check-on { background: var(--accent); border-color: var(--accent); }
   .dir-toggle { color: var(--text-secondary); justify-content: flex-start; gap: var(--sp-2); border-top: 1px solid var(--border-dim); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: 2px; padding-top: 9px; }
   :global(.sort-caret) { flex-shrink: 0; }
 
-  /* ── Selection toolbar ──────────────────────────────────────────────────── */
   .select-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-6); background: var(--bg-raised); border-bottom: 1px solid var(--accent-dim); flex-shrink: 0; animation: fadeIn 0.1s ease both; }
   .select-bar-left { display: flex; align-items: center; gap: var(--sp-3); }
   .select-bar-right { display: flex; align-items: center; gap: var(--sp-2); position: relative; }
@@ -1215,32 +1211,59 @@
   .sel-remove:hover:not(:disabled) { background: color-mix(in srgb, var(--color-error, #e05c5c) 12%, transparent); }
   .sel-all { border-color: transparent; background: transparent; }
 
-  /* Bulk folder dropdown */
   .bulk-move-wrap { position: relative; }
   .bulk-folder-list { position: absolute; top: calc(100% + 4px); right: 0; z-index: 200; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 4px; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); animation: fadeIn 0.1s ease both; }
   .bulk-folder-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); }
   .bulk-folder-item:hover { background: var(--bg-hover, var(--bg-base)); color: var(--text-primary); }
 
-  /* ── Grid & cards ───────────────────────────────────────────────────────── */
   .grid { position: relative; z-index: 1; isolation: isolate; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
   .card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
-  .card:hover .cover { filter: brightness(1.07); }
-  .card:hover .title { color: var(--text-primary); }
+  .card.anims:not(.select-mode):hover .cover-wrap { transform: translateY(-3px); border-color: var(--border-strong); box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+  .card.anims:not(.select-mode):hover .cover { filter: brightness(1.1); }
+  .card:not(.select-mode):hover .title { color: var(--text-primary); }
   .card.select-mode { cursor: default; }
   .card.card-selected .cover-wrap { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-md); }
   .card.card-selected .title { color: var(--accent-fg); }
-  .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); }
-  .cover { width: 100%; height: 100%; transition: filter var(--t-base); will-change: filter; }
-  .badge-dl { position: absolute; bottom: var(--sp-1); right: var(--sp-1); min-width: 18px; height: 18px; padding: 0 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--accent-dim); color: var(--accent-fg); border-radius: var(--radius-sm); border: 1px solid var(--accent-muted); }
-  .badge-unread { position: absolute; top: var(--sp-1); left: var(--sp-1); min-width: 18px; height: 18px; padding: 0 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; background: var(--bg-void); color: var(--text-primary); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); }
 
-  /* Select overlay (checkbox) */
+  .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); will-change: transform; }
+  .card.anims .cover-wrap { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color var(--t-base), box-shadow 0.18s cubic-bezier(0.16,1,0.3,1); }
+  .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
+  .cover { width: 100%; height: 100%; will-change: filter; }
+  .card.anims .cover { transition: filter var(--t-base); }
+
+  .card-info-overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    display: flex; align-items: flex-end; justify-content: space-between;
+    padding: 20px 5px 5px;
+    background: linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.3) 55%, transparent 100%);
+    opacity: 0;
+    transform: translateY(3px);
+    pointer-events: none;
+  }
+  .card-info-overlay.anim { transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1); }
+  .card-info-overlay.instant { transition: none; }
+  .card:not(.select-mode):hover .card-info-overlay {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .info-chip {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.03em; line-height: 1;
+    padding: 3px 6px; border-radius: 4px;
+    background: rgba(0,0,0,0.52); backdrop-filter: blur(6px);
+  }
+  .info-chip-unread { color: #fff; }
+  .info-chip-done { color: var(--accent-fg); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .info-chip-dl { color: var(--accent-fg); }
+  .info-chip-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
   .select-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.18); display: flex; align-items: flex-start; justify-content: flex-end; padding: 6px; pointer-events: none; }
   .select-check { color: var(--text-faint); opacity: 0.7; transition: color var(--t-base), opacity var(--t-base); }
   .select-check.checked { color: var(--accent-fg); opacity: 1; }
   .select-check-empty { width: 20px; height: 20px; border-radius: 4px; border: 2px solid var(--text-faint); background: rgba(0,0,0,0.3); }
 
-  .title { margin-top: var(--sp-2); font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base); }
+  .title { margin-top: var(--sp-2); font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 2lh; }
+  .card.anims .title { transition: color var(--t-base); }
   .card-skeleton { padding: 0; }
   .cover-skeleton { aspect-ratio: 2/3; border-radius: var(--radius-md); }
   .title-skeleton { height: 12px; margin-top: var(--sp-2); width: 80%; border-radius: var(--radius-sm); }
@@ -1252,11 +1275,8 @@
   .error-msg { color: var(--color-error); font-size: var(--text-base); }
   .error-detail { color: var(--text-faint); font-size: var(--text-sm); }
   .retry-btn { margin-top: var(--sp-3); padding: 6px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); }
-  /* ── Refresh progress bar ───────────────────────────────────────────────── */
   .refresh-bar-wrap { height: 2px; background: var(--border-dim); flex-shrink: 0; overflow: hidden; }
   .refresh-bar-fill { height: 100%; background: var(--accent); border-radius: 0 2px 2px 0; transition: width 0.6s ease; }
-
-  /* Done flash on button */
   .refresh-btn-done { color: var(--color-success, #5cae6e) !important; border-color: color-mix(in srgb, var(--color-success, #5cae6e) 40%, transparent) !important; background: color-mix(in srgb, var(--color-success, #5cae6e) 10%, transparent) !important; }
 
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }

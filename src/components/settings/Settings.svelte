@@ -45,9 +45,24 @@
     { id: "midnight",       label: "Midnight",       description: "Deep blue-black tint",          swatches: ["#0c1020","#101428","#a8b4e8","#eeeef8"] },
     { id: "warm",           label: "Warm",           description: "Amber and sepia tones",         swatches: ["#16130c","#1c1810","#e0b860","#f5f0e0"] },
   ];
+  const anims = $derived(store.settings.qolAnimations ?? true);
+
   let tab: Tab          = $state("general");
+  let prevTabIndex      = $state(0);
+  let tabSlideDir       = $state<"up" | "down">("down");
+  let tabIconKey        = $state(0);
   let contentBodyEl: HTMLDivElement;
   $effect(() => { tab; tick().then(() => contentBodyEl?.scrollTo({ top: 0 })); });
+
+  function setTab(id: Tab) {
+    if (anims) {
+      const next = TABS.findIndex(t => t.id === id);
+      tabSlideDir = next > prevTabIndex ? "down" : "up";
+      prevTabIndex = next;
+      tabIconKey++;
+    }
+    tab = id;
+  }
   function close() { setSettingsOpen(false); }
   function onKey(e: KeyboardEvent) { if (e.key === "Escape" && !listeningKey) close(); }
   $effect(() => {
@@ -1082,8 +1097,12 @@
       <p class="modal-title">Settings</p>
       <nav class="nav">
         {#each TABS as t}
-          <button class="nav-item" class:active={tab === t.id} onclick={() => tab = t.id}>
-            <t.icon size={14} weight="light" />
+          <button class="nav-item" class:active={tab === t.id} class:anims onclick={() => setTab(t.id)}>
+            <span class="nav-item-icon" class:slide-down={anims && tab === t.id && tabSlideDir === "down"} class:slide-up={anims && tab === t.id && tabSlideDir === "up"}>
+              {#key anims && tab === t.id ? tabIconKey : 0}
+                <t.icon size={14} weight={tab === t.id ? "regular" : "light"} />
+              {/key}
+            </span>
             <span>{t.label}</span>
           </button>
         {/each}
@@ -1092,11 +1111,15 @@
     <div class="content">
       <div class="content-header">
         <div class="content-header-left">
-          {#each TABS as t}
-            {#if t.id === tab}
-              <t.icon size={13} weight="light" class="content-header-icon" />
-            {/if}
-          {/each}
+          <span class="header-icon-wrap" class:slide-down={anims && tabSlideDir === "down"} class:slide-up={anims && tabSlideDir === "up"}>
+            {#key tabIconKey}
+              {#each TABS as t}
+                {#if t.id === tab}
+                  <t.icon size={13} weight="light" class="content-header-icon" />
+                {/if}
+              {/each}
+            {/key}
+          </span>
           <p class="content-title">{TABS.find((t) => t.id === tab)?.label}</p>
         </div>
         <button class="close-btn" aria-label="Close settings" onclick={close}><X size={15} weight="light" /></button>
@@ -1169,6 +1192,13 @@
               <label class="toggle-row">
                 <div class="toggle-info"><span class="toggle-label">Discord Rich Presence</span><span class="toggle-desc">Show what you're reading in your Discord status</span></div>
                 <button role="switch" aria-checked={store.settings.discordRpc} aria-label="Discord Rich Presence" class="toggle" class:on={store.settings.discordRpc} onclick={() => updateSettings({ discordRpc: !store.settings.discordRpc })}><span class="toggle-thumb"></span></button>
+              </label>
+            </div>
+            <div class="section">
+              <p class="section-title">Animations</p>
+              <label class="toggle-row">
+                <div class="toggle-info"><span class="toggle-label">QOL Animations</span><span class="toggle-desc">Subtle motion effects across the interface — hover lifts, active-tab transitions, and icon micro-animations</span></div>
+                <button role="switch" aria-checked={store.settings.qolAnimations ?? true} aria-label="QOL Animations" class="toggle" class:on={store.settings.qolAnimations ?? true} onclick={() => updateSettings({ qolAnimations: !(store.settings.qolAnimations ?? true) })}><span class="toggle-thumb"></span></button>
               </label>
             </div>
             <div class="section">
@@ -2660,6 +2690,26 @@
   }
   .nav-item:hover  { background: var(--bg-raised); color: var(--text-secondary); }
   .nav-item.active { background: var(--accent-muted); color: var(--accent-fg); }
+  .nav-item.anims  { transition: background var(--t-base), color var(--t-base), transform 80ms ease; }
+  .nav-item.anims:hover { transform: translateX(1px); }
+  .nav-item.anims:active { transform: scale(0.97); }
+
+  .nav-item-icon { display: flex; align-items: center; flex-shrink: 0; }
+  .nav-item-icon.slide-down { animation: icon-slide-down 160ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .nav-item-icon.slide-up   { animation: icon-slide-up   160ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+  .header-icon-wrap { display: flex; align-items: center; color: var(--text-faint); }
+  .header-icon-wrap.slide-down { animation: icon-slide-down 180ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .header-icon-wrap.slide-up   { animation: icon-slide-up   180ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+  @keyframes icon-slide-down {
+    from { transform: translateY(-5px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+  @keyframes icon-slide-up {
+    from { transform: translateY(5px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
 
   /* ── Content area ────────────────────────────────────────────────────────── */
   .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
