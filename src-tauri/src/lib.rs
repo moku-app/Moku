@@ -53,12 +53,9 @@ fn strip_unc(path: PathBuf) -> PathBuf {
 
 fn resolve_downloads_path(downloads_path: &str) -> PathBuf {
     if !downloads_path.trim().is_empty() {
-        return PathBuf::from(downloads_path);
+        return PathBuf::from(downloads_path.trim());
     }
-    let base = std::env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| dirs::data_dir().unwrap_or_else(|| PathBuf::from("/")));
-    base.join("Tachidesk").join("downloads")
+    suwayomi_data_dir().join("downloads")
 }
 
 #[tauri::command]
@@ -674,9 +671,9 @@ fn restart_app(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn open_path(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(path.trim());
     #[cfg(target_os = "windows")]
     {
+        let p = strip_unc(std::path::PathBuf::from(path.trim()));
         std::process::Command::new("explorer")
             .arg(p)
             .spawn()
@@ -684,6 +681,7 @@ fn open_path(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
+        let p = std::path::Path::new(path.trim());
         std::process::Command::new("open")
             .arg(p)
             .spawn()
@@ -691,6 +689,7 @@ fn open_path(path: String) -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
+        let p = std::path::Path::new(path.trim());
         std::process::Command::new("xdg-open")
             .arg(p)
             .spawn()
