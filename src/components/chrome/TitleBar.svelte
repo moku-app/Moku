@@ -45,7 +45,6 @@
     {/if}
   </div>
 {:else if isWindows}
-  <!-- On Windows, fullscreen hides the native titlebar — show a hoverable overlay so the user isn't locked in -->
   <div class="fullscreen-controls">
     <button onclick={() => win.setFullscreen(false)} title="Exit Fullscreen" aria-label="Exit Fullscreen">
       <svg width="10" height="10" viewBox="0 0 10 10">
@@ -65,6 +64,55 @@
 {/if}
 
 <style>
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 36px;
+    padding: 0 6px 0 var(--sp-4);
+    background: transparent;
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+
+  .mac-spacer {
+    width: 70px;
+    flex-shrink: 0;
+    -webkit-app-region: drag;
+  }
+
+  .title {
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+    opacity: 0.5;
+    -webkit-app-region: drag;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    -webkit-app-region: no-drag;
+  }
+
+  button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    transition: color var(--t-base), background var(--t-base);
+    -webkit-app-region: no-drag;
+  }
+  button:hover { color: var(--text-muted); background: rgba(255,255,255,0.06); }
+  .close:hover { color: #fff; background: #c0392b; }
+
   .fullscreen-controls {
     position: fixed;
     top: 0;
@@ -79,49 +127,4 @@
     -webkit-app-region: no-drag;
   }
   .fullscreen-controls:hover { opacity: 1; }
-
-  .bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 32px;
-    padding: 0 var(--sp-3) 0 var(--sp-4);
-    background: var(--bg-void);
-    border-bottom: 1px solid var(--border-dim);
-    flex-shrink: 0;
-    user-select: none;
-    -webkit-app-region: drag;
-  }
-  /* Spacer to clear the native macOS traffic lights (~70px) */
-  .mac-spacer {
-    width: 70px;
-    flex-shrink: 0;
-    -webkit-app-region: drag;
-  }
-  .title {
-    font-family: var(--font-ui);
-    font-size: var(--text-2xs);
-    color: var(--text-faint);
-    letter-spacing: var(--tracking-wider);
-    text-transform: uppercase;
-    -webkit-app-region: drag;
-  }
-  .controls {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    -webkit-app-region: no-drag;
-  }
-  button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px; height: 28px;
-    border-radius: var(--radius-sm);
-    color: var(--text-faint);
-    transition: color var(--t-base), background var(--t-base);
-    -webkit-app-region: no-drag;
-  }
-  button:hover { color: var(--text-muted); background: var(--bg-raised); }
-  .close:hover { color: #fff; background: #c0392b; }
 </style>
