@@ -1,384 +1,178 @@
-import type { Manga, Chapter, Category, Source } from "../lib/types";
-import { DEFAULT_KEYBINDS, type Keybinds } from "../lib/keybinds";
+import type { Manga, Chapter, Category, Source } from "../types";
+import { DEFAULT_KEYBINDS, type Keybinds }       from "../core/keybinds/defaultBinds";
+import { notifications }                          from "./notifications.svelte";
+import { app }                                    from "./app.svelte";
+
+export type { NavPage }               from "./app.svelte";
+export type { Toast, ActiveDownload } from "./notifications.svelte";
 
 export type PageStyle        = "single" | "double" | "longstrip";
 export type FitMode          = "width" | "height" | "screen" | "original";
 export type LibraryFilter    = "all" | "library" | "downloaded" | string;
-export type NavPage          = "home" | "library" | "sources" | "explore" | "downloads" | "extensions" | "history" | "search" | "tracking";
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
 export type ChapterSortMode  = "source" | "chapterNumber" | "uploadDate";
 
 export type LibrarySortMode =
-  | "az"
-  | "unreadCount"
-  | "totalChapters"
-  | "recentlyAdded"
-  | "recentlyRead"
-  | "latestFetched"
-  | "latestUploaded";
+  | "az" | "unreadCount" | "totalChapters"
+  | "recentlyAdded" | "recentlyRead" | "latestFetched" | "latestUploaded";
 
 export type LibrarySortDir = "asc" | "desc";
 
-export type LibraryStatusFilter =
-  | "ALL"
-  | "ONGOING"
-  | "COMPLETED"
-  | "CANCELLED"
-  | "HIATUS"
-  | "UNKNOWN";
-
-export type LibraryContentFilter =
-  | "unread"
-  | "started"
-  | "downloaded"
-  | "bookmarked"
-  | "marked";
+export type LibraryStatusFilter  = "ALL" | "ONGOING" | "COMPLETED" | "CANCELLED" | "HIATUS" | "UNKNOWN";
+export type LibraryContentFilter = "unread" | "started" | "downloaded" | "bookmarked" | "marked";
 
 export type BuiltinTheme = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
 export type Theme        = BuiltinTheme | string;
 
 export interface ThemeTokens {
-  "bg-void":    string;
-  "bg-base":    string;
-  "bg-surface": string;
-  "bg-raised":  string;
-  "bg-overlay": string;
-  "bg-subtle":  string;
-  "border-dim":    string;
-  "border-base":   string;
-  "border-strong": string;
-  "border-focus":  string;
-  "text-primary":   string;
-  "text-secondary": string;
-  "text-muted":     string;
-  "text-faint":     string;
-  "text-disabled":  string;
-  "accent":        string;
-  "accent-dim":    string;
-  "accent-muted":  string;
-  "accent-fg":     string;
-  "accent-bright": string;
-  "color-error":    string;
-  "color-error-bg": string;
-  "color-success":  string;
-  "color-info":     string;
-  "color-info-bg":  string;
+  "bg-void": string; "bg-base": string; "bg-surface": string;
+  "bg-raised": string; "bg-overlay": string; "bg-subtle": string;
+  "border-dim": string; "border-base": string; "border-strong": string; "border-focus": string;
+  "text-primary": string; "text-secondary": string; "text-muted": string;
+  "text-faint": string; "text-disabled": string;
+  "accent": string; "accent-dim": string; "accent-muted": string;
+  "accent-fg": string; "accent-bright": string;
+  "color-error": string; "color-error-bg": string;
+  "color-success": string; "color-info": string; "color-info-bg": string;
 }
 
-export interface CustomTheme {
-  id:     string;
-  name:   string;
-  tokens: ThemeTokens;
-}
+export interface CustomTheme { id: string; name: string; tokens: ThemeTokens; }
 
 export const DEFAULT_THEME_TOKENS: ThemeTokens = {
-  "bg-void":    "#080808",
-  "bg-base":    "#0c0c0c",
-  "bg-surface": "#101010",
-  "bg-raised":  "#151515",
-  "bg-overlay": "#1a1a1a",
-  "bg-subtle":  "#202020",
-  "border-dim":    "#1c1c1c",
-  "border-base":   "#242424",
-  "border-strong": "#2e2e2e",
-  "border-focus":  "#4a5c4a",
-  "text-primary":   "#f0efec",
-  "text-secondary": "#c8c6c0",
-  "text-muted":     "#8a8880",
-  "text-faint":     "#4e4d4a",
-  "text-disabled":  "#2a2a28",
-  "accent":        "#6b8f6b",
-  "accent-dim":    "#2a3d2a",
-  "accent-muted":  "#1a251a",
-  "accent-fg":     "#a8c4a8",
-  "accent-bright": "#8fb88f",
-  "color-error":    "#c47a7a",
-  "color-error-bg": "#1f1212",
-  "color-success":  "#7aab7a",
-  "color-info":     "#7a9ec4",
-  "color-info-bg":  "#121a1f",
+  "bg-void": "#080808", "bg-base": "#0c0c0c", "bg-surface": "#101010",
+  "bg-raised": "#151515", "bg-overlay": "#1a1a1a", "bg-subtle": "#202020",
+  "border-dim": "#1c1c1c", "border-base": "#242424", "border-strong": "#2e2e2e", "border-focus": "#4a5c4a",
+  "text-primary": "#f0efec", "text-secondary": "#c8c6c0", "text-muted": "#8a8880",
+  "text-faint": "#4e4d4a", "text-disabled": "#2a2a28",
+  "accent": "#6b8f6b", "accent-dim": "#2a3d2a", "accent-muted": "#1a251a",
+  "accent-fg": "#a8c4a8", "accent-bright": "#8fb88f",
+  "color-error": "#c47a7a", "color-error-bg": "#1f1212",
+  "color-success": "#7aab7a", "color-info": "#7a9ec4", "color-info-bg": "#121a1f",
 };
 
 export interface HistoryEntry {
-  mangaId:      number;
-  mangaTitle:   string;
-  thumbnailUrl: string;
-  chapterId:    number;
-  chapterName:  string;
-  readAt:       number;
+  mangaId: number; mangaTitle: string; thumbnailUrl: string;
+  chapterId: number; chapterName: string; readAt: number;
 }
 
 export interface BookmarkEntry {
-  mangaId:      number;
-  mangaTitle:   string;
-  thumbnailUrl: string;
-  chapterId:    number;
-  chapterName:  string;
-  pageNumber:   number;
-  savedAt:      number;
-  label?:       string;
+  mangaId: number; mangaTitle: string; thumbnailUrl: string;
+  chapterId: number; chapterName: string; pageNumber: number;
+  savedAt: number; label?: string;
 }
 
 export type MarkerColor = "yellow" | "red" | "blue" | "green" | "purple";
 
 export interface MarkerEntry {
-  id:           string;
-  mangaId:      number;
-  mangaTitle:   string;
-  thumbnailUrl: string;
-  chapterId:    number;
-  chapterName:  string;
-  pageNumber:   number;
-  note:         string;
-  color:        MarkerColor;
-  createdAt:    number;
-  updatedAt?:   number;
+  id: string; mangaId: number; mangaTitle: string; thumbnailUrl: string;
+  chapterId: number; chapterName: string; pageNumber: number;
+  note: string; color: MarkerColor; createdAt: number; updatedAt?: number;
 }
 
-export interface ReadLogEntry {
-  mangaId:   number;
-  chapterId: number;
-  readAt:    number;
-  minutes:   number;
+export interface ReadLogEntry   { mangaId: number; chapterId: number; readAt: number; minutes: number; }
+export interface ReadingStats   {
+  totalChaptersRead: number; totalMangaRead: number; totalMinutesRead: number;
+  firstReadAt: number; lastReadAt: number;
+  currentStreakDays: number; longestStreakDays: number; lastStreakDate: string;
 }
-
-export interface ReadingStats {
-  totalChaptersRead: number;
-  totalMangaRead:    number;
-  totalMinutesRead:  number;
-  firstReadAt:       number;
-  lastReadAt:        number;
-  currentStreakDays: number;
-  longestStreakDays: number;
-  lastStreakDate:    string;
-}
-
 export interface LibraryUpdateEntry {
-  mangaId:      number;
-  mangaTitle:   string;
-  thumbnailUrl: string;
-  newChapters:  number;
-  checkedAt:    number;
-}
-
-const AVG_MIN_PER_CHAPTER = 5;
-
-export const DEFAULT_READING_STATS: ReadingStats = {
-  totalChaptersRead: 0,
-  totalMangaRead:    0,
-  totalMinutesRead:  0,
-  firstReadAt:       0,
-  lastReadAt:        0,
-  currentStreakDays: 0,
-  longestStreakDays: 0,
-  lastStreakDate:    "",
-};
-
-export interface Toast {
-  id:        string;
-  kind:      "success" | "error" | "info" | "download";
-  title:     string;
-  body?:     string;
-  duration?: number;
-}
-
-export interface ActiveDownload {
-  chapterId: number;
-  mangaId:   number;
-  progress:  number;
+  mangaId: number; mangaTitle: string; thumbnailUrl: string; newChapters: number; checkedAt: number;
 }
 
 export interface MangaPrefs {
-  autoDownload:       boolean;
-  downloadAhead:      number;
-  deleteOnRead:       boolean;
-  deleteDelayHours:   number;
-  maxKeepChapters:    number;
-  pauseUpdates:       boolean;
-  refreshInterval:    "global" | "daily" | "weekly" | "manual";
-  preferredScanlator: string;
-  scanlatorFilter:    string[];
+  autoDownload: boolean; downloadAhead: number; deleteOnRead: boolean;
+  deleteDelayHours: number; maxKeepChapters: number; pauseUpdates: boolean;
+  refreshInterval: "global" | "daily" | "weekly" | "manual";
+  preferredScanlator: string; scanlatorFilter: string[];
 }
 
 export const DEFAULT_MANGA_PREFS: MangaPrefs = {
-  autoDownload:       false,
-  downloadAhead:      0,
-  deleteOnRead:       false,
-  deleteDelayHours:   0,
-  maxKeepChapters:    0,
-  pauseUpdates:       false,
-  refreshInterval:    "global",
-  preferredScanlator: "",
-  scanlatorFilter:    [],
+  autoDownload: false, downloadAhead: 0, deleteOnRead: false,
+  deleteDelayHours: 0, maxKeepChapters: 0, pauseUpdates: false,
+  refreshInterval: "global", preferredScanlator: "", scanlatorFilter: [],
 };
 
 export interface Settings {
-  pageStyle:               PageStyle;
-  readingDirection:        ReadingDirection;
-  fitMode:                 FitMode;
-  readerZoom:              number;
-  pageGap:                 boolean;
-  optimizeContrast:        boolean;
-  offsetDoubleSpreads:     boolean;
-  preloadPages:            number;
-  autoMarkRead:            boolean;
-  autoNextChapter:         boolean;
-  libraryCropCovers:       boolean;
-  libraryPageSize:         number;
-  showNsfw:                boolean;
-  discordRpc:              boolean;
-  chapterSortDir:          ChapterSortDir;
-  chapterSortMode:         ChapterSortMode;
-  chapterPageSize:         number;
-  uiZoom:                  number;
-  compactSidebar:          boolean;
-  gpuAcceleration:         boolean;
-  serverUrl:               string;
-  serverBinary:            string;
-  autoStartServer:         boolean;
-  preferredExtensionLang:  string;
-  keybinds:                Keybinds;
-  idleTimeoutMin?:         number;
-  splashCards?:            boolean;
-  storageLimitGb:          number | null;
-  markReadOnNext:          boolean;
-  readerDebounceMs:        number;
-  autoBookmark:            boolean;
-  theme:                   Theme;
-  libraryBranches:         boolean;
-  renderLimit:             number;
-  heroSlots:               (number | null)[];
-  mangaLinks:              Record<number, number[]>;
-  mangaPrefs:              Record<number, Partial<MangaPrefs>>;
-  serverAuthUser:          string;
-  serverAuthPass:          string;
-  serverAuthMode:          "NONE" | "BASIC_AUTH" | "SIMPLE_LOGIN" | "UI_LOGIN";
-  socksProxyEnabled:       boolean;
-  socksProxyHost:          string;
-  socksProxyPort:          string;
-  socksProxyVersion:       number;
-  socksProxyUsername:      string;
-  socksProxyPassword:      string;
-  flareSolverrEnabled:     boolean;
-  flareSolverrUrl:         string;
-  flareSolverrTimeout:     number;
-  flareSolverrSessionName: string;
-  flareSolverrSessionTtl:  number;
-  flareSolverrFallback:    boolean;
-  appLockEnabled:          boolean;
-  appLockPin:              string;
-  customThemes:            CustomTheme[];
-  hiddenCategoryIds:       number[];
-  defaultLibraryCategoryId: number | null;
-  savedIsDefaultCategory:  boolean;
-  nsfwFilteredTags:        string[];
-  nsfwAllowedSourceIds:    string[];
-  nsfwBlockedSourceIds:    string[];
-  libraryTabSort:          Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
-  libraryTabStatus:        Record<string, LibraryStatusFilter>;
-  libraryTabFilters:       Record<string, Partial<Record<LibraryContentFilter, boolean>>>;
-  maxPageWidth?:           number;
-  uiScale?:                number;
-  extraScanDirs:           string[];
-  serverDownloadsPath:     string;
-  serverLocalSourcePath:   string;
-  qolAnimations:           boolean;
+  pageStyle: PageStyle; readingDirection: ReadingDirection; fitMode: FitMode;
+  readerZoom: number; pageGap: boolean; optimizeContrast: boolean;
+  offsetDoubleSpreads: boolean; preloadPages: number;
+  autoMarkRead: boolean; autoNextChapter: boolean;
+  libraryCropCovers: boolean; libraryPageSize: number;
+  showNsfw: boolean; discordRpc: boolean;
+  chapterSortDir: ChapterSortDir; chapterSortMode: ChapterSortMode; chapterPageSize: number;
+  uiZoom: number; compactSidebar: boolean; gpuAcceleration: boolean;
+  serverUrl: string; serverBinary: string; autoStartServer: boolean;
+  preferredExtensionLang: string; keybinds: Keybinds;
+  idleTimeoutMin?: number; splashCards?: boolean;
+  storageLimitGb: number | null; markReadOnNext: boolean; readerDebounceMs: number;
+  autoBookmark: boolean; theme: Theme; libraryBranches: boolean; renderLimit: number;
+  heroSlots: (number | null)[]; mangaLinks: Record<number, number[]>;
+  mangaPrefs: Record<number, Partial<MangaPrefs>>;
+  serverAuthUser: string; serverAuthPass: string;
+  serverAuthMode: "NONE" | "BASIC_AUTH" | "SIMPLE_LOGIN" | "UI_LOGIN";
+  socksProxyEnabled: boolean; socksProxyHost: string; socksProxyPort: string;
+  socksProxyVersion: number; socksProxyUsername: string; socksProxyPassword: string;
+  flareSolverrEnabled: boolean; flareSolverrUrl: string; flareSolverrTimeout: number;
+  flareSolverrSessionName: string; flareSolverrSessionTtl: number; flareSolverrFallback: boolean;
+  appLockEnabled: boolean; appLockPin: string;
+  customThemes: CustomTheme[]; hiddenCategoryIds: number[];
+  defaultLibraryCategoryId: number | null; savedIsDefaultCategory: boolean;
+  nsfwFilteredTags: string[]; nsfwAllowedSourceIds: string[]; nsfwBlockedSourceIds: string[];
+  libraryTabSort: Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
+  libraryTabStatus: Record<string, LibraryStatusFilter>;
+  libraryTabFilters: Record<string, Partial<Record<LibraryContentFilter, boolean>>>;
+  maxPageWidth?: number; uiScale?: number;
+  extraScanDirs: string[]; serverDownloadsPath: string; serverLocalSourcePath: string;
+  qolAnimations: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = {
-  pageStyle:              "longstrip",
-  readingDirection:       "ltr",
-  fitMode:                "width",
-  readerZoom:             1.0,
-  pageGap:                true,
-  optimizeContrast:       false,
-  offsetDoubleSpreads:    false,
-  preloadPages:           3,
-  autoMarkRead:           true,
-  autoNextChapter:        true,
-  libraryCropCovers:      true,
-  libraryPageSize:        48,
-  showNsfw:               false,
-  discordRpc:             false,
-  chapterSortDir:         "desc",
-  chapterSortMode:        "source",
-  chapterPageSize:        25,
-  uiZoom:                 1.0,
-  compactSidebar:         false,
-  gpuAcceleration:        true,
-  serverUrl:              "http://localhost:4567",
-  serverBinary:           "",
-  autoStartServer:        true,
-  preferredExtensionLang: "en",
-  keybinds:               DEFAULT_KEYBINDS,
-  idleTimeoutMin:         5,
-  splashCards:            true,
-  storageLimitGb:         null,
-  markReadOnNext:         true,
-  readerDebounceMs:       120,
-  autoBookmark:           true,
-  theme:                  "dark",
-  libraryBranches:        true,
-  renderLimit:            48,
-  heroSlots:              [null, null, null, null],
-  mangaLinks:             {},
-  mangaPrefs:             {},
-  serverAuthUser:         "",
-  serverAuthPass:         "",
-  serverAuthMode:         "NONE",
-  socksProxyEnabled:      false,
-  socksProxyHost:         "",
-  socksProxyPort:         "1080",
-  socksProxyVersion:      5,
-  socksProxyUsername:     "",
-  socksProxyPassword:     "",
-  flareSolverrEnabled:    false,
-  flareSolverrUrl:        "http://localhost:8191",
-  flareSolverrTimeout:    60,
-  flareSolverrSessionName: "moku",
-  flareSolverrSessionTtl: 15,
-  flareSolverrFallback:   false,
-  appLockEnabled:         false,
-  appLockPin:             "",
-  customThemes:           [],
-  hiddenCategoryIds:      [],
-  defaultLibraryCategoryId: null,
-  savedIsDefaultCategory:  false,
-  nsfwFilteredTags:      ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
-  nsfwAllowedSourceIds:  [],
-  nsfwBlockedSourceIds:  [],
-  libraryTabSort:         {},
-  libraryTabStatus:       {},
-  libraryTabFilters:      {},
-  extraScanDirs:          [],
-  serverDownloadsPath:    "",
-  serverLocalSourcePath:  "",
-  qolAnimations:          true,
+export const DEFAULT_READING_STATS: ReadingStats = {
+  totalChaptersRead: 0, totalMangaRead: 0, totalMinutesRead: 0,
+  firstReadAt: 0, lastReadAt: 0, currentStreakDays: 0, longestStreakDays: 0, lastStreakDate: "",
 };
 
-const STORE_VERSION = 3;
+export const DEFAULT_SETTINGS: Settings = {
+  pageStyle: "longstrip", readingDirection: "ltr", fitMode: "width",
+  readerZoom: 1.0, pageGap: true, optimizeContrast: false, offsetDoubleSpreads: false,
+  preloadPages: 3, autoMarkRead: true, autoNextChapter: true,
+  libraryCropCovers: true, libraryPageSize: 48, showNsfw: false, discordRpc: false,
+  chapterSortDir: "desc", chapterSortMode: "source", chapterPageSize: 25,
+  uiZoom: 1.0, compactSidebar: false, gpuAcceleration: true,
+  serverUrl: "http://localhost:4567", serverBinary: "", autoStartServer: true,
+  preferredExtensionLang: "en", keybinds: DEFAULT_KEYBINDS,
+  idleTimeoutMin: 5, splashCards: true, storageLimitGb: null,
+  markReadOnNext: true, readerDebounceMs: 120, autoBookmark: true,
+  theme: "dark", libraryBranches: true, renderLimit: 48,
+  heroSlots: [null, null, null, null], mangaLinks: {}, mangaPrefs: {},
+  serverAuthUser: "", serverAuthPass: "", serverAuthMode: "NONE",
+  socksProxyEnabled: false, socksProxyHost: "", socksProxyPort: "1080",
+  socksProxyVersion: 5, socksProxyUsername: "", socksProxyPassword: "",
+  flareSolverrEnabled: false, flareSolverrUrl: "http://localhost:8191",
+  flareSolverrTimeout: 60, flareSolverrSessionName: "moku",
+  flareSolverrSessionTtl: 15, flareSolverrFallback: false,
+  appLockEnabled: false, appLockPin: "",
+  customThemes: [], hiddenCategoryIds: [], defaultLibraryCategoryId: null,
+  savedIsDefaultCategory: false,
+  nsfwFilteredTags: ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
+  nsfwAllowedSourceIds: [], nsfwBlockedSourceIds: [],
+  libraryTabSort: {}, libraryTabStatus: {}, libraryTabFilters: {},
+  extraScanDirs: [], serverDownloadsPath: "", serverLocalSourcePath: "",
+  qolAnimations: true,
+};
 
-const RESET_ON_UPGRADE: (keyof Settings)[] = [
-  "serverBinary",
-  "readerZoom",
-  "uiZoom",
-];
+const STORE_VERSION    = 3;
+const AVG_MIN_PER_CHAPTER = 5;
+const RESET_ON_UPGRADE: (keyof Settings)[] = ["serverBinary", "readerZoom", "uiZoom"];
 
 function loadPersisted(): any {
-  try {
-    const raw = localStorage.getItem("moku-store");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  try { const raw = localStorage.getItem("moku-store"); return raw ? JSON.parse(raw) : null; }
+  catch { return null; }
 }
 
 function persist(patch: Record<string, unknown>) {
-  try {
-    const current = loadPersisted() ?? {};
-    localStorage.setItem("moku-store", JSON.stringify({ ...current, ...patch }));
-  } catch {}
+  try { localStorage.setItem("moku-store", JSON.stringify({ ...loadPersisted() ?? {}, ...patch })); }
+  catch {}
 }
 
 const saved = (() => {
@@ -386,17 +180,9 @@ const saved = (() => {
   if (!data) return null;
   if ((data.storeVersion ?? 1) < STORE_VERSION) {
     const resetPatch: Partial<Settings> = {};
-    for (const key of RESET_ON_UPGRADE) {
-      (resetPatch as any)[key] = (DEFAULT_SETTINGS as any)[key];
-    }
-    const migrated = {
-      ...data,
-      storeVersion: STORE_VERSION,
-      settings: { ...data.settings, ...resetPatch },
-    };
-    try {
-      localStorage.setItem("moku-store", JSON.stringify(migrated));
-    } catch {}
+    for (const key of RESET_ON_UPGRADE) (resetPatch as any)[key] = (DEFAULT_SETTINGS as any)[key];
+    const migrated = { ...data, storeVersion: STORE_VERSION, settings: { ...data.settings, ...resetPatch } };
+    try { localStorage.setItem("moku-store", JSON.stringify(migrated)); } catch {}
     return migrated;
   }
   return data;
@@ -404,143 +190,117 @@ const saved = (() => {
 
 function mergeSettings(saved: any): Settings {
   return {
-    ...DEFAULT_SETTINGS,
-    ...saved?.settings,
-    keybinds:          { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
-    heroSlots:         saved?.settings?.heroSlots         ?? [null, null, null, null],
-    mangaLinks:        saved?.settings?.mangaLinks        ?? {},
-    mangaPrefs:        saved?.settings?.mangaPrefs        ?? {},
-    customThemes:      saved?.settings?.customThemes      ?? [],
-    hiddenCategoryIds: saved?.settings?.hiddenCategoryIds ?? [],
-    nsfwFilteredTags:  saved?.settings?.nsfwFilteredTags  ?? DEFAULT_SETTINGS.nsfwFilteredTags,
+    ...DEFAULT_SETTINGS, ...saved?.settings,
+    keybinds:             { ...DEFAULT_KEYBINDS, ...saved?.settings?.keybinds },
+    heroSlots:            saved?.settings?.heroSlots            ?? [null, null, null, null],
+    mangaLinks:           saved?.settings?.mangaLinks           ?? {},
+    mangaPrefs:           saved?.settings?.mangaPrefs           ?? {},
+    customThemes:         saved?.settings?.customThemes         ?? [],
+    hiddenCategoryIds:    saved?.settings?.hiddenCategoryIds    ?? [],
+    nsfwFilteredTags:     saved?.settings?.nsfwFilteredTags     ?? DEFAULT_SETTINGS.nsfwFilteredTags,
     nsfwAllowedSourceIds: saved?.settings?.nsfwAllowedSourceIds ?? [],
     nsfwBlockedSourceIds: saved?.settings?.nsfwBlockedSourceIds ?? [],
-    libraryTabSort:    saved?.settings?.libraryTabSort    ?? {},
-    libraryTabStatus:  saved?.settings?.libraryTabStatus  ?? {},
-    libraryTabFilters: saved?.settings?.libraryTabFilters ?? {},
-    extraScanDirs:     saved?.settings?.extraScanDirs     ?? [],
+    libraryTabSort:       saved?.settings?.libraryTabSort       ?? {},
+    libraryTabStatus:     saved?.settings?.libraryTabStatus     ?? {},
+    libraryTabFilters:    saved?.settings?.libraryTabFilters    ?? {},
+    extraScanDirs:        saved?.settings?.extraScanDirs        ?? [],
   };
 }
 
 class Store {
-  settings:        Settings        = $state(mergeSettings(saved));
-  activeManga:     Manga | null    = $state(null);
-  previewManga:    Manga | null    = $state(null);
-  activeChapter:   Chapter | null  = $state(null);
-  activeChapterList: Chapter[]     = $state([]);
-  pageUrls:        string[]        = $state([]);
-  pageNumber:      number          = $state(1);
-  navPage:         NavPage         = $state("home");
-  libraryFilter:   LibraryFilter   = $state("all");
-  genreFilter:     string          = $state("");
-  searchPrefill:   string          = $state("");
-  toasts:          Toast[]         = $state([]);
-  categories:      Category[]      = $state([]);
-  activeDownloads: ActiveDownload[] = $state([]);
-  activeSource:    Source | null   = $state(null);
-  libraryTagFilter: string[]       = $state([]);
-  settingsOpen:    boolean         = $state(false);
-  history:         HistoryEntry[]  = $state(saved?.history  ?? []);
-  bookmarks:       BookmarkEntry[] = $state(saved?.bookmarks ?? []);
-  markers:         MarkerEntry[]   = $state(saved?.markers   ?? []);
-  readLog:         ReadLogEntry[]  = $state(saved?.readLog   ?? []);
-  readingStats:    ReadingStats    = $state(saved?.readingStats ?? { ...DEFAULT_READING_STATS });
-  searchCache:   Map<string, any> = $state(new Map());
-  searchLibraryIds: Set<number>  = $state(new Set());
-  searchSrcOffset: number        = $state(0);
-  readerSessionId: number          = $state(0);
-  libraryUpdates:  LibraryUpdateEntry[] = $state(saved?.libraryUpdates ?? []);
-  lastLibraryRefresh: number       = $state(saved?.lastLibraryRefresh ?? 0);
-  acknowledgedUpdates: Set<number> = $state(new Set(saved?.acknowledgedUpdateIds ?? []));
+  settings:           Settings       = $state(mergeSettings(saved));
+  activeManga:        Manga | null   = $state(null);
+  previewManga:       Manga | null   = $state(null);
+  activeChapter:      Chapter | null = $state(null);
+  activeChapterList:  Chapter[]      = $state([]);
+  pageUrls:           string[]       = $state([]);
+  pageNumber:         number         = $state(1);
+  libraryFilter:      LibraryFilter  = $state("all");
+  categories:         Category[]     = $state([]);
+  activeSource:       Source | null  = $state(null);
+  libraryTagFilter:   string[]       = $state([]);
+  history:            HistoryEntry[] = $state(saved?.history      ?? []);
+  bookmarks:          BookmarkEntry[]= $state(saved?.bookmarks    ?? []);
+  markers:            MarkerEntry[]  = $state(saved?.markers      ?? []);
+  readLog:            ReadLogEntry[] = $state(saved?.readLog      ?? []);
+  readingStats:       ReadingStats   = $state(saved?.readingStats ?? { ...DEFAULT_READING_STATS });
+  searchCache:        Map<string, any> = $state(new Map());
+  searchLibraryIds:   Set<number>    = $state(new Set());
+  searchSrcOffset:    number         = $state(0);
+  readerSessionId:    number         = $state(0);
+  libraryUpdates:     LibraryUpdateEntry[] = $state(saved?.libraryUpdates    ?? []);
+  lastLibraryRefresh: number         = $state(saved?.lastLibraryRefresh      ?? 0);
+  acknowledgedUpdates: Set<number>   = $state(new Set(saved?.acknowledgedUpdateIds ?? []));
+
+  get toasts()          { return notifications.toasts; }
+  get activeDownloads() { return notifications.activeDownloads; }
+  get navPage()         { return app.navPage; }
+  set navPage(v)        { app.setNavPage(v); }
+  get settingsOpen()    { return app.settingsOpen; }
+  set settingsOpen(v)   { app.setSettingsOpen(v); }
+  get searchPrefill()   { return app.searchPrefill; }
+  set searchPrefill(v)  { app.setSearchPrefill(v); }
+  get genreFilter()     { return app.genreFilter; }
+  set genreFilter(v)    { app.setGenreFilter(v); }
 
   constructor() {
     $effect.root(() => {
       $effect(() => {
         persist({
-          settings:              this.settings,
-          history:               this.history,
-          bookmarks:             this.bookmarks,
-          markers:               this.markers,
-          readLog:               this.readLog,
-          readingStats:          this.readingStats,
-          libraryUpdates:        this.libraryUpdates,
-          lastLibraryRefresh:    this.lastLibraryRefresh,
+          settings: this.settings, history: this.history,
+          bookmarks: this.bookmarks, markers: this.markers,
+          readLog: this.readLog, readingStats: this.readingStats,
+          libraryUpdates: this.libraryUpdates,
+          lastLibraryRefresh: this.lastLibraryRefresh,
           acknowledgedUpdateIds: [...this.acknowledgedUpdates],
-          storeVersion:          STORE_VERSION,
+          storeVersion: STORE_VERSION,
         });
       });
     });
   }
 
   openReader(chapter: Chapter, chapterList: Chapter[], manga?: Manga | null) {
-    this.activeChapter     = chapter;
-    this.activeChapterList = chapterList;
+    this.activeChapter = chapter; this.activeChapterList = chapterList;
     if (manga !== undefined) this.activeManga = manga;
   }
 
   closeReader() {
-    this.activeChapter     = null;
-    this.activeChapterList = [];
-    this.pageUrls          = [];
-    this.pageNumber        = 1;
+    this.activeChapter = null; this.activeChapterList = [];
+    this.pageUrls = []; this.pageNumber = 1;
   }
 
   addHistory(entry: HistoryEntry, completed = false, minutes?: number) {
-    const filtered = this.history.filter(h => h.chapterId !== entry.chapterId);
-    this.history   = [entry, ...filtered].slice(0, 500);
-
-    if (completed) {
-      const existing = this.readLog.find(e => e.chapterId === entry.chapterId);
-      if (!existing) {
-        const mins = minutes ?? AVG_MIN_PER_CHAPTER;
-        this.readLog = [...this.readLog, { mangaId: entry.mangaId, chapterId: entry.chapterId, readAt: entry.readAt, minutes: mins }];
-        const uniqueChapters = new Set(this.readLog.map(e => e.chapterId));
-        const uniqueManga    = new Set(this.readLog.map(e => e.mangaId));
-        const totalMinutes   = this.readLog.reduce((sum, e) => sum + e.minutes, 0);
-        const now            = new Date();
-        const todayStr       = now.toISOString().slice(0, 10);
-        const lastDate       = this.readingStats.lastStreakDate;
-        const yesterday      = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr   = yesterday.toISOString().slice(0, 10);
-        let streak = this.readingStats.currentStreakDays;
-        if (lastDate === todayStr) {
-        } else if (lastDate === yesterdayStr) {
-          streak++;
-        } else {
-          streak = 1;
-        }
-        const longest = Math.max(this.readingStats.longestStreakDays, streak);
-        this.readingStats = {
-          totalChaptersRead: uniqueChapters.size,
-          totalMangaRead:    uniqueManga.size,
-          totalMinutesRead:  totalMinutes,
-          firstReadAt:       this.readingStats.firstReadAt || entry.readAt,
-          lastReadAt:        entry.readAt,
-          currentStreakDays: streak,
-          longestStreakDays: longest,
-          lastStreakDate:    todayStr,
-        };
-      }
+    this.history = [entry, ...this.history.filter(h => h.chapterId !== entry.chapterId)].slice(0, 500);
+    if (completed && !this.readLog.find(e => e.chapterId === entry.chapterId)) {
+      this.readLog = [...this.readLog, { mangaId: entry.mangaId, chapterId: entry.chapterId, readAt: entry.readAt, minutes: minutes ?? AVG_MIN_PER_CHAPTER }];
+      const uniqueChapters = new Set(this.readLog.map(e => e.chapterId));
+      const uniqueManga    = new Set(this.readLog.map(e => e.mangaId));
+      const totalMinutes   = this.readLog.reduce((sum, e) => sum + e.minutes, 0);
+      const todayStr       = new Date().toISOString().slice(0, 10);
+      const yesterday      = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr   = yesterday.toISOString().slice(0, 10);
+      const lastDate       = this.readingStats.lastStreakDate;
+      const streak         = lastDate === todayStr ? this.readingStats.currentStreakDays
+                           : lastDate === yesterdayStr ? this.readingStats.currentStreakDays + 1 : 1;
+      this.readingStats = {
+        totalChaptersRead: uniqueChapters.size, totalMangaRead: uniqueManga.size,
+        totalMinutesRead: totalMinutes, firstReadAt: this.readingStats.firstReadAt || entry.readAt,
+        lastReadAt: entry.readAt, currentStreakDays: streak,
+        longestStreakDays: Math.max(this.readingStats.longestStreakDays, streak), lastStreakDate: todayStr,
+      };
     }
   }
 
   addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) {
-    const filtered = this.bookmarks.filter(b => b.chapterId !== entry.chapterId);
-    this.bookmarks = [{ ...entry, savedAt: Date.now(), label }, ...filtered].slice(0, 200);
+    this.bookmarks = [{ ...entry, savedAt: Date.now(), label }, ...this.bookmarks.filter(b => b.chapterId !== entry.chapterId)].slice(0, 200);
   }
 
-  removeBookmark(chapterId: number) {
-    this.bookmarks = this.bookmarks.filter(b => b.chapterId !== chapterId);
-  }
-
-  clearBookmarks() { this.bookmarks = []; }
-
-  getBookmark(chapterId: number): BookmarkEntry | undefined {
-    return this.bookmarks.find(b => b.chapterId === chapterId);
-  }
+  removeBookmark(chapterId: number) { this.bookmarks = this.bookmarks.filter(b => b.chapterId !== chapterId); }
+  clearBookmarks()                  { this.bookmarks = []; }
+  getBookmark(chapterId: number)    { return this.bookmarks.find(b => b.chapterId === chapterId); }
 
   addMarker(entry: Omit<MarkerEntry, "id" | "createdAt">): string {
-    const id  = Math.random().toString(36).slice(2);
+    const id = Math.random().toString(36).slice(2);
     this.markers = [...this.markers, { ...entry, id, createdAt: Date.now() }];
     return id;
   }
@@ -549,68 +309,48 @@ class Store {
     this.markers = this.markers.map(m => m.id === id ? { ...m, ...patch, updatedAt: Date.now() } : m);
   }
 
-  removeMarker(id: string) {
-    this.markers = this.markers.filter(m => m.id !== id);
-  }
-
-  getMarkersForPage(chapterId: number, page: number): MarkerEntry[] {
-    return this.markers.filter(m => m.chapterId === chapterId && m.pageNumber === page);
-  }
-
-  getMarkersForChapter(chapterId: number): MarkerEntry[] {
-    return this.markers.filter(m => m.chapterId === chapterId);
-  }
-
-  getMarkersForManga(mangaId: number): MarkerEntry[] {
-    return this.markers.filter(m => m.mangaId === mangaId);
-  }
-
-  clearMarkersForManga(mangaId: number) {
-    this.markers = this.markers.filter(m => m.mangaId !== mangaId);
-  }
-
-  clearHistory() { this.history = []; this.readLog = []; }
+  removeMarker(id: string)                           { this.markers = this.markers.filter(m => m.id !== id); }
+  getMarkersForPage(chapterId: number, page: number) { return this.markers.filter(m => m.chapterId === chapterId && m.pageNumber === page); }
+  getMarkersForChapter(chapterId: number)            { return this.markers.filter(m => m.chapterId === chapterId); }
+  getMarkersForManga(mangaId: number)                { return this.markers.filter(m => m.mangaId === mangaId); }
+  clearMarkersForManga(mangaId: number)              { this.markers = this.markers.filter(m => m.mangaId !== mangaId); }
+  clearHistory()                                     { this.history = []; this.readLog = []; }
 
   clearHistoryForManga(mangaId: number) {
     this.history = this.history.filter(x => x.mangaId !== mangaId);
     this.readLog = this.readLog.filter(x => x.mangaId !== mangaId);
-    const uniqueChapters = new Set(this.readLog.map(e => e.chapterId));
-    const uniqueManga    = new Set(this.readLog.map(e => e.mangaId));
-    const totalMinutes   = this.readLog.reduce((sum, e) => sum + e.minutes, 0);
     this.readingStats = {
       ...this.readingStats,
-      totalChaptersRead: uniqueChapters.size,
-      totalMangaRead:    uniqueManga.size,
-      totalMinutesRead:  totalMinutes,
+      totalChaptersRead: new Set(this.readLog.map(e => e.chapterId)).size,
+      totalMangaRead:    new Set(this.readLog.map(e => e.mangaId)).size,
+      totalMinutesRead:  this.readLog.reduce((sum, e) => sum + e.minutes, 0),
     };
   }
 
   wipeAllData() {
-    this.history      = [];
-    this.readLog      = [];
-    this.markers      = [];
+    this.history = []; this.readLog = []; this.markers = [];
     this.readingStats = { ...DEFAULT_READING_STATS };
-    this.settings     = { ...this.settings, heroSlots: [null, null, null, null], mangaLinks: {} };
+    this.settings = { ...this.settings, heroSlots: [null, null, null, null], mangaLinks: {} };
   }
 
   linkManga(idA: number, idB: number) {
     if (idA === idB) return;
     const links = { ...this.settings.mangaLinks };
-    links[idA]  = [...new Set([...(links[idA] ?? []), idB])];
-    links[idB]  = [...new Set([...(links[idB] ?? []), idA])];
+    links[idA] = [...new Set([...(links[idA] ?? []), idB])];
+    links[idB] = [...new Set([...(links[idB] ?? []), idA])];
     this.settings = { ...this.settings, mangaLinks: links };
   }
 
   unlinkManga(idA: number, idB: number) {
     const links = { ...this.settings.mangaLinks };
-    links[idA]  = (links[idA] ?? []).filter(id => id !== idB);
-    links[idB]  = (links[idB] ?? []).filter(id => id !== idA);
+    links[idA] = (links[idA] ?? []).filter(id => id !== idB);
+    links[idB] = (links[idB] ?? []).filter(id => id !== idA);
     if (!links[idA].length) delete links[idA];
     if (!links[idB].length) delete links[idB];
     this.settings = { ...this.settings, mangaLinks: links };
   }
 
-  getLinkedMangaIds(mangaId: number): number[] { return this.settings.mangaLinks[mangaId] ?? []; }
+  getLinkedMangaIds(mangaId: number) { return this.settings.mangaLinks[mangaId] ?? []; }
 
   setHeroSlot(index: 1 | 2 | 3, mangaId: number | null) {
     const slots = [...(this.settings.heroSlots ?? [null, null, null, null])];
@@ -618,155 +358,110 @@ class Store {
     this.settings = { ...this.settings, heroSlots: slots };
   }
 
-  addToast(toast: Omit<Toast, "id">) {
-    this.toasts = [...this.toasts, { ...toast, id: Math.random().toString(36).slice(2) }].slice(-5);
-  }
-
-  dismissToast(id: string)                    { this.toasts          = this.toasts.filter(x => x.id !== id); }
-  setCategories(cats: Category[])             { this.categories       = cats; }
-  setActiveDownloads(next: ActiveDownload[])  { this.activeDownloads  = next; }
-  setNavPage(next: NavPage)                   { this.navPage          = next; }
-  setLibraryFilter(next: LibraryFilter)       { this.libraryFilter    = next; }
-  setGenreFilter(next: string)                { this.genreFilter      = next; }
-  setSearchPrefill(next: string)              { this.searchPrefill    = next; }
-  setActiveManga(next: Manga | null)          { this.activeManga      = next; }
-  setPreviewManga(next: Manga | null)         { this.previewManga     = next; }
-  setActiveSource(next: Source | null)        { this.activeSource     = next; }
-  setPageUrls(next: string[])                 { this.pageUrls         = next; }
-  setPageNumber(next: number)                 { this.pageNumber       = next; }
-  setLibraryTagFilter(next: string[])         { this.libraryTagFilter = next; }
-  setSettingsOpen(next: boolean)              { this.settingsOpen     = next; }
-  updateSettings(patch: Partial<Settings>)    { this.settings = { ...this.settings, ...patch }; }
-  resetKeybinds()                             { this.settings = { ...this.settings, keybinds: DEFAULT_KEYBINDS }; }
-
   saveCustomTheme(theme: CustomTheme) {
-    const existing = this.settings.customThemes.findIndex(t => t.id === theme.id);
-    const next = existing >= 0
-      ? this.settings.customThemes.map((t, i) => i === existing ? theme : t)
-      : [...this.settings.customThemes, theme];
-    this.settings = { ...this.settings, customThemes: next };
+    const i = this.settings.customThemes.findIndex(t => t.id === theme.id);
+    this.settings = { ...this.settings, customThemes: i >= 0
+      ? this.settings.customThemes.map((t, j) => j === i ? theme : t)
+      : [...this.settings.customThemes, theme] };
   }
 
   deleteCustomTheme(id: string) {
-    const next = this.settings.customThemes.filter(t => t.id !== id);
-    const wasActive = this.settings.theme === id;
-    this.settings = { ...this.settings, customThemes: next, theme: wasActive ? "dark" : this.settings.theme };
-  }
-
-  async checkAndMarkCompleted(
-    mangaId:    number,
-    chaps:      Chapter[],
-    categories: Category[],
-    gqlFn:      (query: string, vars: Record<string, unknown>) => Promise<unknown>,
-    UPDATE_MANGA_CATEGORIES: string,
-    UPDATE_MANGA?: string,
-    mangaStatus?: string,
-  ): Promise<void> {
-    if (!chaps.length) return;
-    // Never auto-complete an ongoing series — user must set Completed manually.
-    if (mangaStatus === "ONGOING") return;
-    const allRead   = chaps.every(c => c.isRead);
-    const completed = categories.find(c => c.name === "Completed");
-    if (!completed) return;
-    if (allRead) {
-      await gqlFn(UPDATE_MANGA_CATEGORIES, { mangaId, addTo: [completed.id], removeFrom: [] }).catch(console.error);
-      if (UPDATE_MANGA) {
-        await gqlFn(UPDATE_MANGA, { id: mangaId, inLibrary: true }).catch(console.error);
-      }
-    } else {
-      await gqlFn(UPDATE_MANGA_CATEGORIES, { mangaId, addTo: [], removeFrom: [completed.id] }).catch(console.error);
-    }
+    this.settings = { ...this.settings,
+      customThemes: this.settings.customThemes.filter(t => t.id !== id),
+      theme: this.settings.theme === id ? "dark" : this.settings.theme };
   }
 
   toggleHiddenCategory(id: number) {
     const ids = this.settings.hiddenCategoryIds ?? [];
-    const next = ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id];
-    this.settings = { ...this.settings, hiddenCategoryIds: next };
+    this.settings = { ...this.settings, hiddenCategoryIds: ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id] };
   }
 
-  clearSearchCache() {
-    this.searchCache      = new Map();
-    this.searchLibraryIds = new Set();
-    this.searchSrcOffset++;
-  }
+  clearSearchCache()    { this.searchCache = new Map(); this.searchLibraryIds = new Set(); this.searchSrcOffset++; }
+  bumpReaderSession()   { this.readerSessionId++; }
 
-  setLibraryUpdates(entries: LibraryUpdateEntry[]) {
-    this.libraryUpdates     = entries;
-    this.lastLibraryRefresh = Date.now();
-  }
-
-  clearLibraryUpdates() {
-    this.libraryUpdates      = [];
-    this.lastLibraryRefresh  = 0;
-    this.acknowledgedUpdates = new Set();
-  }
+  setLibraryUpdates(entries: LibraryUpdateEntry[]) { this.libraryUpdates = entries; this.lastLibraryRefresh = Date.now(); }
+  clearLibraryUpdates() { this.libraryUpdates = []; this.lastLibraryRefresh = 0; this.acknowledgedUpdates = new Set(); }
 
   acknowledgeUpdate(mangaId: number) {
     if (this.acknowledgedUpdates.has(mangaId)) return;
     this.acknowledgedUpdates = new Set([...this.acknowledgedUpdates, mangaId]);
   }
 
-  bumpReaderSession() {
-    this.readerSessionId++;
+  async checkAndMarkCompleted(
+    mangaId: number, chaps: Chapter[], categories: Category[],
+    gqlFn: (query: string, vars: Record<string, unknown>) => Promise<unknown>,
+    UPDATE_MANGA_CATEGORIES: string, UPDATE_MANGA?: string, mangaStatus?: string,
+  ): Promise<void> {
+    if (!chaps.length || mangaStatus === "ONGOING") return;
+    const completed = categories.find(c => c.name === "Completed");
+    if (!completed) return;
+    const allRead = chaps.every(c => c.isRead);
+    if (allRead) {
+      await gqlFn(UPDATE_MANGA_CATEGORIES, { mangaId, addTo: [completed.id], removeFrom: [] }).catch(console.error);
+      if (UPDATE_MANGA) await gqlFn(UPDATE_MANGA, { id: mangaId, inLibrary: true }).catch(console.error);
+    } else {
+      await gqlFn(UPDATE_MANGA_CATEGORIES, { mangaId, addTo: [], removeFrom: [completed.id] }).catch(console.error);
+    }
   }
+
+  setCategories(cats: Category[])       { this.categories       = cats; }
+  setActiveManga(next: Manga | null)    { this.activeManga      = next; }
+  setPreviewManga(next: Manga | null)   { this.previewManga     = next; }
+  setActiveSource(next: Source | null)  { this.activeSource     = next; }
+  setPageUrls(next: string[])           { this.pageUrls         = next; }
+  setPageNumber(next: number)           { this.pageNumber       = next; }
+  setLibraryFilter(next: LibraryFilter) { this.libraryFilter    = next; }
+  setLibraryTagFilter(next: string[])   { this.libraryTagFilter = next; }
+  updateSettings(patch: Partial<Settings>) { this.settings = { ...this.settings, ...patch }; }
+  resetKeybinds()                       { this.settings = { ...this.settings, keybinds: DEFAULT_KEYBINDS }; }
 }
 
 export const store = new Store();
 
 export function openReader(chapter: Chapter, chapterList: Chapter[], manga?: Manga | null) { store.openReader(chapter, chapterList, manga); }
-export function closeReader()                                              { store.closeReader(); }
-export function addHistory(entry: HistoryEntry, completed?: boolean, minutes?: number) { store.addHistory(entry, completed, minutes); }
-export function clearHistory()                                             { store.clearHistory(); }
-export function clearHistoryForManga(mangaId: number)                      { store.clearHistoryForManga(mangaId); }
-export function wipeAllData()                                              { store.wipeAllData(); }
-export function linkManga(idA: number, idB: number)                        { store.linkManga(idA, idB); }
-export function unlinkManga(idA: number, idB: number)                      { store.unlinkManga(idA, idB); }
-export function getLinkedMangaIds(mangaId: number)                         { return store.getLinkedMangaIds(mangaId); }
-export function setHeroSlot(i: 1|2|3, mangaId: number | null)              { store.setHeroSlot(i, mangaId); }
-export function addToast(toast: Omit<Toast, "id">)                         { store.addToast(toast); }
-export function dismissToast(id: string)                                   { store.dismissToast(id); }
-export function setCategories(cats: Category[])                             { store.setCategories(cats); }
-export function setActiveDownloads(next: ActiveDownload[])                 { store.setActiveDownloads(next); }
-export function setNavPage(next: NavPage)                                  { store.setNavPage(next); }
-export function setLibraryFilter(next: LibraryFilter)                      { store.setLibraryFilter(next); }
-export function setGenreFilter(next: string)                               { store.setGenreFilter(next); }
-export function setSearchPrefill(next: string)                             { store.setSearchPrefill(next); }
-export function setActiveManga(next: Manga | null)                         { store.setActiveManga(next); }
-export function setPreviewManga(next: Manga | null)                        { store.setPreviewManga(next); }
-export function setActiveSource(next: Source | null)                       { store.setActiveSource(next); }
-export function setPageUrls(next: string[])                                { store.setPageUrls(next); }
-export function setPageNumber(next: number)                                { store.setPageNumber(next); }
-export function setLibraryTagFilter(next: string[])                        { store.setLibraryTagFilter(next); }
-export function setSettingsOpen(next: boolean)                             { store.setSettingsOpen(next); }
-export function updateSettings(patch: Partial<Settings>)                   { store.updateSettings(patch); }
-export function resetKeybinds()                                            { store.resetKeybinds(); }
-export function clearSearchCache()                                           { store.clearSearchCache(); }
-export function setLibraryUpdates(entries: LibraryUpdateEntry[])             { store.setLibraryUpdates(entries); }
-export function clearLibraryUpdates()                                        { store.clearLibraryUpdates(); }
-export function acknowledgeUpdate(mangaId: number)                           { store.acknowledgeUpdate(mangaId); }
-export function bumpReaderSession()                                          { store.bumpReaderSession(); }
-export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string) { store.addBookmark(entry, label); }
-export function removeBookmark(chapterId: number)                              { store.removeBookmark(chapterId); }
-export function clearBookmarks()                                               { store.clearBookmarks(); }
-export function getBookmark(chapterId: number)                                 { return store.getBookmark(chapterId); }
-export function addMarker(entry: Omit<MarkerEntry, "id" | "createdAt">): string { return store.addMarker(entry); }
+export function closeReader()                                                               { store.closeReader(); }
+export function addHistory(entry: HistoryEntry, completed?: boolean, minutes?: number)     { store.addHistory(entry, completed, minutes); }
+export function clearHistory()                                                              { store.clearHistory(); }
+export function clearHistoryForManga(mangaId: number)                                      { store.clearHistoryForManga(mangaId); }
+export function wipeAllData()                                                               { store.wipeAllData(); }
+export function linkManga(idA: number, idB: number)                                        { store.linkManga(idA, idB); }
+export function unlinkManga(idA: number, idB: number)                                      { store.unlinkManga(idA, idB); }
+export function getLinkedMangaIds(mangaId: number)                                         { return store.getLinkedMangaIds(mangaId); }
+export function setHeroSlot(i: 1|2|3, mangaId: number | null)                             { store.setHeroSlot(i, mangaId); }
+export function setCategories(cats: Category[])                                            { store.setCategories(cats); }
+export function setActiveManga(next: Manga | null)                                         { store.setActiveManga(next); }
+export function setPreviewManga(next: Manga | null)                                        { store.setPreviewManga(next); }
+export function setActiveSource(next: Source | null)                                       { store.setActiveSource(next); }
+export function setPageUrls(next: string[])                                                { store.setPageUrls(next); }
+export function setPageNumber(next: number)                                                { store.setPageNumber(next); }
+export function setLibraryFilter(next: LibraryFilter)                                      { store.setLibraryFilter(next); }
+export function setLibraryTagFilter(next: string[])                                        { store.setLibraryTagFilter(next); }
+export function updateSettings(patch: Partial<Settings>)                                   { store.updateSettings(patch); }
+export function resetKeybinds()                                                            { store.resetKeybinds(); }
+export function clearSearchCache()                                                         { store.clearSearchCache(); }
+export function setLibraryUpdates(entries: LibraryUpdateEntry[])                           { store.setLibraryUpdates(entries); }
+export function clearLibraryUpdates()                                                      { store.clearLibraryUpdates(); }
+export function acknowledgeUpdate(mangaId: number)                                         { store.acknowledgeUpdate(mangaId); }
+export function bumpReaderSession()                                                        { store.bumpReaderSession(); }
+export function addBookmark(entry: Omit<BookmarkEntry, "savedAt">, label?: string)         { store.addBookmark(entry, label); }
+export function removeBookmark(chapterId: number)                                          { store.removeBookmark(chapterId); }
+export function clearBookmarks()                                                           { store.clearBookmarks(); }
+export function getBookmark(chapterId: number)                                             { return store.getBookmark(chapterId); }
+export function addMarker(entry: Omit<MarkerEntry, "id" | "createdAt">): string           { return store.addMarker(entry); }
 export function updateMarker(id: string, patch: Partial<Pick<MarkerEntry, "note" | "color">>) { store.updateMarker(id, patch); }
-export function removeMarker(id: string)                                       { store.removeMarker(id); }
-export function getMarkersForPage(chapterId: number, page: number)             { return store.getMarkersForPage(chapterId, page); }
-export function getMarkersForChapter(chapterId: number)                        { return store.getMarkersForChapter(chapterId); }
-export function getMarkersForManga(mangaId: number)                            { return store.getMarkersForManga(mangaId); }
-export function clearMarkersForManga(mangaId: number)                          { store.clearMarkersForManga(mangaId); }
-export function toggleHiddenCategory(id: number)                             { store.toggleHiddenCategory(id); }
-export function saveCustomTheme(theme: CustomTheme)                          { store.saveCustomTheme(theme); }
-export function deleteCustomTheme(id: string)                                { store.deleteCustomTheme(id); }
+export function removeMarker(id: string)                                                   { store.removeMarker(id); }
+export function getMarkersForPage(chapterId: number, page: number)                        { return store.getMarkersForPage(chapterId, page); }
+export function getMarkersForChapter(chapterId: number)                                    { return store.getMarkersForChapter(chapterId); }
+export function getMarkersForManga(mangaId: number)                                        { return store.getMarkersForManga(mangaId); }
+export function clearMarkersForManga(mangaId: number)                                      { store.clearMarkersForManga(mangaId); }
+export function toggleHiddenCategory(id: number)                                           { store.toggleHiddenCategory(id); }
+export function saveCustomTheme(theme: CustomTheme)                                        { store.saveCustomTheme(theme); }
+export function deleteCustomTheme(id: string)                                              { store.deleteCustomTheme(id); }
 export async function checkAndMarkCompleted(
-  mangaId:    number,
-  chaps:      Chapter[],
-  categories: Category[],
-  gqlFn:      (query: string, vars: Record<string, unknown>) => Promise<unknown>,
-  UPDATE_MANGA_CATEGORIES: string,
-  UPDATE_MANGA?: string,
-  mangaStatus?: string,
-): Promise<void> {
-  return store.checkAndMarkCompleted(mangaId, chaps, categories, gqlFn, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA, mangaStatus);
-}
+  mangaId: number, chaps: Chapter[], categories: Category[],
+  gqlFn: (query: string, vars: Record<string, unknown>) => Promise<unknown>,
+  UPDATE_MANGA_CATEGORIES: string, UPDATE_MANGA?: string, mangaStatus?: string,
+): Promise<void> { return store.checkAndMarkCompleted(mangaId, chaps, categories, gqlFn, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA, mangaStatus); }
+
+export { addToast, dismissToast, setActiveDownloads } from "./notifications.svelte";
+export { setNavPage, setSettingsOpen, setSearchPrefill, setGenreFilter } from "./app.svelte";

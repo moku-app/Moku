@@ -1,0 +1,220 @@
+<script lang="ts">
+  import { Folder, Trash, CheckSquare, X } from "phosphor-svelte";
+  import Thumbnail from "@shared/manga/Thumbnail.svelte";
+  import type { Manga, Category } from "@types";
+
+  interface Props {
+    visibleManga:    Manga[];
+    filtered:        Manga[];
+    loading:         boolean;
+    cols:            number;
+    anims:           boolean;
+    selectMode:      boolean;
+    selectedIds:     Set<number>;
+    hasMore:         boolean;
+    remainingCount:  number;
+    renderLimit:     number;
+    cropCovers:      boolean;
+    libraryFilter:   string;
+    bulkWorking:     boolean;
+    bulkMoveOpen:    boolean;
+    visibleCategories: Category[];
+    onCardClick:        (e: MouseEvent, m: Manga) => void;
+    onCardContextMenu:  (e: MouseEvent, m: Manga) => void;
+    onCardPointerDown:  (e: PointerEvent, m: Manga) => void;
+    onCardPointerUp:    () => void;
+    onCardPointerLeave: () => void;
+    onLoadMore:         () => void;
+    onRetry:            () => void;
+    onExitSelectMode:   () => void;
+    onSelectAll:        () => void;
+    onBulkMove:         (cat: Category) => void;
+    onBulkRemove:       () => void;
+    onCategoryMove:     (cat: Category) => void;
+  }
+
+  let {
+    visibleManga, filtered, loading, cols, anims, selectMode, selectedIds,
+    hasMore, remainingCount, renderLimit, cropCovers, libraryFilter,
+    bulkWorking, bulkMoveOpen, visibleCategories,
+    onCardClick, onCardContextMenu, onCardPointerDown, onCardPointerUp, onCardPointerLeave,
+    onLoadMore, onRetry, onExitSelectMode, onSelectAll, onBulkMove, onBulkRemove, onCategoryMove,
+  }: Props = $props();
+</script>
+
+{#if selectMode}
+  <div class="select-bar">
+    <div class="select-bar-left">
+      <button class="sel-btn sel-cancel" onclick={onExitSelectMode} title="Cancel (Esc)">
+        <X size={13} weight="bold" />
+      </button>
+      <span class="sel-count">{selectedIds.size} selected</span>
+      <button class="sel-btn sel-all" onclick={onSelectAll} title="Select all (⌘A)">Select all</button>
+    </div>
+    <div class="select-bar-right">
+      {#if visibleCategories.length}
+        <div class="bulk-move-wrap">
+          <button
+            class="sel-btn sel-move"
+            disabled={selectedIds.size === 0 || bulkWorking}
+            onclick={() => onBulkMove(visibleCategories[0])}
+          >
+            <Folder size={13} weight="bold" />
+            Move to folder
+          </button>
+          {#if bulkMoveOpen}
+            <div class="bulk-folder-list">
+              {#each visibleCategories as cat}
+                <button class="bulk-folder-item" onclick={() => onCategoryMove(cat)}>
+                  <Folder size={11} weight="bold" />
+                  {cat.name}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+      <button class="sel-btn sel-remove" disabled={selectedIds.size === 0 || bulkWorking} onclick={onBulkRemove}>
+        <Trash size={13} weight="bold" />
+        Remove
+      </button>
+    </div>
+  </div>
+{/if}
+
+<div class="content">
+  {#if loading}
+    <div class="grid">
+      {#each Array(12) as _}
+        <div class="card-skeleton">
+          <div class="cover-skeleton skeleton"></div>
+          <div class="title-skeleton skeleton"></div>
+        </div>
+      {/each}
+    </div>
+  {:else if filtered.length === 0}
+    <div class="center">
+      {libraryFilter === "library" ? "No manga saved to library — browse sources to add some."
+        : libraryFilter === "downloaded" ? "No downloaded manga."
+        : "No manga in this folder yet. Right-click manga anywhere to assign them."}
+    </div>
+  {:else}
+    <div class="grid" style="--cols:{cols}">
+      {#each visibleManga as m (m.id)}
+        {@const isSelected  = selectedIds.has(m.id)}
+        {@const isCompleted = !m.unreadCount && (m.chapterCount ?? 0) > 0}
+        <button
+          class="card"
+          class:card-selected={isSelected}
+          class:select-mode={selectMode}
+          class:anims={anims}
+          onclick={(e) => onCardClick(e, m)}
+          oncontextmenu={(e) => onCardContextMenu(e, m)}
+          onpointerdown={(e) => onCardPointerDown(e, m)}
+          onpointerup={onCardPointerUp}
+          onpointerleave={onCardPointerLeave}
+        >
+          <div class="cover-wrap" class:completed={isCompleted}>
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" style="object-fit:{cropCovers ? 'cover' : 'contain'}" draggable="false" />
+            <div class="card-info-overlay" class:anim={anims} class:instant={!anims}>
+              {#if isCompleted}
+                <span class="info-chip info-chip-done">✓ complete</span>
+              {:else if m.unreadCount}
+                <span class="info-chip info-chip-unread">
+                  <span class="info-chip-dot"></span>
+                  {m.unreadCount} unread
+                </span>
+              {:else}
+                <span></span>
+              {/if}
+              {#if m.downloadCount}
+                <span class="info-chip info-chip-dl">
+                  <span class="info-chip-dot"></span>
+                  {m.downloadCount}
+                </span>
+              {/if}
+            </div>
+            {#if selectMode}
+              <div class="select-overlay" aria-hidden="true">
+                <div class="select-check" class:checked={isSelected}>
+                  {#if isSelected}
+                    <CheckSquare size={20} weight="fill" />
+                  {:else}
+                    <div class="select-check-empty"></div>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          </div>
+          <p class="title">{m.title}</p>
+        </button>
+      {/each}
+    </div>
+    {#if hasMore}
+      <div class="load-more-row">
+        <button class="load-more-btn" onclick={onLoadMore}>
+          Show {Math.min(remainingCount, renderLimit)} more
+          <span class="load-more-count">({remainingCount} remaining)</span>
+        </button>
+      </div>
+    {/if}
+  {/if}
+</div>
+
+<style>
+  .content { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6) var(--sp-6); will-change: scroll-position; -webkit-overflow-scrolling: touch; }
+  .select-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-6); background: var(--bg-raised); border-bottom: 1px solid var(--accent-dim); flex-shrink: 0; animation: fadeIn 0.1s ease both; }
+  .select-bar-left { display: flex; align-items: center; gap: var(--sp-3); }
+  .select-bar-right { display: flex; align-items: center; gap: var(--sp-2); position: relative; }
+  .sel-count { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); }
+  .sel-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-base); color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); white-space: nowrap; }
+  .sel-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
+  .sel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .sel-cancel { border-color: transparent; background: transparent; }
+  .sel-cancel:hover { background: var(--bg-raised); border-color: var(--border-dim); }
+  .sel-move { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .sel-move:hover:not(:disabled) { background: var(--accent-dim); }
+  .sel-remove { color: var(--color-error, #e05c5c); border-color: color-mix(in srgb, var(--color-error, #e05c5c) 30%, transparent); }
+  .sel-remove:hover:not(:disabled) { background: color-mix(in srgb, var(--color-error, #e05c5c) 12%, transparent); }
+  .sel-all { border-color: transparent; background: transparent; }
+  .bulk-move-wrap { position: relative; }
+  .bulk-folder-list { position: absolute; top: calc(100% + 4px); right: 0; z-index: 200; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 4px; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); animation: fadeIn 0.1s ease both; }
+  .bulk-folder-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); }
+  .bulk-folder-item:hover { background: var(--bg-hover, var(--bg-base)); color: var(--text-primary); }
+  .grid { position: relative; z-index: 1; isolation: isolate; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
+  .card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+  .card.anims:not(.select-mode):hover .cover-wrap { transform: translateY(-3px); border-color: var(--border-strong); box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+  .card.anims:not(.select-mode):hover .cover { filter: brightness(1.1); }
+  .card:not(.select-mode):hover .title { color: var(--text-primary); }
+  .card.select-mode { cursor: default; }
+  .card.card-selected .cover-wrap { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-md); }
+  .card.card-selected .title { color: var(--accent-fg); }
+  .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); will-change: transform; }
+  .card.anims .cover-wrap { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color var(--t-base), box-shadow 0.18s cubic-bezier(0.16,1,0.3,1); }
+  .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
+  .card.anims .cover { transition: filter var(--t-base); }
+  .card-info-overlay { position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: flex-end; justify-content: space-between; padding: 20px 5px 5px; background: linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.3) 55%, transparent 100%); opacity: 0; transform: translateY(3px); pointer-events: none; }
+  .card-info-overlay.anim { transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1); }
+  .card-info-overlay.instant { transition: none; }
+  .card:not(.select-mode):hover .card-info-overlay { opacity: 1; transform: translateY(0); }
+  .info-chip { display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; line-height: 1; padding: 3px 6px; border-radius: 4px; background: rgba(0,0,0,0.52); backdrop-filter: blur(6px); }
+  .info-chip-unread { color: #fff; }
+  .info-chip-done { color: var(--accent-fg); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .info-chip-dl { color: var(--accent-fg); }
+  .info-chip-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .select-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.18); display: flex; align-items: flex-start; justify-content: flex-end; padding: 6px; pointer-events: none; }
+  .select-check { color: var(--text-faint); opacity: 0.7; transition: color var(--t-base), opacity var(--t-base); }
+  .select-check.checked { color: var(--accent-fg); opacity: 1; }
+  .select-check-empty { width: 20px; height: 20px; border-radius: 4px; border: 2px solid var(--text-faint); background: rgba(0,0,0,0.3); }
+  .title { margin-top: var(--sp-2); font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 2lh; }
+  .card.anims .title { transition: color var(--t-base); }
+  .card-skeleton { padding: 0; }
+  .cover-skeleton { aspect-ratio: 2/3; border-radius: var(--radius-md); }
+  .title-skeleton { height: 12px; margin-top: var(--sp-2); width: 80%; border-radius: var(--radius-sm); }
+  .load-more-row { display: flex; justify-content: center; padding: var(--sp-5) 0 var(--sp-2); position: relative; z-index: 1; }
+  .load-more-btn { display: flex; align-items: center; gap: var(--sp-2); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 8px 20px; border-radius: var(--radius-full); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .load-more-btn:hover { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
+  .load-more-count { color: var(--text-faint); font-size: var(--text-2xs); }
+  .center { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60%; color: var(--text-muted); font-size: var(--text-sm); gap: var(--sp-2); text-align: center; line-height: var(--leading-base); }
+  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+</style>

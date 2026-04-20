@@ -7,8 +7,14 @@ export default defineConfig({
   clearScreen: false,
   resolve: {
     alias: {
-      $store:      path.resolve("./src/store"),
-      $components: path.resolve("./src/components"),
+      "@features": path.resolve("./src/features"),
+      "@core":     path.resolve("./src/core"),
+      "@shared":   path.resolve("./src/shared"),
+      "@api":      path.resolve("./src/api"),
+      "@store":    path.resolve("./src/store"),
+      "@types":    path.resolve("./src/types"),
+      "@design":   path.resolve("./src/design"),
+      "@assets":   path.resolve("./src/assets"),
     },
   },
   server: {
