@@ -1,13 +1,17 @@
 <script lang="ts">
   import { store, updateSettings, clearHistory, wipeAllData } from "@store/state.svelte";
   import type { Settings } from "@types/settings";
+  import { selectPortal } from "@core/actions/selectPortal";
 
   interface Props {
     selectOpen: string | null;
-    onToggleSelect: (id: string) => void;
+    toggleSelect: (id: string) => void;
+    anims: boolean;
   }
 
-  let { selectOpen, onToggleSelect }: Props = $props();
+  let { selectOpen, toggleSelect, anims }: Props = $props();
+
+  let triggerSortDir: HTMLButtonElement;
 </script>
 
 <div class="s-panel">
@@ -31,15 +35,15 @@
     <div class="s-section-body">
       <div class="s-row">
         <div class="s-row-info"><span class="s-label">Default sort direction</span><span class="s-desc">Initial chapter list order when opening a manga</span></div>
-        <div class="s-select" id="sort-dir">
-          <button class="s-select-btn" onclick={() => onToggleSelect("sort-dir")}>
+        <div class="s-select">
+          <button bind:this={triggerSortDir} class="s-select-btn" onclick={() => toggleSelect("sort-dir")}>
             <span>{{ "desc":"Newest first","asc":"Oldest first" }[store.settings.chapterSortDir]}</span>
             <svg class="s-select-caret" class:open={selectOpen === "sort-dir"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
           </button>
           {#if selectOpen === "sort-dir"}
-            <div class="s-select-menu">
+            <div class="s-select-menu" class:anims {@attach selectPortal(triggerSortDir)}>
               {#each [["desc","Newest first"],["asc","Oldest first"]] as [v, l]}
-                <button class="s-select-option" class:active={store.settings.chapterSortDir === v} onclick={() => { updateSettings({ chapterSortDir: v as Settings["chapterSortDir"] }); onToggleSelect("sort-dir"); }}>{l}</button>
+                <button class="s-select-option" class:active={store.settings.chapterSortDir === v} onclick={() => { updateSettings({ chapterSortDir: v as Settings["chapterSortDir"] }); toggleSelect("sort-dir"); }}>{l}</button>
               {/each}
             </div>
           {/if}

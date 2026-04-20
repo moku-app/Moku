@@ -85,11 +85,31 @@
 
   // Shared select dropdown state (passed to sections that need it)
   let selectOpen: string | null = $state(null);
-  function toggleSelect(id: string) { selectOpen = selectOpen === id ? null : id; }
+  let closingSelect: string | null = $state(null);
+
+  const CLOSE_ANIM_MS = 120;
+
+  function closeSelect() {
+    if (!selectOpen) return;
+    closingSelect = selectOpen;
+    selectOpen = null;
+    setTimeout(() => { closingSelect = null; }, CLOSE_ANIM_MS);
+  }
+
+  function toggleSelect(id: string) {
+    if (selectOpen === id) { closeSelect(); }
+    else { closingSelect = null; selectOpen = id; }
+  }
 
   $effect(() => {
     const handler = (e: MouseEvent) => {
-      if (selectOpen && !(e.target as HTMLElement).closest(".s-select")) selectOpen = null;
+      if (!selectOpen) return;
+      const t = e.target as HTMLElement;
+      // Keep open if click is inside the trigger wrapper (.s-select)
+      if (t.closest(".s-select")) return;
+      // Keep open if click landed inside the portalled menu (appended to <body>)
+      if (t.closest(".s-select-menu")) return;
+      closeSelect();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -140,25 +160,25 @@
 
       <div class="s-content-body" bind:this={contentBodyEl}>
         {#if tab === "general"}
-          <GeneralSettings {selectOpen} {toggleSelect} />
+          <GeneralSettings {selectOpen} {closingSelect} {toggleSelect} {anims} />
         {:else if tab === "appearance"}
           <AppearanceSettings {onOpenThemeEditor} />
         {:else if tab === "reader"}
-          <ReaderSettings {selectOpen} {toggleSelect} />
+          <ReaderSettings {selectOpen} {closingSelect} {toggleSelect} {anims} />
         {:else if tab === "library"}
-          <LibrarySettings {selectOpen} {toggleSelect} />
+          <LibrarySettings {selectOpen} {closingSelect} {toggleSelect} {anims} />
         {:else if tab === "performance"}
           <PerformanceSettings />
         {:else if tab === "keybinds"}
           <KeybindsSettings bind:listeningKey />
         {:else if tab === "storage"}
-          <StorageSettings {selectOpen} {toggleSelect} />
+          <StorageSettings {selectOpen} {closingSelect} {toggleSelect} />
         {:else if tab === "folders"}
           <FoldersSettings />
         {:else if tab === "tracking"}
           <TrackingSettings />
         {:else if tab === "security"}
-          <SecuritySettings {selectOpen} {toggleSelect} />
+          <SecuritySettings {selectOpen} {closingSelect} {toggleSelect} />
         {:else if tab === "content"}
           <ContentSettings />
         {:else if tab === "about"}

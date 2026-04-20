@@ -1,12 +1,17 @@
 <script lang="ts">
   import { store, updateSettings } from "@store/state.svelte";
+  import { selectPortal } from "@core/actions/selectPortal";
 
   interface Props {
     selectOpen: string | null;
-    onToggleSelect: (id: string) => void;
+    closingSelect: string | null;
+    toggleSelect: (id: string) => void;
+    anims: boolean;
   }
 
-  let { selectOpen, onToggleSelect }: Props = $props();
+  let { selectOpen, closingSelect, toggleSelect, anims }: Props = $props();
+
+  let triggerIdleTimeout: HTMLButtonElement;
 </script>
 
 <div class="s-panel">
@@ -54,15 +59,15 @@
     <div class="s-section-body">
       <div class="s-row">
         <div class="s-row-info"><span class="s-label">Idle screen timeout</span><span class="s-desc">Show the Moku idle splash after this much inactivity</span></div>
-        <div class="s-select" id="idle-timeout">
-          <button class="s-select-btn" onclick={() => onToggleSelect("idle-timeout")}>
+        <div class="s-select">
+          <button bind:this={triggerIdleTimeout} class="s-select-btn" onclick={() => toggleSelect("idle-timeout")}>
             <span>{{ "0":"Never","1":"1 minute","2":"2 minutes","5":"5 minutes","10":"10 minutes","15":"15 minutes","30":"30 minutes" }[String(store.settings.idleTimeoutMin ?? 5)] ?? `${store.settings.idleTimeoutMin} min`}</span>
             <svg class="s-select-caret" class:open={selectOpen === "idle-timeout"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
           </button>
-          {#if selectOpen === "idle-timeout"}
-            <div class="s-select-menu">
+          {#if selectOpen === "idle-timeout" || closingSelect === "idle-timeout"}
+            <div class="s-select-menu" class:anims class:closing={closingSelect === "idle-timeout"} {@attach selectPortal(triggerIdleTimeout)}>
               {#each [["0","Never"],["1","1 minute"],["2","2 minutes"],["5","5 minutes"],["10","10 minutes"],["15","15 minutes"],["30","30 minutes"]] as [v, l]}
-                <button class="s-select-option" class:active={String(store.settings.idleTimeoutMin ?? 5) === v} onclick={() => { updateSettings({ idleTimeoutMin: Number(v) }); onToggleSelect("idle-timeout"); }}>{l}</button>
+                <button class="s-select-option" class:active={String(store.settings.idleTimeoutMin ?? 5) === v} onclick={() => { updateSettings({ idleTimeoutMin: Number(v) }); toggleSelect("idle-timeout"); }}>{l}</button>
               {/each}
             </div>
           {/if}

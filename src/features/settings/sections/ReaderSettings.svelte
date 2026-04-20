@@ -1,13 +1,19 @@
 <script lang="ts">
   import { store, updateSettings } from "@store/state.svelte";
   import type { Settings, FitMode } from "@types/settings";
+  import { selectPortal } from "@core/actions/selectPortal";
 
   interface Props {
     selectOpen: string | null;
-    onToggleSelect: (id: string) => void;
+    toggleSelect: (id: string) => void;
+    anims: boolean;
   }
 
-  let { selectOpen, onToggleSelect }: Props = $props();
+  let { selectOpen, toggleSelect, anims }: Props = $props();
+
+  let triggerPageStyle:  HTMLButtonElement;
+  let triggerReadingDir: HTMLButtonElement;
+  let triggerFitMode:    HTMLButtonElement;
 </script>
 
 <div class="s-panel">
@@ -17,15 +23,15 @@
     <div class="s-section-body">
       <div class="s-row">
         <div class="s-row-info"><span class="s-label">Default layout</span><span class="s-desc">How chapters open by default</span></div>
-        <div class="s-select" id="page-style">
-          <button class="s-select-btn" onclick={() => onToggleSelect("page-style")}>
+        <div class="s-select">
+          <button bind:this={triggerPageStyle} class="s-select-btn" onclick={() => toggleSelect("page-style")}>
             <span>{{ "single":"Single page","longstrip":"Long strip" }[store.settings.pageStyle === "double" ? "single" : store.settings.pageStyle]}</span>
             <svg class="s-select-caret" class:open={selectOpen === "page-style"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
           </button>
           {#if selectOpen === "page-style"}
-            <div class="s-select-menu">
+            <div class="s-select-menu" class:anims {@attach selectPortal(triggerPageStyle)}>
               {#each [["single","Single page"],["longstrip","Long strip"]] as [v, l]}
-                <button class="s-select-option" class:active={(store.settings.pageStyle === "double" ? "single" : store.settings.pageStyle) === v} onclick={() => { updateSettings({ pageStyle: v as Settings["pageStyle"] }); onToggleSelect("page-style"); }}>{l}</button>
+                <button class="s-select-option" class:active={(store.settings.pageStyle === "double" ? "single" : store.settings.pageStyle) === v} onclick={() => { updateSettings({ pageStyle: v as Settings["pageStyle"] }); toggleSelect("page-style"); }}>{l}</button>
               {/each}
             </div>
           {/if}
@@ -33,15 +39,15 @@
       </div>
       <div class="s-row">
         <div class="s-row-info"><span class="s-label">Reading direction</span><span class="s-desc">Left-to-right for most manga, right-to-left for Japanese</span></div>
-        <div class="s-select" id="reading-dir">
-          <button class="s-select-btn" onclick={() => onToggleSelect("reading-dir")}>
+        <div class="s-select">
+          <button bind:this={triggerReadingDir} class="s-select-btn" onclick={() => toggleSelect("reading-dir")}>
             <span>{{ "ltr":"Left to right","rtl":"Right to left" }[store.settings.readingDirection]}</span>
             <svg class="s-select-caret" class:open={selectOpen === "reading-dir"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
           </button>
           {#if selectOpen === "reading-dir"}
-            <div class="s-select-menu">
+            <div class="s-select-menu" class:anims {@attach selectPortal(triggerReadingDir)}>
               {#each [["ltr","Left to right"],["rtl","Right to left"]] as [v, l]}
-                <button class="s-select-option" class:active={store.settings.readingDirection === v} onclick={() => { updateSettings({ readingDirection: v as Settings["readingDirection"] }); onToggleSelect("reading-dir"); }}>{l}</button>
+                <button class="s-select-option" class:active={store.settings.readingDirection === v} onclick={() => { updateSettings({ readingDirection: v as Settings["readingDirection"] }); toggleSelect("reading-dir"); }}>{l}</button>
               {/each}
             </div>
           {/if}
@@ -67,15 +73,15 @@
     <div class="s-section-body">
       <div class="s-row">
         <div class="s-row-info"><span class="s-label">Default fit mode</span><span class="s-desc">How pages are scaled to fill the reader on open</span></div>
-        <div class="s-select" id="fit-mode">
-          <button class="s-select-btn" onclick={() => onToggleSelect("fit-mode")}>
+        <div class="s-select">
+          <button bind:this={triggerFitMode} class="s-select-btn" onclick={() => toggleSelect("fit-mode")}>
             <span>{{ "width":"Fit width","height":"Fit height","screen":"Fit screen","original":"Original (1:1)" }[store.settings.fitMode ?? "width"]}</span>
             <svg class="s-select-caret" class:open={selectOpen === "fit-mode"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
           </button>
           {#if selectOpen === "fit-mode"}
-            <div class="s-select-menu">
+            <div class="s-select-menu" class:anims {@attach selectPortal(triggerFitMode)}>
               {#each [["width","Fit width"],["height","Fit height"],["screen","Fit screen"],["original","Original (1:1)"]] as [v, l]}
-                <button class="s-select-option" class:active={(store.settings.fitMode ?? "width") === v} onclick={() => { updateSettings({ fitMode: v as FitMode }); onToggleSelect("fit-mode"); }}>{l}</button>
+                <button class="s-select-option" class:active={(store.settings.fitMode ?? "width") === v} onclick={() => { updateSettings({ fitMode: v as FitMode }); toggleSelect("fit-mode"); }}>{l}</button>
               {/each}
             </div>
           {/if}

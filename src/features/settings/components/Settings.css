@@ -1,9 +1,10 @@
 /* ── Animations ───────────────────────────────────────────────────── */
-@keyframes s-fade-in   { from { opacity: 0 } to { opacity: 1 } }
-@keyframes s-scale-in  { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }
-@keyframes s-pulse     { 0%,100% { opacity: 1 } 50% { opacity: 0.55 } }
-@keyframes s-icon-down { from { transform: translateY(-5px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
-@keyframes s-icon-up   { from { transform: translateY( 5px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+@keyframes s-fade-in      { from { opacity: 0 } to { opacity: 1 } }
+@keyframes s-scale-in     { from { transform: scale(0.97); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+@keyframes s-pulse        { 0%,100% { opacity: 1 } 50% { opacity: 0.55 } }
+@keyframes s-icon-down    { from { transform: translateY(-5px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+@keyframes s-icon-up      { from { transform: translateY( 5px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+@keyframes s-dropdown-in  { from { transform: translateY(-6px) scale(0.98); opacity: 0 } to { transform: translateY(0) scale(1); opacity: 1 } }
 
 
 /* ── Backdrop & Modal Shell ───────────────────────────────────────── */
@@ -139,12 +140,7 @@
 .s-content-body {
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-base) transparent;
 }
-.s-content-body::-webkit-scrollbar       { width: 4px; }
-.s-content-body::-webkit-scrollbar-track { background: transparent; }
-.s-content-body::-webkit-scrollbar-thumb { background: var(--border-base); border-radius: 2px; }
 
 
 /* ── Panel & Section ──────────────────────────────────────────────── */
@@ -319,19 +315,17 @@
 .s-select-caret.open { transform: rotate(180deg); }
 
 .s-select-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 100%;
+  position: fixed; /* portal sets top/left via inline style */
+  min-width: 140px;
   background: var(--bg-raised);
   border: 1px solid var(--border-base);
   border-radius: var(--radius-md);
   padding: var(--sp-1);
   z-index: 9999;
   box-shadow: 0 8px 28px rgba(0,0,0,0.45);
-  animation: s-scale-in 0.1s ease both;
   transform-origin: top right;
 }
+.s-select-menu.anims { animation: s-dropdown-in 0.15s cubic-bezier(0.22,1,0.36,1) both; }
 
 .s-select-option {
   display: block;
@@ -972,12 +966,7 @@
   max-height: 300px;
   overflow-y: auto;
   padding: 0 var(--sp-2);
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-base) transparent;
 }
-.s-release-scroll::-webkit-scrollbar       { width: 4px; }
-.s-release-scroll::-webkit-scrollbar-track { background: transparent; }
-.s-release-scroll::-webkit-scrollbar-thumb { background: var(--border-base); border-radius: 2px; }
 
 .s-release-row {
   border-radius: var(--radius-md);

@@ -444,9 +444,6 @@
     padding: var(--sp-4) var(--sp-5);
     display: flex; flex-direction: column; gap: var(--sp-6);
   }
-  .editor-pane::-webkit-scrollbar       { width: 4px; }
-  .editor-pane::-webkit-scrollbar-track { background: transparent; }
-  .editor-pane::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 9999px; }
 
   .group       { display: flex; flex-direction: column; gap: var(--sp-1); }
   .group-label {
