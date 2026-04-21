@@ -223,28 +223,26 @@
 <div class="root">
   <div class="body">
 
-    <div class="hero-section">
-      <HeroStage
-        {resolvedSlots}
-        bind:activeIdx
-        {heroThumb}
-        {heroTitle}
-        {heroManga}
-        {heroEntry}
-        {heroMangaId}
-        {heroChapters}
-        {loadingHeroChapters}
-        {resuming}
-        onresume={resumeActive}
-        onopenchapter={openChapter}
-        oncyclenext={cycleNext}
-        oncycleprev={cyclePrev}
-        ongotoslot={goToSlot}
-        onopenpicker={openPicker}
-        onunpin={unpinSlot}
-        onviewall={() => { if (heroManga) store.activeManga = heroManga; }}
-      />
-    </div>
+    <HeroStage
+      {resolvedSlots}
+      bind:activeIdx
+      {heroThumb}
+      {heroTitle}
+      {heroManga}
+      {heroEntry}
+      {heroMangaId}
+      {heroChapters}
+      {loadingHeroChapters}
+      {resuming}
+      onresume={resumeActive}
+      onopenchapter={openChapter}
+      oncyclenext={cycleNext}
+      oncycleprev={cyclePrev}
+      ongotoslot={goToSlot}
+      onopenpicker={openPicker}
+      onunpin={unpinSlot}
+      onviewall={() => { if (heroManga) store.activeManga = heroManga; }}
+    />
 
     <ActivityFeed
       entries={recentHistory}
@@ -284,7 +282,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-    animation: fadeIn 0.14s ease both;
+    animation: fadeIn 0.4s ease both;
   }
   .body {
     flex: 1;
@@ -293,10 +291,6 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-height: 0;
-  }
-  .hero-section {
-    padding: var(--sp-3) var(--sp-4) var(--sp-2);
-    flex-shrink: 0;
   }
   .bottom-row {
     display: grid;
@@ -308,5 +302,8 @@
   }
   .bottom-divider { background: var(--border-dim); align-self: stretch; }
 
-  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
 </style>

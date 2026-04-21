@@ -57,11 +57,13 @@
 </script>
 
 <div class="hero-stage">
-  {#if heroThumb}
-    <div class="hero-backdrop" style="background-image:url({heroThumb})"></div>
-  {:else}
-    <div class="hero-backdrop hero-bd-empty"></div>
-  {/if}
+  {#key heroThumb}
+    {#if heroThumb}
+      <div class="hero-backdrop" style="background-image:url({heroThumb})"></div>
+    {:else}
+      <div class="hero-backdrop hero-bd-empty"></div>
+    {/if}
+  {/key}
   <div class="hero-scrim"></div>
 
   <button
@@ -230,11 +232,9 @@
     display: flex;
     align-items: stretch;
     height: 374px;
-    border-radius: var(--radius-xl);
     overflow: hidden;
     background: var(--bg-raised);
-    border: 1px solid var(--border-dim);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.32);
+    border-bottom: 1px solid var(--border-dim);
   }
 
   .hero-backdrop {
@@ -246,7 +246,7 @@
     transform: scale(1.07);
     pointer-events: none;
     z-index: 0;
-    transition: background-image 0.3s ease;
+    animation: backdropIn 0.5s ease both;
   }
   .hero-bd-empty { background: var(--bg-void); filter: none; }
 
@@ -266,12 +266,10 @@
     height: 374px;
     overflow: hidden;
     cursor: pointer;
-    border-right: 1px solid rgba(255, 255, 255, 0.07);
     background: var(--bg-raised);
     padding: 0;
-    border-top: none;
-    border-bottom: none;
-    border-left: none;
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
   }
   .hero-cover-col:hover .hero-cover { filter: brightness(1.1) saturate(1.05); }
   .hero-cover-col:hover .cover-resume-hint { opacity: 1; }
@@ -577,5 +575,9 @@
   }
   .ch-view-all:hover { color: var(--accent-fg); }
 
+  @keyframes backdropIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
   @keyframes pulse { 0%, 100% { opacity: 0.4 } 50% { opacity: 0.7 } }
 </style>
