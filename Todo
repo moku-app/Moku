@@ -2,22 +2,15 @@ Major Revisions:
  - Moku-Share to Easily Migrate/Share Manga (Investigate Usecase/Feasibility)
 
 Minor Revisions:
- - Improve Deduplication Algorithm with Advanced Option Settings (Implement Chapter & Author-based Comparisons, Resource Intensive)
-
  - Investigate feasibility of Multi-Page Screenshot (Reader)
  - Add Hover Info on Library (Make sure doesn't conflict with additional clicks)
  - Revise Migration (https://github.com/Suwayomi/Suwayomi-WebUI/pull/1073)
  - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
- - Adjustment in Settings for Theme Editor:
-    - Patch Color-Picker to Work Properly
- - Integrate Download Directory Changes (Settings)
 
 
 
 Priority Bugs:
- - Fix Library Build not Updating
- - Loading Buffer for Pictures (Due to Auth Lag)
-
+ - Fix Library-Refresh System (TESTING)
 
 General/Misc Bugs:
  - Fix Highlightable Elements
@@ -29,18 +22,32 @@ General/Misc Bugs:
 
 In-Progress:
  - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
- 
  - Working on 3D Display Cards
-
- - Add Small QOL Animations where Appropriate
-   - Search Animations
-      - Card Hover
-   - SeriesDetail Animations
-      - 3D Card
-
  - Add Flathub Support (Pending Video)
 
- - Currently Moku Migration is on Series. Finish Modularizing then fix rest of files.
+ - QOL Animations & Revamps
+   - Extensions QOL Animations
+      - Folders Slide
+      - Dropdown Formatting (Repositories, Etc)
+   - Extensions Revamps
+      - Notification on Extension Added
+      - Notification on Extension Refresh
+      - Notification on Extension Update
+      - Fix Pill-Shaped Language Filter
+      - Fix ALL ALL EN Tag Issue
+   - Search QOL Animations
+      - Languages Dropdown Animations
+   - Search Revamps
+      - Custom Language Selector Modal
+      - Change Tab Selector to match Extensions & Library Folders (Design)
+      - Filter Genre should Filter Tags as well
+   - Tracking Revamp
+      - Completely Revamp Tracking
+
+ - Fix Search Folder Tabs (Right-Align)
 
 
-Testing:
+Testing Bugs:
+ - Reader Zoom does not work (Dropdown Slider, Value Adjustment); Goes to NaN
+ - Fix Library Folders (Uneven Padding + Bleed into Other Folders); Appears Constraints are Off
+ - 

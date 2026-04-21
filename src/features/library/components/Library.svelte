@@ -5,12 +5,13 @@
   import {
     GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, UPDATE_MANGAS,
     GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD,
-    CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, UPDATE_LIBRARY, LIBRARY_UPDATE_STATUS,
+    CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES,
     UPDATE_CATEGORY_ORDER,
   } from "@api";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "@core/cache/queryCache";
   import { dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw } from "@core/util";
   import { sortLibrary }    from "../lib/librarySort";
+  import { startLibraryUpdate } from "../lib/libraryUpdater";
   import { createPaginator } from "@core/algorithms/paginate";
   import {
     store, setCategories, setLibraryUpdates, addToast,
@@ -57,7 +58,7 @@
 
   let refreshing:       boolean = $state(false);
   let refreshProgress           = $state({ finished: 0, total: 0 });
-  let pollTimer:        ReturnType<typeof setTimeout> | null = null;
+  let cancelUpdate:     (() => void) | null = null;
   let refreshDone:      boolean = $state(false);
   let refreshDoneTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -378,47 +379,27 @@
     if (refreshing) return;
     refreshing = true;
     refreshProgress = { finished: 0, total: 0 };
-    const prevCounts = new Map(allManga.map(m => [m.id, m.unreadCount ?? 0]));
-    let seenWork = false;
 
-    try {
-      const res = await gql<{ updateLibrary: { updateStatus: { jobsInfo: { isRunning: boolean; totalJobs: number } } } }>(UPDATE_LIBRARY, {});
-      seenWork = res.updateLibrary.updateStatus.jobsInfo.totalJobs > 0;
-    } catch { refreshing = false; return; }
-
-    pollTimer = setTimeout(function poll() {
-      gql<{ libraryUpdateStatus: {
-        jobsInfo:     { isRunning: boolean; finishedJobs: number; totalJobs: number };
-        mangaUpdates: { status: string; manga: { id: number; title: string; thumbnailUrl: string; unreadCount: number } }[];
-      } }>(LIBRARY_UPDATE_STATUS, {})
-        .then(d => {
-          const { jobsInfo, mangaUpdates } = d.libraryUpdateStatus;
-          refreshProgress = { finished: jobsInfo.finishedJobs, total: jobsInfo.totalJobs };
-          if (jobsInfo.totalJobs > 0) seenWork = true;
-
-          if (!jobsInfo.isRunning && seenWork) {
-            refreshing = false;
-            pollTimer  = null;
-            const entries: LibraryUpdateEntry[] = mangaUpdates
-              .filter(u => u.status === "FINISHED")
-              .reduce<LibraryUpdateEntry[]>((acc, u) => {
-                const newChapters = Math.max(0, (u.manga.unreadCount ?? 0) - (prevCounts.get(u.manga.id) ?? 0));
-                if (newChapters > 0) acc.push({ mangaId: u.manga.id, mangaTitle: u.manga.title, thumbnailUrl: u.manga.thumbnailUrl, newChapters, checkedAt: Date.now() });
-                return acc;
-              }, []);
-            setLibraryUpdates(entries);
-            cache.clearGroup(CACHE_GROUPS.LIBRARY);
-            loadData();
-            refreshDone = true;
-            if (refreshDoneTimer) clearTimeout(refreshDoneTimer);
-            refreshDoneTimer = setTimeout(() => { refreshDone = false; }, 2500);
-            showToast(entries.reduce((s, e) => s + e.newChapters, 0), entries.length);
-            return;
-          }
-          pollTimer = setTimeout(poll, 3000);
-        })
-        .catch(() => { refreshing = false; pollTimer = null; });
-    }, 2000);
+    cancelUpdate = startLibraryUpdate({
+      onProgress(p) {
+        refreshProgress = p;
+      },
+      async onDone({ entries, totalUpdated, newChapters }) {
+        refreshing = false;
+        cancelUpdate = null;
+        setLibraryUpdates(entries);
+        cache.clearGroup(CACHE_GROUPS.LIBRARY);
+        await loadData();
+        refreshDone = true;
+        if (refreshDoneTimer) clearTimeout(refreshDoneTimer);
+        refreshDoneTimer = setTimeout(() => { refreshDone = false; }, 2500);
+        showToast(newChapters, totalUpdated);
+      },
+      onError() {
+        refreshing = false;
+        cancelUpdate = null;
+      },
+    });
   }
 
   function onTabDragStart(e: DragEvent, cat: Category) {
@@ -482,7 +463,7 @@
 
     return () => {
       ro.disconnect(); unsub();
-      if (pollTimer) clearTimeout(pollTimer);
+      cancelUpdate?.();
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("mousedown", onDocMouseDown, true);
     };
