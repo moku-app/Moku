@@ -45,6 +45,10 @@
     if (el && !el.contains(e.target as Node)) onClose();
   }
 
+  function onTouchStartOutside(e: TouchEvent) {
+    if (el && !el.contains(e.target as Node)) onClose();
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
     if (e.key === "ArrowDown") {
@@ -68,9 +72,11 @@
 
   $effect(() => {
     document.addEventListener("mousedown", onMouseDown, true);
+    document.addEventListener("touchstart", onTouchStartOutside, true);
     document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onMouseDown, true);
+      document.removeEventListener("touchstart", onTouchStartOutside, true);
       document.removeEventListener("keydown", onKey, true);
     };
   });

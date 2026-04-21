@@ -4,18 +4,37 @@
   import type { DownloadQueueItem } from "@types/index";
 
   interface Props {
-    queue:      DownloadQueueItem[];
-    loading:    boolean;
-    isRunning:  boolean;
-    dequeueing: Set<number>;
-    onRemove:   (chapterId: number) => void;
+    queue:        DownloadQueueItem[];
+    loading:      boolean;
+    isRunning:    boolean;
+    dequeueing:   Set<number>;
+    selected:     Set<number>;
+    batchWorking: boolean;
+    onRemove:     (chapterId: number) => void;
+    onRetry:      (chapterId: number) => void;
+    onReorder:    (chapterId: number, dir: "up" | "down") => void;
+    onSelect:     (chapterId: number, e: MouseEvent) => void;
+    onClearSelect: () => void;
+    onBatchRemove: () => void;
+    onBatchRetry:  () => void;
+    onBatchReorder: (dir: "up" | "down") => void;
   }
 
-  const { queue, loading, isRunning, dequeueing, onRemove }: Props = $props();
+  const {
+    queue, loading, isRunning, dequeueing, selected, batchWorking,
+    onRemove, onRetry, onReorder, onSelect, onClearSelect,
+    onBatchRemove, onBatchRetry, onBatchReorder,
+  }: Props = $props();
+
+  const selectedErrorCount = $derived(
+    queue.filter((i) => selected.has(i.chapter.id) && i.state === "ERROR").length,
+  );
 </script>
 
 {#if loading}
-  <div class="empty"><CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
+  <div class="empty">
+    <CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+  </div>
 {:else if queue.length === 0}
   <div class="empty">Queue is empty.</div>
 {:else}
@@ -23,9 +42,23 @@
     {#each queue as item, i (item.chapter.id)}
       <DownloadItem
         {item}
+        index={i}
         isActive={i === 0 && isRunning}
+        isFirst={i === 0}
+        isLast={i === queue.length - 1}
         isRemoving={dequeueing.has(item.chapter.id)}
+        isSelected={selected.has(item.chapter.id)}
+        selectedCount={selected.size}
+        {selectedErrorCount}
+        {batchWorking}
         {onRemove}
+        {onRetry}
+        {onReorder}
+        {onSelect}
+        {onClearSelect}
+        {onBatchRemove}
+        {onBatchRetry}
+        {onBatchReorder}
       />
     {/each}
   </div>

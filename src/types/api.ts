@@ -1,6 +1,7 @@
 export interface DownloadQueueItem {
   progress: number;
   state: "QUEUED" | "DOWNLOADING" | "FINISHED" | "ERROR";
+  tries: number;
   chapter: {
     id: number;
     name: string;
