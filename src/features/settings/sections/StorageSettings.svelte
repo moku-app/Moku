@@ -146,7 +146,17 @@
 
   async function browseDownloadsFolder() {
     const picked = await invoke<string | null>("pick_downloads_folder");
-    if (picked) { downloadsPathInput = picked; pathsFieldError = { ...pathsFieldError, dl: undefined }; }
+    if (picked) { downloadsPathInput = picked; pathsFieldError = { ...pathsFieldError, dl: undefined }; await savePaths(); }
+  }
+
+  async function browseLocalSourceFolder() {
+    const picked = await invoke<string | null>("pick_downloads_folder");
+    if (picked) { localSourcePathInput = picked; pathsFieldError = { ...pathsFieldError, loc: undefined }; await savePaths(); }
+  }
+
+  async function browseExtraScanDir() {
+    const picked = await invoke<string | null>("pick_downloads_folder");
+    if (picked) { newScanDir = picked; addExtraScanDir(); }
   }
 
   function addExtraScanDir() {
@@ -414,9 +424,11 @@
               catch (e: any) { pathsFieldError = { ...pathsFieldError, dl: e?.message ?? "Failed" }; }
             }}>Create</button>
           {/if}
-          <button class="s-btn s-btn-accent" onclick={savePaths} disabled={pathsSaving}>
-            {pathsSaved ? "Saved ✓" : pathsSaving ? "Saving…" : "Save"}
-          </button>
+          {#if downloadsPathInput.trim() !== confirmedDownloadsPath}
+            <button class="s-btn s-btn-accent" onclick={savePaths} disabled={pathsSaving}>
+              {pathsSaved ? "Saved ✓" : pathsSaving ? "Saving…" : "Save"}
+            </button>
+          {/if}
         </div>
       </div>
     </div>
@@ -465,6 +477,9 @@
                 bind:value={localSourcePathInput} placeholder="Optional" spellcheck="false"
                 onkeydown={(e) => e.key === "Enter" && savePaths()}
                 oninput={() => { pathsFieldError = { ...pathsFieldError, loc: undefined }; }} />
+              {#if !isExternalServer}
+                <button class="s-btn" onclick={browseLocalSourceFolder}>Browse</button>
+              {/if}
               {#if pathsFieldError.loc && !isExternalServer}
                 <button class="s-btn" onclick={async () => {
                   try { await createDirectory(localSourcePathInput.trim()); pathsFieldError = { ...pathsFieldError, loc: undefined }; }
@@ -494,16 +509,13 @@
           <div class="s-btn-row">
             <input class="s-input mono" bind:value={newScanDir} placeholder="/path/to/dir" spellcheck="false"
               onkeydown={(e) => e.key === "Enter" && addExtraScanDir()} />
-            <button class="s-btn" onclick={addExtraScanDir} disabled={!newScanDir.trim() || extraScanDirs.includes(newScanDir.trim())}>Add</button>
+            {#if !isExternalServer}
+              <button class="s-btn" onclick={browseExtraScanDir}>Browse</button>
+            {/if}
+
           </div>
         </div>
 
-        <div class="s-row">
-          <div class="s-row-info"></div>
-          <button class="s-btn s-btn-accent" onclick={savePaths} disabled={pathsSaving}>
-            {pathsSaved ? "Saved ✓" : pathsSaving ? "Saving…" : "Save"}
-          </button>
-        </div>
       </div>
     {/if}
   </div>

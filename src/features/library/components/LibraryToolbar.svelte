@@ -152,7 +152,7 @@
         <SortAscending size={15} weight="bold" />
       </button>
       {#if sortPanelOpen}
-        <div class="dropdown-panel sort-panel" role="menu">
+        <div class="dropdown-panel sort-panel anim-fade-in" role="menu">
           <div class="panel-header">
             <span class="panel-heading">Sort</span>
           </div>
@@ -221,7 +221,7 @@
   .refresh-progress { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--accent-fg); }
   .refresh-btn-done { color: var(--color-success, #5cae6e) !important; border-color: color-mix(in srgb, var(--color-success, #5cae6e) 40%, transparent) !important; background: color-mix(in srgb, var(--color-success, #5cae6e) 10%, transparent) !important; }
   .sort-panel-wrap { position: relative; }
-  .dropdown-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 9999; min-width: 220px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); box-shadow: 0 8px 32px rgba(0,0,0,0.5); animation: fadeIn 0.1s ease both; }
+  .dropdown-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 9999; min-width: 220px; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
   .panel-label { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-faint); padding: 4px 8px 8px; }
   .panel-item { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 7px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); gap: var(--sp-2); }
   .panel-item:hover { background: var(--bg-overlay); color: var(--text-primary); }
@@ -237,5 +237,4 @@
   .panel-check-on { background: var(--accent); border-color: var(--accent); }
   .dir-toggle { color: var(--text-secondary); justify-content: flex-start; gap: var(--sp-2); border-top: 1px solid var(--border-dim); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: 2px; padding-top: 9px; }
   :global(.sort-caret) { flex-shrink: 0; }
-  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 </style>

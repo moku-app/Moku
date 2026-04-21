@@ -87,7 +87,7 @@
   }
 </script>
 
-<div class="root">
+<div class="root anim-fade-in">
   <div class="header">
     <span class="heading">History</span>
     <div class="header-right">
@@ -197,7 +197,7 @@
 </div>
 
 <style>
-  .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
+  .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
   .header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
@@ -256,5 +256,4 @@
   .empty-text { font-size: var(--text-base); color: var(--text-muted); }
   .empty-hint { font-size: var(--text-sm); color: var(--text-faint); }
 
-  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 </style>

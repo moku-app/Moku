@@ -19,6 +19,29 @@
   import TagTab       from "./TagTab.svelte";
   import SourceTab    from "./SourceTab.svelte";
 
+  const anims = $derived(store.settings.qolAnimations ?? true);
+
+  const TABS = ["keyword", "tag", "source"] as const;
+
+  let tabsEl = $state<HTMLDivElement | undefined>(undefined);
+  let tabIndicator = $state({ left: 0, width: 0 });
+
+  function updateIndicator() {
+    if (!tabsEl) return;
+    const active = tabsEl.querySelector<HTMLElement>(".tab.tabActive");
+    if (!active) return;
+    const containerLeft = tabsEl.getBoundingClientRect().left;
+    tabIndicator = {
+      left:  active.getBoundingClientRect().left - containerLeft,
+      width: active.offsetWidth,
+    };
+  }
+
+  $effect(() => {
+    tab; // reactive on tab change
+    if (anims) requestAnimationFrame(updateIndicator);
+  });
+
   const SEARCH_PAGES         = 3;
   const SEARCH_LIMIT         = 200;
   const SEARCH_BATCH         = 20;
@@ -40,6 +63,7 @@
   });
 
   let allSources:    Source[] = $state([]);
+  let localSource:   Source | null = $state(null);
   let loadingSources           = $state(false);
 
   const preferredLang   = store.settings?.preferredExtensionLang ?? "en";
@@ -49,7 +73,9 @@
   loadingSources = true;
   gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
     .then((d) => {
-      allSources = d.sources.nodes.filter((src: Source) => src.id !== "0");
+      const nodes = d.sources.nodes;
+      localSource = nodes.find((src: Source) => src.id === "0") ?? null;
+      allSources = nodes.filter((src: Source) => src.id !== "0");
       startSourceCacheBuild();
       popularStart(allSources);
     })
@@ -230,10 +256,14 @@
   });
 </script>
 
-<div class="root">
+<div class="root anim-fade-in">
   <div class="header">
-    <h1 class="heading">Search</h1>
-    <div class="tabs">
+    <span class="heading">Search</span>
+
+    <div class="tabs" class:tabs-anims={anims} bind:this={tabsEl}>
+      {#if anims && tabIndicator.width > 0}
+        <div class="tab-slide-indicator" style="left:{tabIndicator.left}px;width:{tabIndicator.width}px" aria-hidden="true"></div>
+      {/if}
       <button class="tab" class:tabActive={tab === "keyword"} onclick={() => { deprioritizeQueue(); tab = "keyword"; }}>
         <svg width="11" height="11" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
           <path d="M229.66,218.34l-50.07-50.07a88,88,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.31ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/>
@@ -281,6 +311,7 @@
       {allSources}
       {availableLangs}
       {loadingSources}
+      {localSource}
       onPreview={setPreviewManga}
     />
   {/if}
@@ -288,11 +319,13 @@
 
 <style>
   .root   { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-  .header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4) var(--sp-2); flex-shrink: 0; border-bottom: 1px solid var(--border-dim); gap: var(--sp-3); }
+  .header { position: relative; z-index: 100; display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); flex-shrink: 0; border-bottom: 1px solid var(--border-dim); }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
-  .tabs   { display: flex; gap: var(--sp-1); }
-  .tab    { display: flex; align-items: center; gap: var(--sp-1); padding: 5px 10px; border-radius: var(--radius-md); border: 1px solid transparent; background: none; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); cursor: pointer; transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
-  .tab:hover { color: var(--text-muted); background: var(--bg-raised); }
+  .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; }
+  .tab-slide-indicator { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-sm); background: var(--accent-muted); border: 1px solid var(--accent-dim); pointer-events: none; z-index: 0; transition: left 0.22s cubic-bezier(0.16,1,0.3,1), width 0.22s cubic-bezier(0.16,1,0.3,1); }
+  .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: pointer; border: 1px solid transparent; }
+  .tab:hover { color: var(--text-muted); }
   .tabActive { color: var(--accent-fg); background: var(--accent-muted); border-color: var(--accent-dim); }
-  .tabActive:hover { color: var(--accent-fg); background: var(--accent-muted); }
+  .tabs-anims .tabActive { background: transparent; border-color: transparent; }
+  .tabActive:hover { color: var(--accent-fg); }
 </style>

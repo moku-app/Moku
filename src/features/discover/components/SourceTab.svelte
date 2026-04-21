@@ -11,9 +11,10 @@
     allSources:     Source[];
     availableLangs: string[];
     loadingSources: boolean;
+    localSource:    Source | null;
     onPreview:      (m: Manga) => void;
   }
-  let { allSources, availableLangs, loadingSources, onPreview }: Props = $props();
+  let { allSources, availableLangs, loadingSources, localSource, onPreview }: Props = $props();
 
   const preferredLang = store.settings?.preferredExtensionLang ?? "en";
 
@@ -116,6 +117,21 @@
       </div>
     {:else}
       <div class="splitList">
+        {#if localSource}
+          <button
+            class="splitItem splitItemSource"
+            class:splitItemActive={src_activeSource?.id === localSource.id}
+            onclick={() => srcSelectSource(localSource)}
+          >
+            <div class="localSourceIcon">
+              <svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                <path d="M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm44-84a44,44,0,1,1-44-44A44.05,44.05,0,0,1,172,128Z"/>
+              </svg>
+            </div>
+            <span class="splitItemLabel">Local Source</span>
+          </button>
+          <div class="localDivider"></div>
+        {/if}
         {#each src_visibleSources as src (src.id)}
           <button
             class="splitItem splitItemSource"
@@ -230,6 +246,8 @@
   .langSelect option  { background: var(--bg-surface); color: var(--text-secondary); }
   .splitLoading       { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--sp-6); }
   .splitList          { flex: 1; overflow-y: auto; padding: var(--sp-1); scrollbar-width: thin; scrollbar-color: var(--border-dim) transparent; }
+  .localSourceIcon    { width: 20px; height: 20px; border-radius: var(--radius-sm); background: var(--accent-muted); border: 1px solid var(--accent-dim); display: flex; align-items: center; justify-content: center; color: var(--accent-fg); flex-shrink: 0; }
+  .localDivider       { height: 1px; background: var(--border-dim); margin: var(--sp-1) var(--sp-2); }
   .splitItem          { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 7px var(--sp-3); border-radius: var(--radius-md); border: 1px solid transparent; background: none; text-align: left; cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast); }
   .splitItem:hover    { background: var(--bg-raised); border-color: var(--border-dim); }
   .splitItemActive    { background: var(--accent-muted); border-color: var(--accent-dim); }

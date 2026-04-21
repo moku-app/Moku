@@ -42,8 +42,6 @@
 </div>
 
 <style>
-  :global(*, *::before, *::after) { scrollbar-width: none; }
-  :global(*::-webkit-scrollbar) { display: none; }
   .frame { display: flex; padding: 6px 15px 15px; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden; }
   .shell { display: flex; flex: 1; border-radius: 14px; overflow: hidden; border: 1px solid var(--border-dim); background: var(--bg-base); min-height: 0; min-width: 0; }
   .main { flex: 1; overflow: hidden; background: var(--bg-surface); transform: translateZ(0); contain: layout style; min-width: 0; }

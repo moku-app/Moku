@@ -16,7 +16,7 @@
 
 {#if boot.unsupportedMode}
   <div class="auth-overlay">
-    <div class="auth-card">
+    <div class="auth-card anim-scale-in">
       <img src={logoUrl} alt="Moku" class="auth-logo" />
       <p class="auth-title">moku</p>
       <span class="auth-mode-badge auth-mode-badge--warn">{
@@ -35,7 +35,7 @@
   </div>
 {:else if boot.loginRequired}
   <div class="auth-overlay">
-    <div class="auth-card">
+    <div class="auth-card anim-scale-in">
       <img src={logoUrl} alt="Moku" class="auth-logo" />
       <p class="auth-title">moku</p>
       <span class="auth-mode-badge">Basic Auth</span>
@@ -62,8 +62,7 @@
 
 <style>
   .auth-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-  .auth-card { pointer-events: auto; width: min(280px, calc(100vw - 48px)); background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); padding: var(--sp-6) var(--sp-5); display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); box-shadow: 0 32px 80px rgba(0,0,0,0.75); animation: authIn 0.28s cubic-bezier(0.16,1,0.3,1) both; text-align: center; }
-  @keyframes authIn { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+  .auth-card { pointer-events: auto; width: min(280px, calc(100vw - 48px)); background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: var(--radius-xl); padding: var(--sp-6) var(--sp-5); display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); box-shadow: 0 32px 80px rgba(0,0,0,0.75); text-align: center; }
 
   .auth-logo { width: 56px; height: 56px; border-radius: 14px; display: block; }
   .auth-title { font-family: var(--font-ui); font-size: 11px; font-weight: 500; letter-spacing: 0.26em; text-transform: uppercase; color: var(--text-secondary); margin: -6px 0 0; user-select: none; }

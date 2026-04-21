@@ -1,3 +1,11 @@
+export const GET_LOCAL_MANGA = `
+  query GetLocalManga {
+    mangas(condition: { sourceId: "0" }) {
+      nodes { id title thumbnailUrl inLibrary }
+    }
+  }
+`;
+
 export const GET_EXTENSIONS = `
   query GetExtensions {
     extensions {

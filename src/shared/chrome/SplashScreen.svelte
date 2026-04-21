@@ -416,7 +416,7 @@
     <div class="bottom-area" style="z-index:1">
       <div class="status-slot" class:status-slot-hide={lockEnabled && pinVisible}>
         {#if failed || notConfigured}
-          <div class="error-box">
+          <div class="error-box anim-fade-up">
             <p class="error-label">{failed ? "Could not reach server" : "Server not configured"}</p>
             <div class="error-actions">
               <button class="err-btn" onclick={() => onRetry?.()}>Retry</button>
@@ -455,14 +455,13 @@
   @keyframes spOut       { from { opacity:1; transform:scale(1) }     to { opacity:0; transform:scale(0.96) } }
   @keyframes logoBreathe { 0%,100% { transform:scale(1); filter:drop-shadow(0 0 0px rgba(255,255,255,0)) } 50% { transform:scale(1.04); filter:drop-shadow(0 0 18px rgba(255,255,255,0.12)) } }
   @keyframes hintFade    { 0%,100% { opacity:0.35 } 50% { opacity:0.7 } }
-  @keyframes errIn       { from { opacity:0; transform:translateY(4px) } to { opacity:1; transform:translateY(0) } }
   @keyframes pinShake    { 0%,100% { transform:translateX(0) } 20%,60% { transform:translateX(-6px) } 40%,80% { transform:translateX(6px) } }
 
   .logo-glow    { position: absolute; inset: -20px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); animation: logoBreathe 4s ease-in-out infinite; }
   .logo-breathe { animation: logoBreathe 4s ease-in-out infinite; }
   .hint         { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); letter-spacing: 0.22em; text-transform: uppercase; margin: 0; user-select: none; animation: hintFade 3.5s ease-in-out infinite; }
 
-  .error-box     { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 20px; border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--border-base); min-width: 200px; text-align: center; animation: errIn 0.25s cubic-bezier(0,0,0.2,1) both; }
+  .error-box     { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 20px; border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--border-base); min-width: 200px; text-align: center; }
   .error-label   { font-family: var(--font-ui); font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0.06em; margin: 0; }
   .error-actions { display: flex; gap: 6px; }
   .err-btn       { padding: 5px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-base); background: transparent; color: var(--text-muted); cursor: pointer; font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.04em; transition: border-color 0.15s, color 0.15s; }

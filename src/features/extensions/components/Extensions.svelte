@@ -1,16 +1,29 @@
 <script lang="ts">
-  import { untrack }     from "svelte";
-  import { CircleNotch, X, Check } from "phosphor-svelte";
+  import { untrack } from "svelte";
+  import { CircleNotch, X, Check, HardDrives } from "phosphor-svelte";
   import { gql }         from "@api/client";
   import { store, addToast } from "@store/state.svelte";
-  import { GET_EXTENSIONS, GET_SETTINGS } from "@api/queries";
+  import { GET_EXTENSIONS, GET_SETTINGS, GET_LOCAL_MANGA } from "@api/queries";
   import { SET_EXTENSION_REPOS, INSTALL_EXTERNAL_EXTENSION, FETCH_EXTENSIONS, UPDATE_EXTENSION } from "@api/mutations";
   import type { Extension } from "@types/index";
   import { matchesFilter, groupExtensions, validateUrl, type Filter, type Panel } from "../lib/extensionHelpers";
   import ExtensionFilters from "./ExtensionFilters.svelte";
   import ExtensionCard    from "./ExtensionCard.svelte";
 
+  const anims = $derived(store.settings.qolAnimations ?? true);
+  let tabsEl       = $state<HTMLDivElement | undefined>(undefined);
+  let tabIndicator = $state({ left: 0, width: 0 });
+
+  function updateIndicator() {
+    if (!tabsEl) return;
+    const active = tabsEl.querySelector<HTMLElement>(".tab.active");
+    if (!active) return;
+    const containerLeft = tabsEl.getBoundingClientRect().left;
+    tabIndicator = { left: active.getBoundingClientRect().left - containerLeft, width: active.offsetWidth };
+  }
+
   let extensions: Extension[] = $state([]);
+  let localMangaCount = $state(0);
   let loading      = $state(true);
   let refreshing   = $state(false);
   let filter       = $state<Filter>("installed");
@@ -19,6 +32,8 @@
   let working      = $state(new Set<string>());
   let expanded     = $state(new Set<string>());
   let panel        = $state<Panel>(null);
+
+  $effect(() => { filter; if (anims) requestAnimationFrame(() => requestAnimationFrame(updateIndicator)); });
 
   let externalUrl    = $state("");
   let installing     = $state(false);
@@ -34,6 +49,11 @@
   async function load() {
     const d = await gql<{ extensions: { nodes: Extension[] } }>(GET_EXTENSIONS).catch(console.error);
     if (d) extensions = d.extensions.nodes;
+  }
+
+  async function loadLocalManga() {
+    const d = await gql<{ mangas: { nodes: { id: number }[] } }>(GET_LOCAL_MANGA).catch(console.error);
+    if (d) localMangaCount = d.mangas.nodes.length;
   }
 
   async function fetchFromRepo() {
@@ -128,30 +148,44 @@
     expanded = next;
   }
 
-  function setFilter(f: Filter) { filter = f; langFilter = null; }
+  function setFilter(f: Filter) {
+    if (f === filter) return;
+    filter = f;
+    langFilter = null;
+  }
 
-  const filtered = $derived(extensions.filter((e) => {
+  const showLocal = $derived(
+    (filter === "installed" || filter === "all") &&
+    (search === "" || "local source".includes(search.toLowerCase()))
+  );
+
+  const allGroups = $derived(groupExtensions(extensions, store.settings.preferredExtensionLang));
+
+  const groups = $derived(allGroups.filter(({ primary, variants }) => {
+    const all = [primary, ...variants];
     const q = search.toLowerCase();
-    return (e.name.toLowerCase().includes(q) || e.lang.toLowerCase().includes(q))
-      && matchesFilter(e, filter)
-      && (langFilter === null || e.lang === langFilter);
+    const matchesSearch = all.some((e) => e.name.toLowerCase().includes(q) || e.lang.toLowerCase().includes(q));
+    const matchesTab    = all.some((e) => matchesFilter(e, filter));
+    const matchesLang   = langFilter === null || all.some((e) => e.lang === langFilter);
+    return matchesSearch && matchesTab && matchesLang;
   }));
 
   const availableLangs = $derived(
     [...new Set(extensions.filter((e) => matchesFilter(e, filter)).map((e) => e.lang))].sort()
   );
 
-  const groups      = $derived(groupExtensions(filtered, store.settings.preferredExtensionLang));
   const updateCount = $derived(extensions.filter((e) => e.hasUpdate).length);
 
-  $effect(() => { untrack(() => fetchFromRepo().finally(() => { loading = false; })); });
+  $effect(() => { untrack(() => { loadLocalManga(); fetchFromRepo().finally(() => { loading = false; }); }); });
 
   function focusOnMount(node: HTMLElement) { node.focus(); }
 </script>
 
-<div class="root">
+<div class="root anim-fade-in">
   <ExtensionFilters
     {filter} {search} {panel} {refreshing} {updateCount} {availableLangs} {langFilter}
+    {anims} {tabIndicator}
+    bind:tabsEl
     onFilter={setFilter}
     onSearch={(q) => search = q}
     onLang={(l) => langFilter = l}
@@ -160,7 +194,7 @@
   />
 
   {#if panel === "apk"}
-    <div class="ext-panel">
+    <div class="ext-panel anim-fade-in">
       <div class="panel-header">
         <span class="panel-title">Install from APK URL</span>
         <button class="icon-btn" onclick={() => panel = null}><X size={14} weight="light" /></button>
@@ -186,7 +220,7 @@
   {/if}
 
   {#if panel === "repos"}
-    <div class="ext-panel">
+    <div class="ext-panel anim-fade-in">
       <div class="panel-header">
         <span class="panel-title">Extension Repositories</span>
         <button class="icon-btn" onclick={() => panel = null}><X size={14} weight="light" /></button>
@@ -227,10 +261,18 @@
 
   {#if loading}
     <div class="empty"><CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
-  {:else if groups.length === 0}
-    <div class="empty">No extensions found.</div>
   {:else}
     <div class="list">
+      {#if showLocal}
+        <div class="local-row">
+          <div class="local-icon"><HardDrives size={18} weight="bold" /></div>
+          <div class="info">
+            <span class="name">Local Source</span>
+            <span class="meta">Built-in · {localMangaCount} {localMangaCount === 1 ? "manga" : "manga"}</span>
+          </div>
+          <span class="local-badge">Built-in</span>
+        </div>
+      {/if}
       {#each groups as { base, primary, variants }}
         <ExtensionCard
           {base} {primary} {variants} {working}
@@ -239,17 +281,20 @@
           onMutate={mutate}
         />
       {/each}
+      {#if !showLocal && groups.length === 0}
+        <div class="empty" style="flex:1">No extensions found.</div>
+      {/if}
     </div>
   {/if}
 </div>
 
 <style>
-  .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
+  .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
   .list { flex: 1; overflow-y: auto; padding: 0 var(--sp-4) var(--sp-4); display: flex; flex-direction: column; gap: 1px; }
   .empty { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
-  .ext-panel { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-6) var(--sp-3); flex-shrink: 0; animation: fadeIn 0.1s ease both; }
+  .ext-panel { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-6) var(--sp-3); flex-shrink: 0; }
   .panel-header { display: flex; align-items: center; justify-content: space-between; }
   .panel-title { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); }
   .panel-error { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-error); letter-spacing: var(--tracking-wide); padding: 0 2px; }
@@ -269,4 +314,11 @@
   .repo-url { flex: 1; font-size: var(--text-2xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .repo-remove { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .repo-remove:hover:not(:disabled) { color: var(--color-error); background: var(--bg-overlay); }
+  .local-row { display: flex; align-items: center; gap: var(--sp-3); padding: 8px var(--sp-3); border-radius: var(--radius-md); border: 1px solid transparent; transition: background var(--t-fast), border-color var(--t-fast); margin-bottom: 1px; }
+  .local-row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
+  .local-icon { width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--accent-muted); border: 1px solid var(--accent-dim); display: flex; align-items: center; justify-content: center; color: var(--accent-fg); flex-shrink: 0; }
+  .info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+  .name { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .local-badge { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); flex-shrink: 0; }
 </style>
