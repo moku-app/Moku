@@ -102,7 +102,7 @@
   .toast-info     .icon { color: var(--text-muted); }
   .toast-download .icon { color: var(--accent-fg); }
 
-  .body  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .body  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
   .title { font-size: var(--text-xs); font-family: var(--font-ui); color: var(--text-secondary); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub   { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

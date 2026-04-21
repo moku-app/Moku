@@ -61,7 +61,10 @@
     const d = await gql<{ fetchExtensions: { extensions: Extension[] } }>(FETCH_EXTENSIONS)
       .catch(console.error)
       .finally(() => refreshing = false);
-    if (d) extensions = d.fetchExtensions.extensions;
+    if (d) {
+      extensions = d.fetchExtensions.extensions;
+      addToast({ kind: "success", title: "Extensions refreshed", body: "Extension list is up to date" });
+    }
   }
 
   async function loadRepos() {
@@ -73,11 +76,15 @@
     finally { reposLoading = false; }
   }
 
-  async function saveRepos(updated: string[]) {
+  async function saveRepos(updated: string[], intent: "add" | "remove") {
     savingRepos = true;
     try {
       const d = await gql<{ setSettings: { settings: { extensionRepos: string[] } } }>(SET_EXTENSION_REPOS, { repos: updated });
       repos = d.setSettings.settings.extensionRepos;
+      addToast(intent === "add"
+        ? { kind: "success", title: "Repo added",   body: updated[updated.length - 1] }
+        : { kind: "info",    title: "Repo removed", body: repos.find(r => !updated.includes(r)) ?? "" }
+      );
     } catch (e: any) {
       repoError = e instanceof Error ? e.message : "Failed to save";
     } finally { savingRepos = false; }
@@ -89,10 +96,10 @@
     if (err) { repoError = err; return; }
     if (repos.includes(url)) { repoError = "Repo already added"; return; }
     repoError = null; newRepoUrl = "";
-    saveRepos([...repos, url]);
+    saveRepos([...repos, url], "add");
   }
 
-  function removeRepo(url: string) { saveRepos(repos.filter((r) => r !== url)); }
+  function removeRepo(url: string) { saveRepos(repos.filter((r) => r !== url), "remove"); }
 
   async function mutate(pkgName: string, op: "install" | "update" | "uninstall") {
     working = new Set(working).add(pkgName);
@@ -176,7 +183,23 @@
 
   const updateCount = $derived(extensions.filter((e) => e.hasUpdate).length);
 
-  $effect(() => { untrack(() => { loadLocalManga(); fetchFromRepo().finally(() => { loading = false; }); }); });
+  $effect(() => {
+    untrack(async () => {
+      loadLocalManga();
+      await load();
+      loading = false;
+      fetchFromRepo();
+    });
+  });
+
+  $effect(() => {
+    if (!panel) return;
+    function onMouseDown(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest(".ext-panel, .icon-btn")) panel = null;
+    }
+    document.addEventListener("mousedown", onMouseDown, true);
+    return () => document.removeEventListener("mousedown", onMouseDown, true);
+  });
 
   function focusOnMount(node: HTMLElement) { node.focus(); }
 </script>
@@ -194,10 +217,9 @@
   />
 
   {#if panel === "apk"}
-    <div class="ext-panel anim-fade-in">
+    <div class="ext-panel" class:ext-panel-anim={anims}>
       <div class="panel-header">
-        <span class="panel-title">Install from APK URL</span>
-        <button class="icon-btn" onclick={() => panel = null}><X size={14} weight="light" /></button>
+        <span class="panel-title-wrap"><span class="panel-title">Install from APK URL</span></span>
       </div>
       <div class="ext-row">
         <input
@@ -220,10 +242,9 @@
   {/if}
 
   {#if panel === "repos"}
-    <div class="ext-panel anim-fade-in">
+    <div class="ext-panel" class:ext-panel-anim={anims}>
       <div class="panel-header">
-        <span class="panel-title">Extension Repositories</span>
-        <button class="icon-btn" onclick={() => panel = null}><X size={14} weight="light" /></button>
+        <span class="panel-title-wrap"><span class="panel-title">Extension Repositories</span></span>
       </div>
       {#if reposLoading}
         <div class="repo-loading"><CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
@@ -242,7 +263,7 @@
             {/each}
           </div>
         {/if}
-        <div class="ext-row" style="margin-top:var(--sp-2)">
+        <div class="ext-row">
           <input
             class="ext-input" class:error={repoError}
             placeholder="https://example.com/index.min.json"
@@ -275,7 +296,7 @@
       {/if}
       {#each groups as { base, primary, variants }}
         <ExtensionCard
-          {base} {primary} {variants} {working}
+          {base} {primary} {variants} {working} {anims}
           expanded={expanded.has(base)}
           onToggle={toggleExpand}
           onMutate={mutate}
@@ -294,26 +315,29 @@
   .empty { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
-  .ext-panel { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-6) var(--sp-3); flex-shrink: 0; }
-  .panel-header { display: flex; align-items: center; justify-content: space-between; }
-  .panel-title { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); }
+  .ext-panel { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-6); flex-shrink: 0; border-bottom: 1px solid var(--border-dim); background: var(--bg-raised); opacity: 1; }
+  .ext-panel-anim { animation: panelSlide 0.18s cubic-bezier(0.16,1,0.3,1) both; }
+  .panel-header { display: flex; align-items: center; padding-bottom: var(--sp-1); }
+  .panel-title-wrap { display: inline-flex; align-items: center; background: var(--bg-overlay); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 2px 8px; }
+  .panel-title { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-muted); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .panel-error { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-error); letter-spacing: var(--tracking-wide); padding: 0 2px; }
   .ext-row { display: flex; gap: var(--sp-2); }
-  .ext-input { flex: 1; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 6px var(--sp-3); color: var(--text-primary); font-size: var(--text-sm); outline: none; transition: border-color var(--t-base); }
+  .ext-input { flex: 1; background: var(--bg-base); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 6px var(--sp-3); color: var(--text-primary); font-size: var(--text-sm); outline: none; transition: border-color var(--t-base); }
   .ext-input:focus { border-color: var(--border-focus); }
   .ext-input:disabled { opacity: 0.5; }
   .ext-input.error { border-color: var(--color-error) !important; }
   .install-btn { display: flex; align-items: center; gap: var(--sp-1); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 6px 14px; border-radius: var(--radius-md); background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); cursor: pointer; flex-shrink: 0; transition: filter var(--t-base), opacity var(--t-base); white-space: nowrap; }
-  .install-btn:hover:not(:disabled) { filter: brightness(1.1); }
+  .install-btn:hover:not(:disabled) { filter: brightness(1.15); }
   .install-btn:disabled { opacity: 0.5; cursor: default; }
   .install-btn.success { background: rgba(107,143,107,0.2); border-color: var(--accent-fg); color: var(--accent-fg); }
-  .repo-loading { display: flex; align-items: center; justify-content: center; padding: var(--sp-3); }
+  .repo-loading { display: flex; align-items: center; justify-content: center; padding: var(--sp-2); }
   .repo-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-1) 2px; }
-  .repo-list { display: flex; flex-direction: column; gap: 2px; }
-  .repo-row { display: flex; align-items: center; gap: var(--sp-2); padding: 5px var(--sp-2); border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); }
-  .repo-url { flex: 1; font-size: var(--text-2xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .repo-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--sp-2); }
+  .repo-row { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-3); border-radius: var(--radius-md); background: var(--bg-base); border: 1px solid var(--border-dim); }
+  .repo-url { flex: 1; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: var(--tracking-wide); }
   .repo-remove { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .repo-remove:hover:not(:disabled) { color: var(--color-error); background: var(--bg-overlay); }
+  @keyframes panelSlide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
   .local-row { display: flex; align-items: center; gap: var(--sp-3); padding: 8px var(--sp-3); border-radius: var(--radius-md); border: 1px solid transparent; transition: background var(--t-fast), border-color var(--t-fast); margin-bottom: 1px; }
   .local-row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
   .local-icon { width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--accent-muted); border: 1px solid var(--accent-dim); display: flex; align-items: center; justify-content: center; color: var(--accent-fg); flex-shrink: 0; }

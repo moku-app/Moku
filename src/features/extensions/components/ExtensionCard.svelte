@@ -9,11 +9,12 @@
     variants: Extension[];
     expanded: boolean;
     working:  Set<string>;
+    anims:    boolean;
     onToggle: (base: string) => void;
     onMutate: (pkgName: string, op: "install" | "update" | "uninstall") => void;
   }
 
-  let { base, primary, variants, expanded, working, onToggle, onMutate }: Props = $props();
+  let { base, primary, variants, expanded, working, anims, onToggle, onMutate }: Props = $props();
 
   const hasVariants = $derived(variants.length > 0);
 </script>
@@ -56,7 +57,7 @@
   </div>
 
   {#if expanded && hasVariants}
-    <div class="variants">
+    <div class="variants" class:variants-anim={anims}>
       {#each variants as v}
         <div class="variant-row">
           <span class="lang-tag">{v.lang.toUpperCase()}</span>
@@ -98,7 +99,9 @@
   .expand-btn { display: flex; align-items: center; gap: 3px; padding: 4px 6px; border-radius: var(--radius-sm); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .expand-btn:hover { color: var(--text-muted); background: var(--bg-overlay); }
   .expand-count { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); }
-  .variants { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 2px calc(32px + var(--sp-3) + var(--sp-3)); padding-left: var(--sp-3); border-left: 1px solid var(--border-dim); animation: fadeIn 0.1s ease both; }
+  .variants { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 2px calc(32px + var(--sp-3) + var(--sp-3)); padding-left: var(--sp-3); border-left: 1px solid var(--border-dim); }
+  .variants-anim { animation: slideDown 0.18s cubic-bezier(0.16,1,0.3,1) both; }
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
   .variant-row { display: flex; align-items: center; gap: var(--sp-2); padding: 5px var(--sp-2); border-radius: var(--radius-md); transition: background var(--t-fast); }
   .variant-row:hover { background: var(--bg-raised); }
   .variant-name { flex: 1; font-size: var(--text-sm); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
