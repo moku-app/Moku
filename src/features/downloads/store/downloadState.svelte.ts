@@ -5,8 +5,8 @@ import {
   DEQUEUE_DOWNLOAD, DEQUEUE_CHAPTERS_DOWNLOAD,
   ENQUEUE_DOWNLOAD, REORDER_DOWNLOAD,
 } from "@api/mutations";
-import { setActiveDownloads } from "@store/state.svelte";
-import type { DownloadStatus } from "@types/index";
+import { addToast, setActiveDownloads } from "@store/state.svelte";
+import type { DownloadStatus, DownloadQueueItem } from "@types/index";
 import {
   toActiveDownloads, optimisticRemove, optimisticRemoveMany,
   isRunning, getErrored, calcSpeed, estimateEta,
@@ -24,12 +24,34 @@ class DownloadStore {
   pagesPerSec:  number | null         = $state(null);
   eta:          number | null         = $state(null);
 
-  private lastSample: SpeedSample | null = null;
+  toastsEnabled = $state(true);
+
+  private lastSample: SpeedSample | null  = null;
+  private prevQueue:  DownloadQueueItem[] = [];
 
   get queue()      { return this.status?.queue ?? []; }
   get isRunning()  { return isRunning(this.status?.state); }
   get erroredIds() { return new Set(getErrored(this.queue).map((i) => i.chapter.id)); }
   get hasErrored() { return this.erroredIds.size > 0; }
+
+  toggleToasts() { this.toastsEnabled = !this.toastsEnabled; }
+
+  detectTransitions(next: DownloadQueueItem[]) {
+    if (!this.toastsEnabled) return;
+    const nextMap = new Map(next.map(i => [i.chapter.id, i]));
+    for (const item of this.prevQueue) {
+      if (item.state !== "DOWNLOADING") continue;
+      const nextItem = nextMap.get(item.chapter.id);
+      const manga    = item.chapter.manga;
+      const label    = manga ? `${manga.title} — ${item.chapter.name}` : item.chapter.name;
+      if (!nextItem) {
+        addToast({ kind: "download", title: "Chapter downloaded", body: label, duration: 4000 });
+      } else if (nextItem.state === "ERROR") {
+        addToast({ kind: "error", title: "Download failed", body: label, duration: 5000 });
+      }
+    }
+    this.prevQueue = next.slice();
+  }
 
   applyStatus(ds: DownloadStatus) {
     this.status = ds;
@@ -40,9 +62,9 @@ class DownloadStore {
   private updateSpeed(ds: DownloadStatus) {
     const active = ds.queue[0];
     if (!active || active.state !== "DOWNLOADING") {
-      this.lastSample = null;
+      this.lastSample  = null;
       this.pagesPerSec = null;
-      this.eta = null;
+      this.eta         = null;
       return;
     }
     const sample: SpeedSample = {
@@ -54,7 +76,7 @@ class DownloadStore {
     this.lastSample = sample;
     if (speed !== null) {
       this.pagesPerSec = speed;
-      this.eta = estimateEta(speed, ds.queue);
+      this.eta         = estimateEta(speed, ds.queue);
     }
   }
 
@@ -145,7 +167,7 @@ class DownloadStore {
   async retrySelected() {
     if (this.batchWorking || this.selected.size === 0) return;
     this.batchWorking = true;
-    const ids = [...this.selected].filter((id) => this.erroredIds.has(id));
+    const ids     = [...this.selected].filter((id) => this.erroredIds.has(id));
     this.selected = new Set();
     try {
       if (ids.length > 0) {
@@ -173,22 +195,18 @@ class DownloadStore {
     } catch (e) { console.error(e); this.poll(); }
   }
 
-  selectOnly(chapterId: number) {
-    this.selected = new Set([chapterId]);
-  }
-
   async reorderSelected(direction: "up" | "down") {
     if (this.batchWorking || this.selected.size === 0) return;
     this.batchWorking = true;
 
-    const queue = [...this.queue];
+    const queue           = [...this.queue];
     const selectedIndices = queue
       .map((item, i) => ({ id: item.chapter.id, i }))
       .filter(({ id }) => this.selected.has(id))
       .map(({ i }) => i)
       .sort((a, b) => direction === "up" ? a - b : b - a);
 
-    if (direction === "up"  && selectedIndices[0] === 0) { this.batchWorking = false; return; }
+    if (direction === "up"   && selectedIndices[0] === 0)                { this.batchWorking = false; return; }
     if (direction === "down" && selectedIndices[0] === queue.length - 1) { this.batchWorking = false; return; }
 
     const newQueue = [...queue];
@@ -213,6 +231,7 @@ class DownloadStore {
     finally { this.batchWorking = false; }
   }
 
+  selectOnly(chapterId: number)   { this.selected = new Set([chapterId]); }
   toggleSelect(chapterId: number) {
     const next = new Set(this.selected);
     if (next.has(chapterId)) next.delete(chapterId);
@@ -221,22 +240,17 @@ class DownloadStore {
   }
 
   selectRange(fromId: number, toId: number) {
-    const ids = this.queue.map((i) => i.chapter.id);
-    const a = ids.indexOf(fromId), b = ids.indexOf(toId);
+    const ids      = this.queue.map((i) => i.chapter.id);
+    const a        = ids.indexOf(fromId), b = ids.indexOf(toId);
     if (a === -1 || b === -1) return;
     const [lo, hi] = a < b ? [a, b] : [b, a];
-    const next = new Set(this.selected);
+    const next     = new Set(this.selected);
     for (let i = lo; i <= hi; i++) next.add(ids[i]);
     this.selected = next;
   }
 
-  selectAll() {
-    this.selected = new Set(this.queue.map((i) => i.chapter.id));
-  }
-
-  clearSelection() {
-    this.selected = new Set();
-  }
+  selectAll()      { this.selected = new Set(this.queue.map((i) => i.chapter.id)); }
+  clearSelection() { this.selected = new Set(); }
 }
 
 export const downloadStore = new DownloadStore();

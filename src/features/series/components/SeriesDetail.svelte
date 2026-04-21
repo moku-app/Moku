@@ -2,7 +2,10 @@
   import { onMount, untrack }  from "svelte";
   import { gql }               from "@api/client";
   import Thumbnail       from "@shared/manga/Thumbnail.svelte";
-  import { X } from "phosphor-svelte";
+  import {
+    X, CheckCircle, Circle, ArrowFatLinesUp, ArrowFatLinesDown,
+    ArrowFatLineUp, ArrowFatLineDown, Download, Trash, DownloadSimple,
+  } from "phosphor-svelte";
   import { GET_MANGA, GET_ALL_MANGA, GET_CATEGORIES } from "@api/queries/manga";
   import { GET_CHAPTERS } from "@api/queries/chapters";
   import { UPDATE_MANGA, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES } from "@api/mutations/manga";
@@ -385,21 +388,20 @@
   }
 
   function buildCtxItems(ch: Chapter, idx: number): MenuEntry[] {
-    const { CheckCircle, Circle } = { CheckCircle: null as any, Circle: null as any };
     const above = sortedChapters.slice(0, idx + 1), below = sortedChapters.slice(idx), last = sortedChapters.length - 1;
     return [
-      { label: ch.isRead ? "Mark as unread" : "Mark as read", onClick: () => markRead(ch.id, !ch.isRead) },
+      { label: ch.isRead ? "Mark as unread" : "Mark as read", icon: ch.isRead ? Circle : CheckCircle, onClick: () => markRead(ch.id, !ch.isRead) },
       { separator: true },
-      { label: "Mark above as read",   onClick: () => markAboveRead(idx),   disabled: above.filter(c => !c.isRead).length === 0 },
-      { label: "Mark above as unread", onClick: () => markAboveUnread(idx), disabled: above.filter(c => c.isRead).length === 0 },
+      { label: "Mark above as read",   icon: ArrowFatLinesUp,   onClick: () => markAboveRead(idx),   disabled: above.filter(c => !c.isRead).length === 0 },
+      { label: "Mark above as unread", icon: ArrowFatLineUp,    onClick: () => markAboveUnread(idx), disabled: above.filter(c => c.isRead).length === 0 },
       { separator: true },
-      { label: "Mark below as read",   onClick: () => markBelowRead(idx),   disabled: idx === last || below.filter(c => !c.isRead).length === 0 },
-      { label: "Mark below as unread", onClick: () => markBelowUnread(idx), disabled: idx === last || below.filter(c => c.isRead).length === 0 },
+      { label: "Mark below as read",   icon: ArrowFatLinesDown, onClick: () => markBelowRead(idx),   disabled: idx === last || below.filter(c => !c.isRead).length === 0 },
+      { label: "Mark below as unread", icon: ArrowFatLineDown,  onClick: () => markBelowUnread(idx), disabled: idx === last || below.filter(c => c.isRead).length === 0 },
       { separator: true },
-      { label: ch.isDownloaded ? "Delete download" : "Download", danger: ch.isDownloaded, onClick: () => ch.isDownloaded ? deleteDownloaded(ch.id) : gql(ENQUEUE_DOWNLOAD, { chapterId: ch.id }).catch(console.error) },
+      { label: ch.isDownloaded ? "Delete download" : "Download", icon: ch.isDownloaded ? Trash : Download, danger: ch.isDownloaded, onClick: () => ch.isDownloaded ? deleteDownloaded(ch.id) : gql(ENQUEUE_DOWNLOAD, { chapterId: ch.id }).catch(console.error) },
       { separator: true },
-      { label: "Download next 5 from here", onClick: () => enqueueMultiple(sortedChapters.slice(idx, idx + 5).filter(c => !c.isDownloaded).map(c => c.id)) },
-      { label: "Download all from here",    onClick: () => enqueueMultiple(sortedChapters.slice(idx).filter(c => !c.isDownloaded).map(c => c.id)) },
+      { label: "Download next 5 from here", icon: DownloadSimple, onClick: () => enqueueMultiple(sortedChapters.slice(idx, idx + 5).filter(c => !c.isDownloaded).map(c => c.id)) },
+      { label: "Download all from here",    icon: DownloadSimple, onClick: () => enqueueMultiple(sortedChapters.slice(idx).filter(c => !c.isDownloaded).map(c => c.id)) },
     ];
   }
 
@@ -669,7 +671,6 @@
 {/if}
 
 <style>
-  /* ─── Root layout ─────────────────────────────────────────── */
   .root {
     display: flex;
     height: 100%;
@@ -677,10 +678,8 @@
     animation: fadeIn 0.14s ease both;
   }
 
-  /* ─── List area wrapper ───────────────────────────────────── */
   .list-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-  /* ─── Link picker modal ───────────────────────────────────── */
   .link-backdrop {
     position: fixed;
     inset: 0;
@@ -757,7 +756,6 @@
   }
   .link-row-linked .link-status { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
-  /* ─── Markers panel overlay ───────────────────────────────── */
   .markers-panel-overlay {
     position: fixed; inset: 0; z-index: var(--z-settings);
     display: flex; align-items: stretch; justify-content: flex-start;
@@ -771,7 +769,6 @@
     animation: drawerIn 0.18s cubic-bezier(0.16,1,0.3,1) both;
   }
 
-  /* ─── Animations ──────────────────────────────────────────── */
   @keyframes fadeIn   { from { opacity: 0 }                         to { opacity: 1 } }
   @keyframes scaleIn  { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
   @keyframes drawerIn { from { opacity: 0; transform: translateX(-12px) } to { opacity: 1; transform: translateX(0) } }

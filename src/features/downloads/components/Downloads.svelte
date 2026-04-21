@@ -1,13 +1,12 @@
 <script lang="ts">
-  import { Play, Pause, Trash, CircleNotch, ArrowClockwise } from "phosphor-svelte";
+  import { Play, Pause, Trash, CircleNotch, ArrowClockwise, Bell, BellSlash } from "phosphor-svelte";
   import DownloadQueue from "./DownloadQueue.svelte";
   import { downloadStore } from "../store/downloadState.svelte";
   import { formatEta } from "../lib/downloadQueue";
+  import { onMount } from "svelte";
 
-  $effect(() => {
+  onMount(() => {
     downloadStore.poll();
-    const interval = setInterval(() => downloadStore.poll(), 2000);
-    return () => clearInterval(interval);
   });
 
   let selectAnchor = $state<number | null>(null);
@@ -60,6 +59,18 @@
           {/if}
         </button>
       {/if}
+      <button
+        class="icon-btn"
+        class:active={downloadStore.toastsEnabled}
+        onclick={() => downloadStore.toggleToasts()}
+        title={downloadStore.toastsEnabled ? "Mute download notifications" : "Unmute download notifications"}
+      >
+        {#if downloadStore.toastsEnabled}
+          <Bell size={14} weight="regular" />
+        {:else}
+          <BellSlash size={14} weight="regular" />
+        {/if}
+      </button>
       <button
         class="icon-btn"
         class:loading={downloadStore.togglingPlay}
@@ -173,6 +184,7 @@
   .icon-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
   .icon-btn.loading { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
+  .icon-btn.active  { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
 
   .status-bar {
     display: flex;

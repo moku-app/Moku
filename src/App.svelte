@@ -5,12 +5,12 @@
   import { getCurrentWindow }  from "@tauri-apps/api/window";
   import { platform }          from "@tauri-apps/plugin-os";
   import { store, setActiveDownloads } from "@store/state.svelte";
+  import { downloadStore } from "@features/downloads/store/downloadState.svelte";
   import { boot, startProbe, stopProbe, retryBoot, bypassBoot } from "@store/boot.svelte";
   import { initRpc, setIdle, clearReading, destroyRpc } from "@store/discord";
   import { applyTheme }        from "@core/theme";
   import { applyZoom, mountZoomKey, mountIdleDetection } from "@core/ui";
   import { checkForUpdateSilently } from "@core/updater";
-  import { mountDownloadPoller }    from "@features/downloads/lib/downloadPoller";
   import Layout       from "@shared/chrome/Layout.svelte";
   import Reader       from "@features/reader/components/Reader.svelte";
   import Settings     from "@features/settings/components/Settings.svelte";
@@ -72,6 +72,11 @@
     if (!store.activeChapter && store.settings.discordRpc) setIdle();
   });
 
+  $effect(() => {
+    const next = downloadStore.queue.slice();
+    downloadStore.detectTransitions(next);
+  });
+
   onMount(async () => {
     document.addEventListener("contextmenu", e => e.preventDefault());
     (window as any).__mokuShowSplash = () => { devSplash = true; };
@@ -102,15 +107,12 @@
       e => setActiveDownloads(e.payload),
     );
 
-    let unmountPoller: (() => void) | undefined;
-    $effect(() => {
-      if (!appReady) return;
-      mountDownloadPoller().then(cleanup => { unmountPoller = cleanup; });
-      return () => unmountPoller?.();
-    });
+    await downloadStore.poll();
+    const dlInterval = setInterval(() => downloadStore.poll(), 2000);
 
     return () => {
       stopProbe();
+      clearInterval(dlInterval);
       unlistenResize();
       unlistenScale();
       unlistenDownload();
