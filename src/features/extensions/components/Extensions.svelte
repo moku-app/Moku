@@ -18,8 +18,7 @@
     if (!tabsEl) return;
     const active = tabsEl.querySelector<HTMLElement>(".tab.active");
     if (!active) return;
-    const containerLeft = tabsEl.getBoundingClientRect().left;
-    tabIndicator = { left: active.getBoundingClientRect().left - containerLeft, width: active.offsetWidth };
+    tabIndicator = { left: active.offsetLeft, width: active.offsetWidth };
   }
 
   let extensions: Extension[] = $state([]);
@@ -33,7 +32,7 @@
   let expanded     = $state(new Set<string>());
   let panel        = $state<Panel>(null);
 
-  $effect(() => { filter; if (anims) requestAnimationFrame(() => requestAnimationFrame(updateIndicator)); });
+  $effect(() => { filter; extensions; if (anims) requestAnimationFrame(() => requestAnimationFrame(updateIndicator)); });
 
   let externalUrl    = $state("");
   let installing     = $state(false);

@@ -166,7 +166,7 @@
     if (!store.categories.some(c => c.id === id)) untrack(() => { store.libraryFilter = "library"; });
   });
   $effect(() => { tab; untrack(() => exitSelectMode()); });
-  $effect(() => { tab; setTimeout(updateTabIndicator); });
+  $effect(() => { tab; counts; requestAnimationFrame(updateTabIndicator); });
 
   let prevChapterId: number | null = null;
   $effect(() => {
@@ -179,9 +179,7 @@
     if (!tabsEl) return;
     const active = tabsEl.querySelector<HTMLElement>(".tab.active");
     if (!active) return;
-    const parent = tabsEl.getBoundingClientRect();
-    const rect   = active.getBoundingClientRect();
-    tabIndicator = { left: rect.left - parent.left, width: rect.width };
+    tabIndicator = { left: active.offsetLeft, width: active.offsetWidth };
   }
 
   function enterSelectMode(id?: number) { selectMode = true; if (id !== undefined) selectedIds = new Set([id]); }
@@ -459,7 +457,7 @@
 
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("mousedown", onDocMouseDown, true);
-    updateTabIndicator();
+    requestAnimationFrame(updateTabIndicator);
 
     return () => {
       ro.disconnect(); unsub();

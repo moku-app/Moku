@@ -202,8 +202,8 @@
   .tab-slide-indicator { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-sm); background: var(--accent-muted); border: 1px solid var(--accent-dim); pointer-events: none; z-index: 0; transition: left 0.22s cubic-bezier(0.16,1,0.3,1), width 0.22s cubic-bezier(0.16,1,0.3,1); }
   .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: grab; }
   .tab:hover { color: var(--text-muted); }
-  .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); }
-  .tabs-anims .tab.active { background: transparent; border-color: transparent; }
+  .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid transparent; }
+  .tabs-anims .tab.active { background: transparent; }
   .tab-dragging { opacity: 0.4; cursor: grabbing; }
   .tab-drop-target { background: var(--accent-muted) !important; color: var(--accent-fg) !important; outline: 1px dashed var(--accent); }
   .tab-insert-bar { width: 2px; height: 22px; background: var(--accent); border-radius: 2px; flex-shrink: 0; box-shadow: 0 0 6px var(--accent); pointer-events: none; }

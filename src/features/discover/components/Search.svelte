@@ -30,17 +30,10 @@
     if (!tabsEl) return;
     const active = tabsEl.querySelector<HTMLElement>(".tab.tabActive");
     if (!active) return;
-    const containerLeft = tabsEl.getBoundingClientRect().left;
-    tabIndicator = {
-      left:  active.getBoundingClientRect().left - containerLeft,
-      width: active.offsetWidth,
-    };
+    tabIndicator = { left: active.offsetLeft, width: active.offsetWidth };
   }
 
-  $effect(() => {
-    tab; // reactive on tab change
-    if (anims) requestAnimationFrame(updateIndicator);
-  });
+  $effect(() => { tab; if (anims) requestAnimationFrame(() => requestAnimationFrame(updateIndicator)); });
 
   const SEARCH_PAGES         = 3;
   const SEARCH_LIMIT         = 200;
