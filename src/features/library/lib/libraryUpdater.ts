@@ -4,8 +4,8 @@ import { UPDATE_LIBRARY } from "@api/mutations/manga";
 import { GET_RECENTLY_UPDATED } from "@api/queries/chapters";
 import type { LibraryUpdateEntry } from "@store/state.svelte";
 
-const POLL_INTERVAL_MS  = 3000;
-const POLL_INITIAL_MS   = 2000;
+const POLL_INTERVAL_MS = 3000;
+const POLL_INITIAL_MS  = 2000;
 
 export interface UpdateProgress {
   finished: number;
@@ -64,7 +64,13 @@ export function startLibraryUpdate(callbacks: LibraryUpdaterCallbacks): () => vo
 
           if (!jobsInfo.isRunning && seenWork) {
             const recent = await gql<{
-              chapters: { nodes: { mangaId: number; mangaTitle: string; thumbnailUrl: string; fetchedAt: string }[] }
+              chapters: {
+                nodes: {
+                  mangaId:  number;
+                  fetchedAt: string;
+                  manga: { id: number; title: string; thumbnailUrl: string; inLibrary: boolean };
+                }[]
+              }
             }>(GET_RECENTLY_UPDATED, {}).catch(() => ({ chapters: { nodes: [] } }));
 
             if (cancelled) return;
@@ -79,8 +85,8 @@ export function startLibraryUpdate(callbacks: LibraryUpdaterCallbacks): () => vo
               } else {
                 byManga.set(ch.mangaId, {
                   mangaId:      ch.mangaId,
-                  mangaTitle:   ch.mangaTitle,
-                  thumbnailUrl: ch.thumbnailUrl,
+                  mangaTitle:   ch.manga.title,
+                  thumbnailUrl: ch.manga.thumbnailUrl,
                   newChapters:  1,
                   checkedAt:    Date.now(),
                 });

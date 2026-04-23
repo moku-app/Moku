@@ -1,5 +1,9 @@
 Major Revisions:
  - Moku-Share to Easily Migrate/Share Manga (Investigate Usecase/Feasibility)
+   - Moku-Share allows exporting of Manga
+      - Compressed Format (Storage)
+      - Import as Local-Source
+         - Takes existing Local-Source or Creates Own
 
 Minor Revisions:
  - Investigate feasibility of Multi-Page Screenshot (Reader)
@@ -22,25 +26,9 @@ In-Progress:
  - Add Flathub Support (Pending Video)
 
  - QOL Animations & Revamps
-   - Extensions QOL Animations
-      - Folders Slide
-      - Dropdown Formatting (Repositories, Etc)
-   - Extensions Revamps
-      - Fix Pill-Shaped Language Filter
-      - Fix ALL ALL EN Tag Issue
-   - Search QOL Animations
-      - Languages Dropdown Animations
-   - Search Revamps
-      - Custom Language Selector Modal
-      - Change Tab Selector to match Extensions & Library Folders (Design)
-      - Filter Genre should Filter Tags as well
    - Tracking Revamp
       - Completely Revamp Tracking
 
- - Fix ALl Folder Tabs (Works in Dev, not Prod) (TESTING)
-   - Extensions
-   - Library
-   - Search
 
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
@@ -53,6 +41,3 @@ In-Progress:
 
 
 Testing Bugs:
- - Reader Zoom does not work (Dropdown Slider, Value Adjustment); Goes to NaN
- - Fix Library Folders (Uneven Padding + Bleed into Other Folders); Appears Constraints are Off
- - 
