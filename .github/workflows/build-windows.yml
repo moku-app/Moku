@@ -155,8 +155,12 @@ jobs:
           tagName: v${{ github.event.inputs.version }}
           releaseName: Moku v${{ github.event.inputs.version }}
           releaseBody: |
-            Windows installer for Moku v${{ github.event.inputs.version }}.
-            Download the `.exe` file below to install or update.
+            Moku v${{ github.event.inputs.version }}
+
+            **Windows:** Download `Moku_${{ github.event.inputs.version }}_x64-setup.exe`
+            **macOS arm64:** Download `moku-macos-arm64-${{ github.event.inputs.version }}.dmg`
+            **macOS x64:** Download `moku-macos-x64-${{ github.event.inputs.version }}.dmg`
+            **Linux:** Download `moku.flatpak`
           releaseDraft: true
           prerelease: false
           args: --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.conf.json

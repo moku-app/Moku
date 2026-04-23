@@ -7,6 +7,9 @@ on:
         description: "Version to build (e.g. 0.4.0)"
         required: true
 
+permissions:
+  contents: write
+
 jobs:
   frontend:
     name: Build frontend
@@ -40,9 +43,6 @@ jobs:
     name: Tauri (macOS)
     needs: frontend
     runs-on: macos-latest
-    permissions:
-      contents: write
-
     steps:
       - uses: actions/checkout@v4
 
@@ -138,7 +138,6 @@ jobs:
         run: |
           sed -i '' 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
-      # ── aarch64 build ──────────────────────────────────────────────────────
       - name: Swap bundle for aarch64
         run: |
           rm -rf src-tauri/binaries/suwayomi-bundle
@@ -148,16 +147,8 @@ jobs:
       - name: Build Tauri app (aarch64)
         run: pnpm tauri build --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
         env:
-          # Ad-hoc signing ("-") ships without a Developer ID.
-          # Gatekeeper will quarantine the app on other Macs — users must run:
-          #   xattr -rd com.apple.quarantine Moku.app
-          # To fix this properly, set APPLE_SIGNING_IDENTITY to your
-          # "Developer ID Application: ..." cert name and add
-          # APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_ID /
-          # APPLE_TEAM_ID / APPLE_APP_SPECIFIC_PASSWORD secrets for notarisation.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
 
-      # ── x86_64 build ───────────────────────────────────────────────────────
       - name: Swap bundle for x86_64
         run: |
           rm -rf src-tauri/binaries/suwayomi-bundle
@@ -169,17 +160,35 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
 
-      # ── upload artifacts ───────────────────────────────────────────────────
-      - name: Upload arm64 .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-macos-arm64-${{ github.event.inputs.version }}
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-          retention-days: 7
+      - name: Upload macOS artifacts to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # Wait for the Windows workflow to have created the draft release
+          for i in $(seq 1 12); do
+            RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN"               "https://api.github.com/repos/Youwes09/Moku/releases"               | jq -r '.[] | select(.tag_name == "v'"$VERSION"'") | .id' | head -1)
+            if [ -n "$RELEASE_ID" ]; then break; fi
+            echo "Waiting for release to exist... attempt $i"
+            sleep 15
+          done
 
-      - name: Upload x64 .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-macos-x64-${{ github.event.inputs.version }}
-          path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-          retention-days: 7
+          if [ -z "$RELEASE_ID" ]; then
+            echo "ERROR: Could not find release for v$VERSION after waiting"
+            exit 1
+          fi
+
+          echo "Found release ID: $RELEASE_ID"
+
+          upload_asset() {
+            local file="$1"
+            local name="$2"
+            echo "Uploading $name..."
+            curl -s -X POST               -H "Authorization: Bearer $GITHUB_TOKEN"               -H "Content-Type: application/octet-stream"               --data-binary @"$file"               "https://uploads.github.com/repos/Youwes09/Moku/releases/$RELEASE_ID/assets?name=$name"
+          }
+
+          ARM64_DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          X64_DMG=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+
+          [ -n "$ARM64_DMG" ] && upload_asset "$ARM64_DMG" "moku-macos-arm64-${VERSION}.dmg"
+          [ -n "$X64_DMG"   ] && upload_asset "$X64_DMG"   "moku-macos-x64-${VERSION}.dmg"
