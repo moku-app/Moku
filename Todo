@@ -45,14 +45,8 @@ In-Progress:
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
 
-- Fix Home Layout & Scaling
-   - Layout constrains UI, Hero-Card Disappears?
-   - Home Layout itself is currently off.
-   - Add Updates Substitute, Derived from One Source + Genre Tags (Check Library for Tags)
-   - ActivityHeatmap needs Proper Constraints for Month Namescd
-
 - MacOS Fixes
-   - Revamp Server-State Check (MacOS does not pick up)
+   - Revamp Server-State Check (MacOS does not pick up) (TESTING)
    - Check Moku Sidebar Icon (Looks ugly on MacOS)
       - Icon appears as a Square
       - Icon appears to have Green Underglow?

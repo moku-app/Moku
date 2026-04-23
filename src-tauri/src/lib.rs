@@ -634,30 +634,58 @@ async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
 
 #[tauri::command]
 #[allow(unused_variables)]
-async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String> {
+async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     return Err("Native install is Windows-only; open the GitHub release page instead.".into());
 
     #[cfg(target_os = "windows")]
     {
-        use tauri_plugin_updater::UpdaterExt;
+        use tauri_plugin_http::reqwest;
+        use std::io::Write;
 
-        let updater = app.updater().map_err(|e| e.to_string())?;
-        let update  = updater.check().await.map_err(|e| e.to_string())?;
+        let client = reqwest::Client::builder()
+            .user_agent("Moku")
+            .build()
+            .map_err(|e| e.to_string())?;
 
-        let Some(update) = update else {
-            return Err("No update available.".into());
-        };
+        // Fetch the specific release by tag to get its asset list.
+        let url = format!("https://api.github.com/repos/Youwes09/Moku/releases/tags/{}", tag);
+        let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("GitHub API returned {} for tag {}", resp.status(), tag));
+        }
 
-        let app_clone = app.clone();
-        update
-            .download_and_install(
-                move |downloaded, total| {
-                    let _ = app_clone.emit("update-progress", UpdateProgress { downloaded: downloaded as u64, total });
-                },
-                || {},
-            )
-            .await
+        #[derive(serde::Deserialize)]
+        struct Asset { name: String, browser_download_url: String, size: u64 }
+        #[derive(serde::Deserialize)]
+        struct Release { assets: Vec<Asset> }
+
+        let release: Release = resp.json().await.map_err(|e| e.to_string())?;
+
+        let asset = release.assets
+            .into_iter()
+            .find(|a| a.name.ends_with("_x64-setup.exe"))
+            .ok_or_else(|| format!("No x64-setup.exe asset found in release {}", tag))?;
+
+        // Stream download with progress events.
+        let total = if asset.size > 0 { Some(asset.size) } else { None };
+        let mut resp = client.get(&asset.browser_download_url).send().await.map_err(|e| e.to_string())?;
+
+        let tmp_path = std::env::temp_dir().join(&asset.name);
+        let mut file = std::fs::File::create(&tmp_path).map_err(|e| e.to_string())?;
+        let mut downloaded: u64 = 0;
+
+        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+            let _ = app.emit("update-progress", UpdateProgress { downloaded, total });
+        }
+        drop(file);
+
+        // Launch the NSIS installer — it handles closing/replacing the running app.
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &tmp_path.to_string_lossy()])
+            .spawn()
             .map_err(|e| e.to_string())?;
 
         Ok(())
