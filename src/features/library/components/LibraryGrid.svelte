@@ -17,7 +17,6 @@
     cropCovers:      boolean;
     libraryFilter:   string;
     bulkWorking:     boolean;
-    bulkMoveOpen:    boolean;
     visibleCategories: Category[];
     onCardClick:        (e: MouseEvent, m: Manga) => void;
     onCardContextMenu:  (e: MouseEvent, m: Manga) => void;
@@ -30,16 +29,28 @@
     onSelectAll:        () => void;
     onBulkMove:         (cat: Category) => void;
     onBulkRemove:       () => void;
-    onCategoryMove:     (cat: Category) => void;
   }
 
   let {
     visibleManga, filtered, loading, cols, anims, selectMode, selectedIds,
     hasMore, remainingCount, renderLimit, cropCovers, libraryFilter,
-    bulkWorking, bulkMoveOpen, visibleCategories,
+    bulkWorking, visibleCategories,
     onCardClick, onCardContextMenu, onCardPointerDown, onCardPointerUp, onCardPointerLeave,
-    onLoadMore, onRetry, onExitSelectMode, onSelectAll, onBulkMove, onBulkRemove, onCategoryMove,
+    onLoadMore, onRetry, onExitSelectMode, onSelectAll, onBulkMove, onBulkRemove,
   }: Props = $props();
+
+  let bulkMoveOpen: boolean = $state(false);
+
+  $effect(() => {
+    if (!bulkMoveOpen) return;
+    function onOutside(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest(".bulk-move-wrap")) bulkMoveOpen = false;
+    }
+    setTimeout(() => document.addEventListener("mousedown", onOutside, true), 0);
+    return () => document.removeEventListener("mousedown", onOutside, true);
+  });
+
+  $effect(() => { if (!selectMode) bulkMoveOpen = false; });
 </script>
 
 {#if selectMode}
@@ -57,7 +68,7 @@
           <button
             class="sel-btn sel-move"
             disabled={selectedIds.size === 0 || bulkWorking}
-            onclick={() => onBulkMove(visibleCategories[0])}
+            onclick={() => bulkMoveOpen = !bulkMoveOpen}
           >
             <Folder size={13} weight="bold" />
             Move to folder
@@ -65,7 +76,7 @@
           {#if bulkMoveOpen}
             <div class="bulk-folder-list">
               {#each visibleCategories as cat}
-                <button class="bulk-folder-item" onclick={() => onCategoryMove(cat)}>
+                <button class="bulk-folder-item" onclick={() => { onBulkMove(cat); bulkMoveOpen = false; }}>
                   <Folder size={11} weight="bold" />
                   {cat.name}
                 </button>

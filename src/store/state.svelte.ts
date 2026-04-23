@@ -85,12 +85,14 @@ export interface MangaPrefs {
   deleteDelayHours: number; maxKeepChapters: number; pauseUpdates: boolean;
   refreshInterval: "global" | "daily" | "weekly" | "manual";
   preferredScanlator: string; scanlatorFilter: string[];
+  autoDownloadScanlators: string[];
 }
 
 export const DEFAULT_MANGA_PREFS: MangaPrefs = {
   autoDownload: false, downloadAhead: 0, deleteOnRead: false,
   deleteDelayHours: 0, maxKeepChapters: 0, pauseUpdates: false,
   refreshInterval: "global", preferredScanlator: "", scanlatorFilter: [],
+  autoDownloadScanlators: [],
 };
 
 export interface Settings {

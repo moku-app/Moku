@@ -160,7 +160,14 @@
 
   function applyChapters(nodes: Chapter[]) {
     if (get("autoDownload") && _prevChapterIds.size > 0) {
-      const newChapters = nodes.filter(c => !_prevChapterIds.has(c.id) && !c.isDownloaded);
+      const filtered = buildChapterList(nodes, {
+        sortMode, sortDir,
+        preferredScanlator:  get("preferredScanlator") as string,
+        scanlatorFilter:     scanlatorFilter as string[],
+        scanlatorBlacklist:  scanlatorBlacklist as string[],
+        scanlatorForce:      scanlatorForce as boolean,
+      });
+      const newChapters = filtered.filter(c => !_prevChapterIds.has(c.id) && !c.isDownloaded);
       if (newChapters.length) enqueueMultiple(newChapters.map(c => c.id));
     }
     _prevChapterIds = new Set(nodes.map(c => c.id));
