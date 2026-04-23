@@ -5,7 +5,7 @@
   import { open as openUrl } from "@tauri-apps/plugin-shell";
 
   interface ReleaseInfo { tag_name: string; name: string; body: string; published_at: string; html_url: string; }
-  type UpdatePhase = "idle" | "downloading" | "ready" | "error";
+  type UpdatePhase = "idle" | "downloading" | "launching" | "ready" | "error";
   const IS_WINDOWS = navigator.userAgent.includes("Windows");
 
   let appVersion      = $state("…");
@@ -30,6 +30,13 @@
     listen<{ downloaded: number; total: number | null }>("update-progress", (e) => {
       dlBytes = e.payload.downloaded; dlTotal = e.payload.total ?? null;
     }).then(fn => { unlisten = fn; });
+    return () => unlisten?.();
+  });
+
+  $effect(() => {
+    let unlisten: (() => void) | undefined;
+    listen("update-launching", () => { updatePhase = "launching"; })
+      .then(fn => { unlisten = fn; });
     return () => unlisten?.();
   });
 
@@ -81,7 +88,7 @@
     try {
       if (IS_WINDOWS) {
         try { await invoke("kill_server"); } catch {}
-        await invoke("download_and_install_update");
+        await invoke("download_and_install_update", { tag: release.tag_name });
         updatePhase = "ready";
       } else {
         await openUrl(release.html_url);
@@ -132,6 +139,11 @@
             <span>Downloading {targetTag ?? "update"}…</span>
             <span>{fmtProgress()}</span>
           </div>
+        </div>
+      {/if}
+      {#if updatePhase === "launching"}
+        <div class="s-update-ready">
+          <span class="s-update-ready-label">Launching installer for {targetTag}…</span>
         </div>
       {/if}
       {#if updatePhase === "ready"}

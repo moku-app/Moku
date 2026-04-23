@@ -660,7 +660,8 @@ async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Resu
         #[derive(serde::Deserialize)]
         struct Release { assets: Vec<Asset> }
 
-        let release: Release = resp.json().await.map_err(|e| e.to_string())?;
+        let body = resp.text().await.map_err(|e| e.to_string())?;
+        let release: Release = serde_json::from_str(&body).map_err(|e| e.to_string())?;
 
         let asset = release.assets
             .into_iter()
@@ -682,11 +683,15 @@ async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Resu
         }
         drop(file);
 
-        // Launch the NSIS installer — it handles closing/replacing the running app.
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &tmp_path.to_string_lossy()])
+        // Launch the NSIS installer silently without a visible cmd window.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        std::process::Command::new(&tmp_path)
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
+
+        let _ = app.emit("update-launching", ());
 
         Ok(())
     }
