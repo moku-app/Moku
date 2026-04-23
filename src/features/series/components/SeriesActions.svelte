@@ -173,7 +173,7 @@
   </div>
 
   <div class="list-header-right">
-    <!-- Jump to chapter -->
+
     <div class="jump-wrap">
       <button class="icon-btn" class:active={jumpOpen} onclick={() => { jumpOpen = !jumpOpen; jumpInput = ""; }} title="Jump to chapter">
         <MagnifyingGlass size={14} weight="light" />
@@ -191,7 +191,7 @@
       {/if}
     </div>
 
-    <!-- Scanlator filter -->
+
     {#if availableScanlators.length > 1}
       <div class="scan-filter-wrap">
         <button class="icon-btn" class:active={scanlatorFilter.length > 0 || scanlatorBlacklist.length > 0} onclick={() => scanFilterOpen = !scanFilterOpen} title="Filter by scanlator">
@@ -245,12 +245,12 @@
       </div>
     {/if}
 
-    <!-- Refresh -->
+
     <button class="icon-btn" onclick={onRefresh} disabled={refreshing}>
       <ArrowsClockwise size={14} weight="light" class={refreshing ? "anim-spin" : ""} />
     </button>
 
-    <!-- Folder picker -->
+
     <div class="fp-wrap" bind:this={folderPickerRef}>
       <button class="icon-btn" class:active={hasFolders} onclick={() => folderPickerOpen = !folderPickerOpen}>
         <FolderSimplePlus size={14} weight={hasFolders ? "fill" : "light"} />
@@ -283,7 +283,7 @@
       {/if}
     </div>
 
-    <!-- Download dropdown -->
+
     {#if chapters.length > 0}
       <div class="dl-wrap" bind:this={dlDropRef}>
         <button class="icon-btn dl-unified-btn" class:active={dlOpen} class:dl-has-count={downloadedCount > 0} onclick={() => dlOpen = !dlOpen} title="Download options">
@@ -343,7 +343,7 @@
       </div>
     {/if}
 
-    <!-- Top pagination -->
+
     {#if totalPages > 1}
       <div class="pagination">
         <button class="page-btn" onclick={() => onPageChange(Math.max(1, chapterPage - 1))} disabled={chapterPage === 1}>←</button>
@@ -355,7 +355,6 @@
 </div>
 
 <style>
-  /* ─── Header bar ──────────────────────────────────────────── */
   .list-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim);
@@ -364,7 +363,6 @@
   .list-header-left,
   .list-header-right { display: flex; align-items: center; gap: var(--sp-1); }
 
-  /* ─── Sort ────────────────────────────────────────────────── */
   .sort-btn {
     display: flex; align-items: center; gap: 5px;
     font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
@@ -390,7 +388,6 @@
   .sort-option.active { color: var(--accent-fg); }
   .sort-divider { height: 1px; background: var(--border-dim); margin: var(--sp-1) var(--sp-2); }
 
-  /* ─── Icon buttons ────────────────────────────────────────── */
   .icon-btn {
     display: flex; align-items: center; justify-content: center;
     width: 28px; height: 28px; border-radius: var(--radius-md);
@@ -402,7 +399,6 @@
   .icon-btn.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
 
-  /* ─── Jump ────────────────────────────────────────────────── */
   .jump-wrap { position: relative; }
   .jump-popover {
     position: absolute; top: calc(100% + 4px); right: 0; width: 220px;
@@ -429,7 +425,6 @@
   .jump-go:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast, #fff); }
   .jump-none { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); padding: 4px var(--sp-1); letter-spacing: var(--tracking-wide); }
 
-  /* ─── Folder picker ───────────────────────────────────────── */
   .fp-wrap { position: relative; }
   .fp-menu {
     position: absolute; top: calc(100% + 4px); right: 0; min-width: 180px;
@@ -476,7 +471,6 @@
   }
   .fp-new:hover { color: var(--text-secondary); background: var(--bg-overlay); }
 
-  /* ─── Download dropdown ───────────────────────────────────── */
   .dl-wrap { position: relative; }
   .dl-dropdown {
     position: absolute; top: calc(100% + 4px); right: 0; min-width: 220px;
@@ -545,7 +539,6 @@
   .dl-unified-btn.dl-has-count:hover { background: var(--accent-muted); border-color: var(--accent); opacity: 0.9; }
   .dl-unified-btn.active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
-  /* ─── Pagination (top) ────────────────────────────────────── */
   .pagination { display: flex; align-items: center; gap: var(--sp-2); }
   .page-btn {
     font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
@@ -557,7 +550,6 @@
   .page-btn:disabled { opacity: 0.3; cursor: default; }
   .page-num { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
 
-  /* ─── Selection toolbar ───────────────────────────────────── */
   .sel-count {
     font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted);
     letter-spacing: var(--tracking-wide); padding: 0 var(--sp-1);
@@ -572,7 +564,6 @@
   .sel-action-danger { color: var(--color-error) !important; }
   .sel-action-danger:hover { background: var(--color-error-bg) !important; border-color: var(--color-error) !important; }
 
-  /* ─── Scanlator filter ────────────────────────────────────── */
   .scan-filter-wrap { position: relative; }
   .scan-filter-panel {
     position: absolute; top: calc(100% + 6px); right: 0; z-index: 200; min-width: 200px;
@@ -637,6 +628,5 @@
   .scan-filter-item-block { color: var(--color-error) !important; background: color-mix(in srgb, var(--color-error) 8%, transparent) !important; }
   .scan-filter-item-block:hover { background: color-mix(in srgb, var(--color-error) 14%, transparent) !important; }
 
-  /* ─── Shared animation (used by dropdowns/popovers) ───────── */
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Folder, Trash, CheckSquare, X } from "phosphor-svelte";
+  import { Folder, Trash, CheckSquare, Robot } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
   import type { Manga, Category } from "@types";
 
@@ -29,6 +29,7 @@
     onSelectAll:        () => void;
     onBulkMove:         (cat: Category) => void;
     onBulkRemove:       () => void;
+    onBulkAutomate:     () => void;
   }
 
   let {
@@ -36,7 +37,7 @@
     hasMore, remainingCount, renderLimit, cropCovers, libraryFilter,
     bulkWorking, visibleCategories,
     onCardClick, onCardContextMenu, onCardPointerDown, onCardPointerUp, onCardPointerLeave,
-    onLoadMore, onRetry, onExitSelectMode, onSelectAll, onBulkMove, onBulkRemove,
+    onLoadMore, onRetry, onExitSelectMode, onSelectAll, onBulkMove, onBulkRemove, onBulkAutomate,
   }: Props = $props();
 
   let bulkMoveOpen: boolean = $state(false);
@@ -55,23 +56,19 @@
 
 {#if selectMode}
   <div class="select-bar">
-    <div class="select-bar-left">
-      <button class="sel-btn sel-cancel" onclick={onExitSelectMode} title="Cancel (Esc)">
-        <X size={13} weight="bold" />
-      </button>
-      <span class="sel-count">{selectedIds.size} selected</span>
-      <button class="sel-btn sel-all" onclick={onSelectAll} title="Select all (⌘A)">Select all</button>
-    </div>
+    <span class="sel-count">{selectedIds.size} selected</span>
+    <button class="sel-text-btn" onclick={onSelectAll} title="Select all (⌘A)">Select all</button>
+
     <div class="select-bar-right">
       {#if visibleCategories.length}
         <div class="bulk-move-wrap">
           <button
-            class="sel-btn sel-move"
+            class="sel-action-btn"
             disabled={selectedIds.size === 0 || bulkWorking}
             onclick={() => bulkMoveOpen = !bulkMoveOpen}
           >
             <Folder size={13} weight="bold" />
-            Move to folder
+            Move
           </button>
           {#if bulkMoveOpen}
             <div class="bulk-folder-list">
@@ -85,7 +82,11 @@
           {/if}
         </div>
       {/if}
-      <button class="sel-btn sel-remove" disabled={selectedIds.size === 0 || bulkWorking} onclick={onBulkRemove}>
+      <button class="sel-action-btn" disabled={selectedIds.size === 0 || bulkWorking} onclick={onBulkAutomate}>
+        <Robot size={13} weight="bold" />
+        Automate
+      </button>
+      <button class="sel-action-btn sel-action-danger" disabled={selectedIds.size === 0 || bulkWorking} onclick={onBulkRemove}>
         <Trash size={13} weight="bold" />
         Remove
       </button>
@@ -93,7 +94,7 @@
   </div>
 {/if}
 
-<div class="content">
+<div class="content" onclick={(e) => { if (selectMode && !(e.target as HTMLElement).closest(".card")) onExitSelectMode(); }}>
   {#if loading}
     <div class="grid">
       {#each Array(12) as _}
@@ -174,22 +175,17 @@
 
 <style>
   .content { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6) var(--sp-6); will-change: scroll-position; -webkit-overflow-scrolling: touch; }
-  .select-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-6); background: var(--bg-raised); border-bottom: 1px solid var(--accent-dim); flex-shrink: 0; animation: fadeIn 0.1s ease both; }
-  .select-bar-left { display: flex; align-items: center; gap: var(--sp-3); }
-  .select-bar-right { display: flex; align-items: center; gap: var(--sp-2); position: relative; }
-  .sel-count { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--accent-fg); letter-spacing: var(--tracking-wide); }
-  .sel-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-base); color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); white-space: nowrap; }
-  .sel-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
-  .sel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .sel-cancel { border-color: transparent; background: transparent; }
-  .sel-cancel:hover { background: var(--bg-raised); border-color: var(--border-dim); }
-  .sel-move { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
-  .sel-move:hover:not(:disabled) { background: var(--accent-dim); }
-  .sel-remove { color: var(--color-error, #e05c5c); border-color: color-mix(in srgb, var(--color-error, #e05c5c) 30%, transparent); }
-  .sel-remove:hover:not(:disabled) { background: color-mix(in srgb, var(--color-error, #e05c5c) 12%, transparent); }
-  .sel-all { border-color: transparent; background: transparent; }
+  .select-bar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-6); background: var(--bg-raised); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; animation: fadeIn 0.1s ease both; position: relative; z-index: 10; }
+  .select-bar-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; position: relative; }
+  .sel-count { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); white-space: nowrap; }
+  .sel-text-btn { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); transition: color var(--t-base); }
+  .sel-text-btn:hover { color: var(--text-primary); }
+  .sel-action-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-xs); padding: 5px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); white-space: nowrap; }
+  .sel-action-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
+  .sel-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .sel-action-danger:hover:not(:disabled) { color: var(--color-error, #e05c5c); border-color: color-mix(in srgb, var(--color-error, #e05c5c) 40%, transparent); background: color-mix(in srgb, var(--color-error, #e05c5c) 8%, transparent); }
   .bulk-move-wrap { position: relative; }
-  .bulk-folder-list { position: absolute; top: calc(100% + 4px); right: 0; z-index: 200; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 4px; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); animation: fadeIn 0.1s ease both; }
+  .bulk-folder-list { position: absolute; top: calc(100% + 4px); right: 0; z-index: 9999; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 4px; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); animation: fadeIn 0.1s ease both; }
   .bulk-folder-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); cursor: pointer; text-align: left; transition: background var(--t-base), color var(--t-base); }
   .bulk-folder-item:hover { background: var(--bg-hover, var(--bg-base)); color: var(--text-primary); }
   .grid { position: relative; z-index: 1; isolation: isolate; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }

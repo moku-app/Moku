@@ -21,9 +21,10 @@
   import type { Manga, Category, Chapter } from "@types";
   import { checkAndMarkCompleted as storeCheckAndMarkCompleted } from "@store/state.svelte";
 
-  import LibraryToolbar  from "./LibraryToolbar.svelte";
-  import LibraryGrid     from "./LibraryGrid.svelte";
-  import LibraryFilters  from "./LibraryFilters.svelte";
+  import LibraryToolbar       from "./LibraryToolbar.svelte";
+  import LibraryGrid          from "./LibraryGrid.svelte";
+  import LibraryFilters       from "./LibraryFilters.svelte";
+  import BulkAutomationPanel  from "../panels/BulkAutomationPanel.svelte";
   import ContextMenu, { type MenuEntry } from "@shared/ui/ContextMenu.svelte";
 
   import { Books, DownloadSimple, Folder, FolderSimple, FolderSimplePlus, Trash, Star, CheckSquare, ArrowSquareOut } from "phosphor-svelte";
@@ -48,10 +49,11 @@
 
   let tabIndicator: { left: number; width: number } = $state({ left: 0, width: 0 });
 
-  let selectedIds:  Set<number> = $state(new Set());
-  let selectMode:   boolean     = $state(false);
-  let bulkWorking:  boolean     = $state(false);
-  let bulkMoveOpen: boolean     = $state(false);
+  let selectedIds:      Set<number> = $state(new Set());
+  let selectMode:       boolean     = $state(false);
+  let bulkWorking:      boolean     = $state(false);
+  let bulkMoveOpen:     boolean     = $state(false);
+  let bulkAutomateOpen: boolean     = $state(false);
 
   let sortPanelOpen:   boolean = $state(false);
   let filterPanelOpen: boolean = $state(false);
@@ -308,6 +310,11 @@
     finally { bulkWorking = false; exitSelectMode(); }
   }
 
+  function bulkAutomate() {
+    if (selectedIds.size === 0) return;
+    bulkAutomateOpen = true;
+  }
+
   function sanitize(s: string) { return s.replace(/[\/\\?%*:|"<>]/g, "_"); }
 
   async function openMangaFolder(m: Manga) {
@@ -507,6 +514,7 @@
     </div>
   {:else}
     <LibraryToolbar
+      onclick={(e: MouseEvent) => { if (selectMode && !(e.target as HTMLElement).closest("button, input")) exitSelectMode(); }}
       {tab}
       {tabSortMode}
       {tabSortDir}
@@ -577,6 +585,7 @@
       onSelectAll={selectAll}
       onBulkMove={(cat) => { bulkMoveOpen = !bulkMoveOpen; }}
       onBulkRemove={bulkRemoveFromLibrary}
+      onBulkAutomate={bulkAutomate}
       {bulkWorking}
       {bulkMoveOpen}
       {visibleCategories}
@@ -590,6 +599,12 @@
 {/if}
 {#if emptyCtx}
   <ContextMenu x={emptyCtx.x} y={emptyCtx.y} items={buildEmptyCtx()} onClose={() => emptyCtx = null} />
+{/if}
+{#if bulkAutomateOpen}
+  <BulkAutomationPanel
+    ids={selectedIds}
+    onClose={() => { bulkAutomateOpen = false; exitSelectMode(); }}
+  />
 {/if}
 
 <style>
