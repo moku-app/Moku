@@ -1,7 +1,7 @@
 import { store } from "@store/state.svelte";
 import { probeServer, loginBasic } from "@core/auth";
 
-const MAX_ATTEMPTS = 10;
+const MAX_ATTEMPTS = 40;
 
 export const boot = $state({
   serverProbeOk:   false,
@@ -15,20 +15,20 @@ export const boot = $state({
   loginBusy:       false,
 });
 
-let cancelProbe = false;
+let probeGeneration = 0;
 
 export function startProbe() {
-  cancelProbe          = false;
+  const gen = ++probeGeneration;
   boot.failed          = false;
   boot.loginRequired   = false;
   boot.unsupportedMode = false;
   let tries = 0;
 
   async function probe() {
-    if (cancelProbe) return;
+    if (gen !== probeGeneration) return;
     tries++;
     const result = await probeServer();
-    if (cancelProbe) return;
+    if (gen !== probeGeneration) return;
 
     if (result === "ok") {
       boot.serverProbeOk = true;
@@ -59,14 +59,15 @@ export function startProbe() {
     }
 
     if (tries >= MAX_ATTEMPTS) { boot.failed = true; return; }
-    setTimeout(probe, 750);
+    const delay = Math.min(750 + tries * 250, 3000);
+    setTimeout(probe, delay);
   }
 
-  setTimeout(probe, 800);
+  setTimeout(probe, 2000);
 }
 
 export function stopProbe() {
-  cancelProbe = true;
+  probeGeneration++;
 }
 
 export async function submitLogin(onSuccess: () => void) {
@@ -99,7 +100,7 @@ export function retryBoot() {
 }
 
 export function bypassBoot(onReady: () => void) {
-  cancelProbe          = true;
+  probeGeneration++;
   boot.serverProbeOk   = true;
   boot.loginRequired   = false;
   boot.unsupportedMode = false;

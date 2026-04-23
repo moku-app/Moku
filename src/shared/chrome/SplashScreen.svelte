@@ -113,7 +113,11 @@
   });
 
   $effect(() => {
-    if (!ringFull) return;
+    if (!ringFull) {
+      exitLock = false;
+      exiting  = false;
+      return;
+    }
     cancelAnimationFrame(animFrame);
     ringProg = 1;
     if (lockEnabled && !pinUnlocked) {
@@ -163,8 +167,6 @@
     return () => clearInterval(dotsInterval);
   });
 
-  // ── Canvas card animation ─────────────────────────────────────────────────
-
   interface CardDef  { cx: number; w: number; h: number; lines: number; alpha: number; speed: number; cycleSec: number; phase: number; travel: number; yStart: number; angleStart: number; tilt: number; }
   interface CardTrig { cosA: number; sinA: number; tiltRad: number; }
   interface RenderState { cards: CardDef[]; trigs: CardTrig[]; stamps: HTMLCanvasElement[]; vignette: HTMLCanvasElement; CW: number; CH: number; scale: number; }
@@ -177,7 +179,6 @@
 
   const BUF = 80, COLS = 14;
 
-  // Deterministic per-index hash — no random(), same layout every mount
   function hash(n: number): number {
     let x = Math.imul(n ^ (n >>> 16), 0x45d9f3b);
     x = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
@@ -275,7 +276,6 @@
     for (let i = 0; i < cards.length; i++) {
       const c     = cards[i];
       const p     = ((t / c.cycleSec) + c.phase) % 1;
-      // Fade in at entry, fade out at exit
       const alpha = p < 0.07 ? (p / 0.07) * c.alpha : p > 0.86 ? ((1 - p) / 0.14) * c.alpha : c.alpha;
       if (alpha < 0.005) continue;
       const cy    = c.yStart - p * c.travel;

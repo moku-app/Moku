@@ -224,6 +224,7 @@ class Store {
   markers:            MarkerEntry[]  = $state(saved?.markers      ?? []);
   readLog:            ReadLogEntry[] = $state(saved?.readLog      ?? []);
   readingStats:       ReadingStats   = $state(saved?.readingStats ?? { ...DEFAULT_READING_STATS });
+  dailyReadCounts:    Record<string, number> = $state(saved?.dailyReadCounts ?? {});
   searchCache:        Map<string, any> = $state(new Map());
   searchLibraryIds:   Set<number>    = $state(new Set());
   searchSrcOffset:    number         = $state(0);
@@ -250,6 +251,7 @@ class Store {
           settings: this.settings, history: this.history,
           bookmarks: this.bookmarks, markers: this.markers,
           readLog: this.readLog, readingStats: this.readingStats,
+          dailyReadCounts: this.dailyReadCounts,
           libraryUpdates: this.libraryUpdates,
           lastLibraryRefresh: this.lastLibraryRefresh,
           acknowledgedUpdateIds: [...this.acknowledgedUpdates],
@@ -288,6 +290,8 @@ class Store {
         lastReadAt: entry.readAt, currentStreakDays: streak,
         longestStreakDays: Math.max(this.readingStats.longestStreakDays, streak), lastStreakDate: todayStr,
       };
+      const dayKey = new Date().toISOString().slice(0, 10);
+      this.dailyReadCounts = { ...this.dailyReadCounts, [dayKey]: (this.dailyReadCounts[dayKey] ?? 0) + 1 };
     }
   }
 
@@ -314,7 +318,7 @@ class Store {
   getMarkersForChapter(chapterId: number)            { return this.markers.filter(m => m.chapterId === chapterId); }
   getMarkersForManga(mangaId: number)                { return this.markers.filter(m => m.mangaId === mangaId); }
   clearMarkersForManga(mangaId: number)              { this.markers = this.markers.filter(m => m.mangaId !== mangaId); }
-  clearHistory()                                     { this.history = []; this.readLog = []; }
+  clearHistory()                                     { this.history = []; this.readLog = []; this.dailyReadCounts = {}; }
 
   clearHistoryForManga(mangaId: number) {
     this.history = this.history.filter(x => x.mangaId !== mangaId);
@@ -329,6 +333,7 @@ class Store {
 
   wipeAllData() {
     this.history = []; this.readLog = []; this.markers = [];
+    this.dailyReadCounts = {};
     this.readingStats = { ...DEFAULT_READING_STATS };
     this.settings = { ...this.settings, heroSlots: [null, null, null, null], mangaLinks: {} };
   }

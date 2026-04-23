@@ -12,7 +12,8 @@
   import HeroStage from "./HeroStage.svelte";
   import HeroSlotPicker from "./HeroSlotPicker.svelte";
   import ActivityFeed from "./ActivityFeed.svelte";
-  import UpdatesRow from "./UpdatesRow.svelte";
+  import ActivityHeatmap from "./ActivityHeatmap.svelte";
+  import RecsRow from "./RecsRow.svelte";
   import StatsGrid from "./StatsGrid.svelte";
 
   let libraryManga:   Manga[]  = $state([]);
@@ -223,44 +224,59 @@
 <div class="root">
   <div class="body">
 
-    <HeroStage
-      {resolvedSlots}
-      bind:activeIdx
-      {heroThumb}
-      {heroTitle}
-      {heroManga}
-      {heroEntry}
-      {heroMangaId}
-      {heroChapters}
-      {loadingHeroChapters}
-      {resuming}
-      onresume={resumeActive}
-      onopenchapter={openChapter}
-      oncyclenext={cycleNext}
-      oncycleprev={cyclePrev}
-      ongotoslot={goToSlot}
-      onopenpicker={openPicker}
-      onunpin={unpinSlot}
-      onviewall={() => { if (heroManga) store.activeManga = heroManga; }}
-    />
+    <div class="hero-shrink-guard">
+      <HeroStage
+        {resolvedSlots}
+        bind:activeIdx
+        {heroThumb}
+        {heroTitle}
+        {heroManga}
+        {heroEntry}
+        {heroMangaId}
+        {heroChapters}
+        {loadingHeroChapters}
+        {resuming}
+        onresume={resumeActive}
+        onopenchapter={openChapter}
+        oncyclenext={cycleNext}
+        oncycleprev={cyclePrev}
+        ongotoslot={goToSlot}
+        onopenpicker={openPicker}
+        onunpin={unpinSlot}
+        onviewall={() => { if (heroManga) store.activeManga = heroManga; }}
+      />
+    </div>
 
-    <ActivityFeed
-      entries={recentHistory}
-      onresume={resumeEntry}
-      onviewhistory={() => setNavPage("history")}
-      onopenlibrary={() => setNavPage("library")}
-    />
+    <div class="scroll-body">
+    <div class="mid-row">
+      <div class="mid-left">
+        <ActivityFeed
+          entries={recentHistory}
+          onresume={resumeEntry}
+          onviewhistory={() => setNavPage("history")}
+          onopenlibrary={() => setNavPage("library")}
+        />
+      </div>
+      <div class="mid-divider"></div>
+      <div class="mid-right">
+        <RecsRow
+          {libraryManga}
+          history={store.history}
+          onopenrecommended={(m) => { store.previewManga = m; }}
+        />
+      </div>
+    </div>
 
     <div class="bottom-row">
-      <UpdatesRow
-        updates={libraryUpdates}
-        {libraryManga}
-        {lastRefresh}
-        onopen={(m) => { if (m) store.previewManga = m; }}
-        onclear={() => { clearLibraryUpdates(); setLibraryFilter("all"); setNavPage("library"); }}
-      />
+      <div class="bottom-heatmap">
+        <span class="bottom-label">Activity</span>
+        <ActivityHeatmap dailyReadCounts={store.dailyReadCounts} />
+      </div>
       <div class="bottom-divider"></div>
-      <StatsGrid {stats} updateCount={libraryUpdates.length} />
+      <div class="bottom-stats">
+        <StatsGrid {stats} updateCount={libraryUpdates.length} />
+      </div>
+    </div>
     </div>
 
   </div>
@@ -288,19 +304,65 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .hero-shrink-guard { flex-shrink: 0; }
+  .scroll-body {
+    flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
     min-height: 0;
+    scrollbar-width: none;
   }
+  .scroll-body::-webkit-scrollbar { display: none; }
+
+  .mid-row {
+    display: grid;
+    grid-template-columns: 1fr 1px 1.4fr;
+    border-top: 1px solid var(--border-dim);
+    flex-shrink: 0;
+    min-height: 0;
+  }
+  .mid-left {
+    min-width: 0;
+    overflow: hidden;
+  }
+  /* suppress ActivityFeed's own border-top — mid-row provides it */
+  .mid-left :global(.section) { border-top: none; }
+  .mid-divider { background: var(--border-dim); align-self: stretch; }
+  .mid-right {
+    min-width: 0;
+    overflow: hidden;
+    padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  }
+
   .bottom-row {
     display: grid;
     grid-template-columns: 1fr 1px 1fr;
-    padding: var(--sp-4) var(--sp-4) var(--sp-5);
     border-top: 1px solid var(--border-dim);
-    gap: var(--sp-4);
     flex-shrink: 0;
   }
   .bottom-divider { background: var(--border-dim); align-self: stretch; }
+  .bottom-heatmap {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-4) var(--sp-4) var(--sp-5);
+    min-width: 0;
+  }
+  .bottom-stats {
+    padding: var(--sp-4) var(--sp-4) var(--sp-5);
+    min-width: 0;
+    overflow: hidden;
+  }
+  .bottom-label {
+    font-family: var(--font-ui);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+  }
 
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(6px); }

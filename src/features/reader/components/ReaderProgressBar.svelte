@@ -66,14 +66,14 @@
       <div class="slider-thumb" style="left:{sliderPct}%"></div>
 
       {#if currentBookmark && currentBookmark.chapterId === displayChapter?.id}
-        {@const bOrd = rtl ? lastPage - currentBookmark.pageNumber + 1 : currentBookmark.pageNumber}
-        {@const bPct = lastPage > 1 ? ((bOrd - 1) / (lastPage - 1)) * 100 : 0}
+        {@const bOrd = rtl ? sliderMax - currentBookmark.pageNumber + 1 : currentBookmark.pageNumber}
+        {@const bPct = sliderMax > 1 ? ((bOrd - 1) / (sliderMax - 1)) * 100 : 0}
         <div class="slider-checkpoint bookmark-checkpoint" style="left:{bPct}%" title="Bookmark: Page {currentBookmark.pageNumber}"></div>
       {/if}
 
       {#each activeChapterMarkers as m (m.id)}
-        {@const mOrd = rtl ? lastPage - m.pageNumber + 1 : m.pageNumber}
-        {@const mPct = lastPage > 1 ? ((mOrd - 1) / (lastPage - 1)) * 100 : 0}
+        {@const mOrd = rtl ? sliderMax - m.pageNumber + 1 : m.pageNumber}
+        {@const mPct = sliderMax > 1 ? ((mOrd - 1) / (sliderMax - 1)) * 100 : 0}
         <div class="slider-checkpoint marker-checkpoint" style="left:{mPct}%;background:{MARKER_COLOR_HEX[m.color]}" title="{m.note ? m.note : 'Marker'} · Page {m.pageNumber}"></div>
       {/each}
 

@@ -8,24 +8,12 @@ Minor Revisions:
  - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
 
 
-
 Priority Bugs:
  - Fix Library-Refresh System (TESTING)
 
  - Suwayomi RESET
    - Allow User to Wipe Suwayomi (Scratch)
    - If Possible, Component based Wipe (Library, Etc)
-
- - Remove RecentActivity from Home & Replace with Library Tag Filtering + Discover
- - Add Item-Detection for Updates, hence when Updates = 0 replace with RecentActivity (Layout Same).
- - ActivityHeatmap (Like Github), but for Moku.
-
-General/Misc Bugs:
- - Fix Highlightable Elements
- - Investigate "egl:failed to create dri2 screen"
- - Check Fonts/Design on Flatpak
- - Fix Delete-All Crash (Deletes All but Cripples App)
- - Investigate Prod vs. Dev Directory Change/Data Load (Caused by Library Algorithm Revision?)
 
 
 In-Progress:
@@ -49,13 +37,25 @@ In-Progress:
    - Tracking Revamp
       - Completely Revamp Tracking
 
- - Fix ALl Folder Tabs (Works in Dev, not Prod)
+ - Fix ALl Folder Tabs (Works in Dev, not Prod) (TESTING)
    - Extensions
    - Library
    - Search
 
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
+
+- Fix Home Layout & Scaling
+   - Layout constrains UI, Hero-Card Disappears?
+   - Home Layout itself is currently off.
+   - Add Updates Substitute, Derived from One Source + Genre Tags (Check Library for Tags)
+   - ActivityHeatmap needs Proper Constraints for Month Namescd
+
+- MacOS Fixes
+   - Revamp Server-State Check (MacOS does not pick up)
+   - Check Moku Sidebar Icon (Looks ugly on MacOS)
+      - Icon appears as a Square
+      - Icon appears to have Green Underglow?
 
 
 Testing Bugs:

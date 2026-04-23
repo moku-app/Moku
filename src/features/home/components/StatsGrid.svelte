@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Fire, BookOpen, Clock, TrendUp, Bell, CalendarBlank } from "phosphor-svelte";
   import { formatReadTime } from "../lib/homeHelpers";
+
   let {
     stats,
     updateCount,

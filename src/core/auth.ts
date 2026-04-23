@@ -58,7 +58,7 @@ export async function probeServer(): Promise<"ok" | "auth_required" | "unsupport
     const res = await fetch(`${base}/api/graphql`, {
       method: "POST", credentials: "omit", headers,
       body: JSON.stringify({ query: "{ __typename }" }),
-      signal: AbortSignal.timeout(2000),
+      signal: AbortSignal.timeout(5000),
     });
     if (res.ok) return "ok";
     if (res.status === 401) {
