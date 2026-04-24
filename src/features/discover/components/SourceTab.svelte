@@ -5,6 +5,8 @@
   import { shouldHideNsfw, shouldHideSource } from "@core/util";
   import { store }              from "@store/state.svelte";
   import Thumbnail              from "@shared/manga/Thumbnail.svelte";
+  import ContextMenu            from "@shared/ui/ContextMenu.svelte";
+  import { PushPin, PushPinSlash, ArrowRight } from "phosphor-svelte";
   import type { Manga, Source } from "@types";
 
   interface Props {
@@ -27,6 +29,17 @@
   let src_hasNextPage                  = $state(false);
   let src_currentPage                  = $state(1);
   let src_abortCtrl: AbortController | null = null;
+
+  let ctx_x      = $state(0);
+  let ctx_y      = $state(0);
+  let ctx_source: Source | null = $state(null);
+
+  const pinnedIds     = $derived(store.settings.pinnedSourceIds ?? []);
+  const pinnedSources = $derived(
+    pinnedIds
+      .map(id => allSources.find(s => s.id === id))
+      .filter((s): s is Source => !!s)
+  );
 
   $effect(() => {
     if (!allSources.length) return;
@@ -93,11 +106,16 @@
     if (src_activeSource) srcFetchBrowse(src_activeSource, "POPULAR");
   }
 
+  function openCtx(e: MouseEvent, src: Source) {
+    e.preventDefault();
+    ctx_x = e.clientX; ctx_y = e.clientY; ctx_source = src;
+  }
+  function closeCtx() { ctx_source = null; }
+
   onDestroy(() => { src_abortCtrl?.abort(); });
 </script>
 
 <div class="splitRoot">
-  
   <div class="splitSidebar">
     <div class="srcLangRow">
       <span class="langPocketLabel">Language</span>
@@ -122,6 +140,7 @@
             class="splitItem splitItemSource"
             class:splitItemActive={src_activeSource?.id === localSource.id}
             onclick={() => srcSelectSource(localSource)}
+            oncontextmenu={(e) => openCtx(e, localSource)}
           >
             <div class="localSourceIcon">
               <svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
@@ -132,11 +151,34 @@
           </button>
           <div class="localDivider"></div>
         {/if}
+
+        {#if pinnedSources.length > 0}
+          <p class="sectionLabel">Pinned</p>
+          {#each pinnedSources as src (src.id)}
+            <button
+              class="splitItem splitItemSource"
+              class:splitItemActive={src_activeSource?.id === src.id}
+              onclick={() => srcSelectSource(src)}
+              oncontextmenu={(e) => openCtx(e, src)}
+            >
+              <Thumbnail src={src.iconUrl} alt="" class="splitSourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <span class="splitItemLabel">{src.name}</span>
+              <span class="pinIndicator" title="Pinned">
+                <PushPin size={9} weight="fill" />
+              </span>
+              {#if src.isNsfw}<span class="nsfwBadge">18+</span>{/if}
+            </button>
+          {/each}
+          <div class="localDivider"></div>
+          <p class="sectionLabel">All Sources</p>
+        {/if}
+
         {#each src_visibleSources as src (src.id)}
           <button
             class="splitItem splitItemSource"
             class:splitItemActive={src_activeSource?.id === src.id}
             onclick={() => srcSelectSource(src)}
+            oncontextmenu={(e) => openCtx(e, src)}
           >
             <Thumbnail src={src.iconUrl} alt="" class="splitSourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
             <span class="splitItemLabel">{src.name}</span>
@@ -235,6 +277,28 @@
   </div>
 </div>
 
+{#if ctx_source}
+  {@const isPinned = pinnedIds.includes(ctx_source.id)}
+  <ContextMenu
+    x={ctx_x}
+    y={ctx_y}
+    onClose={closeCtx}
+    items={[
+      {
+        label: isPinned ? "Unpin source" : "Pin source",
+        icon: isPinned ? PushPinSlash : PushPin,
+        onClick: () => { store.togglePinnedSource(ctx_source!.id); },
+      },
+      { separator: true },
+      {
+        label: "Browse source",
+        icon: ArrowRight,
+        onClick: () => { srcSelectSource(ctx_source!); },
+      },
+    ]}
+  />
+{/if}
+
 <style>
   .splitRoot          { flex: 1; display: flex; overflow: hidden; }
   .splitSidebar       { width: 180px; flex-shrink: 0; border-right: 1px solid var(--border-dim); overflow: hidden; display: flex; flex-direction: column; }
@@ -256,6 +320,8 @@
   .splitItemLabel     { font-size: var(--text-xs); color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .splitItemActive .splitItemLabel { color: var(--accent-fg); font-weight: var(--weight-medium); }
   .splitEmpty         { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); padding: var(--sp-3); margin: 0; }
+  .sectionLabel       { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; padding: var(--sp-2) var(--sp-3) var(--sp-1); margin: 0; }
+  .pinIndicator       { display: flex; align-items: center; color: var(--accent-fg); opacity: 0.7; flex-shrink: 0; margin-left: auto; margin-right: 2px; }
   .sourceLang         { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); margin-left: auto; margin-right: 4px; }
   .nsfwBadge          { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--color-error); background: var(--color-error-bg, rgba(180,60,60,0.08)); border: 1px solid rgba(180,60,60,0.25); border-radius: var(--radius-sm); padding: 1px 5px; margin-left: auto; flex-shrink: 0; }
   .splitContent       { flex: 1; display: flex; flex-direction: column; overflow: hidden; }

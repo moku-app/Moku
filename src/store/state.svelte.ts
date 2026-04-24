@@ -127,6 +127,7 @@ export interface Settings {
   maxPageWidth?: number; uiScale?: number;
   extraScanDirs: string[]; serverDownloadsPath: string; serverLocalSourcePath: string;
   qolAnimations: boolean;
+  pinnedSourceIds: string[];
 }
 
 export const DEFAULT_READING_STATS: ReadingStats = {
@@ -161,6 +162,7 @@ export const DEFAULT_SETTINGS: Settings = {
   libraryTabSort: {}, libraryTabStatus: {}, libraryTabFilters: {},
   extraScanDirs: [], serverDownloadsPath: "", serverLocalSourcePath: "",
   qolAnimations: true,
+  pinnedSourceIds: [],
 };
 
 const STORE_VERSION    = 3;
@@ -206,6 +208,7 @@ function mergeSettings(saved: any): Settings {
     libraryTabStatus:     saved?.settings?.libraryTabStatus     ?? {},
     libraryTabFilters:    saved?.settings?.libraryTabFilters    ?? {},
     extraScanDirs:        saved?.settings?.extraScanDirs        ?? [],
+    pinnedSourceIds:      saved?.settings?.pinnedSourceIds      ?? [],
   };
 }
 
@@ -411,6 +414,11 @@ class Store {
     }
   }
 
+  togglePinnedSource(sourceId: string) {
+    const pins = this.settings.pinnedSourceIds ?? [];
+    this.settings = { ...this.settings, pinnedSourceIds: pins.includes(sourceId) ? pins.filter(id => id !== sourceId) : [...pins, sourceId] };
+  }
+
   setCategories(cats: Category[])       { this.categories       = cats; }
   setActiveManga(next: Manga | null)    { this.activeManga      = next; }
   setPreviewManga(next: Manga | null)   { this.previewManga     = next; }
@@ -443,6 +451,7 @@ export function setPageUrls(next: string[])                                     
 export function setPageNumber(next: number)                                                { store.setPageNumber(next); }
 export function setLibraryFilter(next: LibraryFilter)                                      { store.setLibraryFilter(next); }
 export function setLibraryTagFilter(next: string[])                                        { store.setLibraryTagFilter(next); }
+export function togglePinnedSource(sourceId: string)                                       { store.togglePinnedSource(sourceId); }
 export function updateSettings(patch: Partial<Settings>)                                   { store.updateSettings(patch); }
 export function resetKeybinds()                                                            { store.resetKeybinds(); }
 export function clearSearchCache()                                                         { store.clearSearchCache(); }
