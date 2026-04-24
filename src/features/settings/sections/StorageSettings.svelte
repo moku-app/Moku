@@ -8,6 +8,7 @@
   import { SET_DOWNLOADS_PATH, SET_LOCAL_SOURCE_PATH } from "@api/mutations/downloads";
   import { untrack } from "svelte";
   import { store, updateSettings, addToast } from "@store/state.svelte";
+  import { exportAppData, importAppData } from "@core/backup";
 
   interface StorageInfo { manga_bytes: number; total_bytes: number; free_bytes: number; path: string; }
 
@@ -52,8 +53,9 @@
   let extraScanDirs    = $state<string[]>([...(store.settings.extraScanDirs ?? [])]);
   let newScanDir       = $state("");
   let multiStorageInfos = $state<(StorageInfo & { label: string })[]>([]);
-  let advStorageOpen   = $state(false);
-  let backupSectionOpen = $state(false);
+  let advStorageOpen      = $state(false);
+  let backupSectionOpen   = $state(false);
+  let appDataSectionOpen  = $state(false);
 
   async function fetchStorage() {
     storageLoading = true; storageError = null;
@@ -324,6 +326,39 @@
     finally { validateLoading = false; }
   }
 
+  let appDataExporting  = $state(false);
+  let appDataImporting  = $state(false);
+  let appDataError      = $state<string | null>(null);
+  let appDataMsg        = $state<string | null>(null);
+  let appDataBackupDir  = $state<string | null>(null);
+
+  $effect(() => {
+    invoke<string>("get_auto_backup_dir").then(d => { appDataBackupDir = d; }).catch(() => {});
+  });
+
+  async function handleExportAppData() {
+    appDataExporting = true; appDataError = null; appDataMsg = null;
+    try {
+      await exportAppData();
+      appDataMsg = "Backup saved.";
+      setTimeout(() => appDataMsg = null, 3000);
+    } catch (e: any) {
+      if (String(e).includes("Cancelled")) return;
+      appDataError = e?.message ?? String(e);
+    } finally { appDataExporting = false; }
+  }
+
+  async function handleImportAppData() {
+    appDataImporting = true; appDataError = null; appDataMsg = null;
+    try {
+      await importAppData();
+    } catch (e: any) {
+      if (String(e).includes("Cancelled")) { appDataImporting = false; return; }
+      appDataError = e?.message ?? String(e);
+      appDataImporting = false;
+    }
+  }
+
   $effect(() => { untrack(() => { loadBackupList(); fetchStorage(); }); });
   $effect(() => { return () => stopRestorePoll(); });
 </script>
@@ -512,7 +547,6 @@
             {#if !isExternalServer}
               <button class="s-btn" onclick={browseExtraScanDir}>Browse</button>
             {/if}
-
           </div>
         </div>
 
@@ -634,6 +668,58 @@
             {/if}
           </div>
         {/if}
+      </div>
+    {/if}
+  </div>
+
+  <div class="s-section">
+    <button class="s-collapsible-trigger" onclick={() => appDataSectionOpen = !appDataSectionOpen}>
+      <span class="s-label">App-Data Backup</span>
+      <svg class="s-collapsible-caret" class:open={appDataSectionOpen} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+    </button>
+    {#if appDataSectionOpen}
+      <div class="s-collapsible-body">
+
+        <div class="s-row">
+          <div class="s-row-info">
+            <span class="s-label">Export settings</span>
+            <span class="s-desc">Save all Moku app settings to a JSON file via a native save dialog.</span>
+          </div>
+          <button class="s-btn s-btn-accent" onclick={handleExportAppData} disabled={appDataExporting}>
+            {appDataExporting ? "Saving…" : "Export"}
+          </button>
+        </div>
+
+        <div class="s-row">
+          <div class="s-row-info">
+            <span class="s-label">Import settings</span>
+            <span class="s-desc">Restore from a previously exported JSON file. Reloads the app immediately.</span>
+          </div>
+          <button class="s-btn" onclick={handleImportAppData} disabled={appDataImporting}>
+            {appDataImporting ? "Importing…" : "Import"}
+          </button>
+        </div>
+
+        {#if appDataError}
+          <div class="s-banner s-banner-error">{appDataError}</div>
+        {/if}
+
+        {#if appDataMsg}
+          <div class="s-row">
+            <span class="s-desc" style="color:var(--color-success,#4caf50)">{appDataMsg}</span>
+          </div>
+        {/if}
+
+        {#if appDataBackupDir}
+          <div class="s-row">
+            <div class="s-row-info">
+              <span class="s-label">Auto-backup location</span>
+              <span class="s-desc">Pre-update snapshots are kept here (last 5).</span>
+            </div>
+            <button class="s-btn" onclick={() => invoke("open_path", { path: appDataBackupDir })}>Open folder</button>
+          </div>
+        {/if}
+
       </div>
     {/if}
   </div>

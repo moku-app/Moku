@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { open as openUrl } from "@tauri-apps/plugin-shell";
+  import { autoBackupAppData } from "@core/backup";
 
   interface ReleaseInfo { tag_name: string; name: string; body: string; published_at: string; html_url: string; }
   type UpdatePhase = "idle" | "downloading" | "launching" | "ready" | "error";
@@ -87,6 +88,7 @@
     targetTag = release.tag_name; updatePhase = "downloading"; updateError = null; dlBytes = 0; dlTotal = null;
     try {
       if (IS_WINDOWS) {
+        await autoBackupAppData();
         try { await invoke("kill_server"); } catch {}
         await invoke("download_and_install_update", { tag: release.tag_name });
         updatePhase = "ready";

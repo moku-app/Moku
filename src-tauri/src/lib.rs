@@ -405,17 +405,14 @@ fn resolve_server_binary(
 
     #[cfg(target_os = "macos")]
     {
-        // Root of Moku.app/Contents/ — scan every subdirectory level by level.
         let resource_dir = app.path().resource_dir().unwrap_or_default();
         let contents_dir = resource_dir
-            .parent()                          // Moku.app/Contents/
+            .parent()
             .unwrap_or(&resource_dir)
             .to_path_buf();
 
         do_log(log, &format!("[resolve] macOS contents_dir = {:?}", contents_dir));
 
-        // Native-binary names we recognise (most specific first so arch-specific
-        // names win over the generic "suwayomi-server" if both somehow exist).
         const NATIVE_NAMES: &[&str] = &[
             "suwayomi-server-aarch64-apple-darwin",
             "suwayomi-server-x86_64-apple-darwin",
@@ -425,11 +422,8 @@ fn resolve_server_binary(
             "tachidesk-server",
         ];
 
-        // Collect every directory inside Contents/, grouped by depth so we
-        // search shallower levels first (BFS order via WalkDir min/max_depth).
-        // We go up to depth 8 which is more than enough for any real bundle.
         let mut found_binary: Option<ServerInvocation> = None;
-        let mut found_java:   Option<(PathBuf, PathBuf)> = None; // (java_exe, jar)
+        let mut found_java:   Option<(PathBuf, PathBuf)> = None;
 
         'outer: for depth in 0u8..=8 {
             let entries: Vec<PathBuf> = WalkDir::new(&contents_dir)
@@ -444,7 +438,6 @@ fn resolve_server_binary(
             for dir in &entries {
                 do_log(log, &format!("[resolve] scanning depth={} dir={:?}", depth, dir));
 
-                // 1. Look for a native server binary in this directory.
                 for name in NATIVE_NAMES {
                     let p = dir.join(name);
                     if p.exists() {
@@ -458,15 +451,10 @@ fn resolve_server_binary(
                     }
                 }
 
-                // 2. Look for a JRE java binary paired with a .jar in the same
-                //    or sibling directories.  We record the first hit and keep
-                //    scanning natives; if no native is ever found we fall back
-                //    to this.
                 if found_java.is_none() {
                     let java_exe = dir.join("bin").join("java");
                     if java_exe.exists() {
                         do_log(log, &format!("[resolve] found java: {:?}", java_exe));
-                        // Search upward from the JRE dir for a .jar file.
                         let mut search = dir.as_path();
                         'jar: for _ in 0..5 {
                             if let Ok(rd) = std::fs::read_dir(search) {
@@ -479,7 +467,6 @@ fn resolve_server_binary(
                                     }
                                 }
                             }
-                            // Also look in a sibling `bin/` directory.
                             let bin_sibling = search.join("bin");
                             if let Ok(rd) = std::fs::read_dir(&bin_sibling) {
                                 for entry in rd.filter_map(|e| e.ok()) {
@@ -648,7 +635,6 @@ async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Resu
             .build()
             .map_err(|e| e.to_string())?;
 
-        // Fetch the specific release by tag to get its asset list.
         let url = format!("https://api.github.com/repos/Youwes09/Moku/releases/tags/{}", tag);
         let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
@@ -668,7 +654,6 @@ async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Resu
             .find(|a| a.name.ends_with("_x64-setup.exe"))
             .ok_or_else(|| format!("No x64-setup.exe asset found in release {}", tag))?;
 
-        // Stream download with progress events.
         let total = if asset.size > 0 { Some(asset.size) } else { None };
         let mut resp = client.get(&asset.browser_download_url).send().await.map_err(|e| e.to_string())?;
 
@@ -683,7 +668,6 @@ async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Resu
         }
         drop(file);
 
-        // Launch the NSIS installer silently without a visible cmd window.
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         std::process::Command::new(&tmp_path)
@@ -731,7 +715,6 @@ fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
-
 #[tauri::command]
 async fn pick_downloads_folder(app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
@@ -740,6 +723,83 @@ async fn pick_downloads_folder(app: tauri::AppHandle) -> Option<String> {
         .set_title("Choose Downloads Folder")
         .blocking_pick_folder()
         .map(|p| p.to_string())
+}
+
+fn moku_backup_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path().app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("backups")
+}
+
+#[tauri::command]
+async fn export_app_data(app: tauri::AppHandle, json: String) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let filename = format!("moku-backup-{}.json", now);
+
+    let path = app.dialog()
+        .file()
+        .set_title("Save Moku app data backup")
+        .set_file_name(&filename)
+        .blocking_save_file()
+        .ok_or("Cancelled")?;
+
+    let dest = PathBuf::from(path.to_string());
+    std::fs::write(&dest, json.as_bytes()).map_err(|e| e.to_string())?;
+
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+async fn import_app_data(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let path = app.dialog()
+        .file()
+        .set_title("Open Moku app data backup")
+        .blocking_pick_file()
+        .ok_or("Cancelled")?;
+
+    let src = PathBuf::from(path.to_string());
+    let contents = std::fs::read_to_string(&src).map_err(|e| e.to_string())?;
+
+    Ok(contents)
+}
+
+#[tauri::command]
+fn auto_backup_app_data(app: tauri::AppHandle, json: String) -> Result<(), String> {
+    let backup_dir = moku_backup_dir(&app);
+    std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let dest = backup_dir.join(format!("auto-moku-backup-{}.json", now));
+    std::fs::write(&dest, json.as_bytes()).map_err(|e| e.to_string())?;
+
+    let mut entries: Vec<_> = std::fs::read_dir(&backup_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("auto-moku-backup-"))
+        .collect();
+
+    entries.sort_by_key(|e| e.file_name());
+
+    for old in entries.iter().take(entries.len().saturating_sub(5)) {
+        let _ = std::fs::remove_file(old.path());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_auto_backup_dir(app: tauri::AppHandle) -> String {
+    moku_backup_dir(&app).to_string_lossy().into_owned()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -766,6 +826,10 @@ pub fn run() {
             restart_app,
             open_path,
             pick_downloads_folder,
+            export_app_data,
+            import_app_data,
+            auto_backup_app_data,
+            get_auto_backup_dir,
         ])
         .setup(|_app| Ok(()))
         .on_window_event(|window, event| {
