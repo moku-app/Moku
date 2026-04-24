@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleNotch, ArrowUp, ArrowDown, ArrowClockwise, X } from "phosphor-svelte";
+  import { CircleNotch, ArrowUp, ArrowDown, ArrowLineUp, ArrowLineDown, ArrowClockwise, X } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
   import ContextMenu from "@shared/ui/ContextMenu.svelte";
   import type { MenuEntry } from "@shared/ui/ContextMenu.svelte";
@@ -20,18 +20,20 @@
     onRemove:           (chapterId: number) => void;
     onRetry:            (chapterId: number) => void;
     onReorder:          (chapterId: number, dir: "up" | "down") => void;
+    onReorderEdge:      (chapterId: number, edge: "top" | "bottom") => void;
     onSelect:           (chapterId: number, e: MouseEvent | { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => void;
-    onBatchRemove:  () => void;
-    onBatchRetry:   () => void;
-    onBatchReorder: (dir: "up" | "down") => void;
-    onClearSelect:  () => void;
+    onBatchRemove:      () => void;
+    onBatchRetry:       () => void;
+    onBatchReorder:     (dir: "up" | "down") => void;
+    onBatchReorderEdge: (edge: "top" | "bottom") => void;
+    onClearSelect:      () => void;
   }
 
   const {
     item, index, isActive, isFirst, isLast, isRemoving,
     isSelected, selectedCount, selectedErrorCount, batchWorking,
-    onRemove, onRetry, onReorder, onSelect,
-    onBatchRemove, onBatchRetry, onBatchReorder, onClearSelect,
+    onRemove, onRetry, onReorder, onReorderEdge, onSelect,
+    onBatchRemove, onBatchRetry, onBatchReorder, onBatchReorderEdge, onClearSelect,
   }: Props = $props();
 
   const manga   = $derived(item.chapter.manga);
@@ -88,6 +90,19 @@
 
     if (inBatch) {
       entries.push({
+        label: `Move to top (${selectedCount})`,
+        icon: ArrowLineUp,
+        onClick: () => onBatchReorderEdge("top"),
+        disabled: batchWorking,
+      });
+      entries.push({
+        label: `Move to bottom (${selectedCount})`,
+        icon: ArrowLineDown,
+        onClick: () => onBatchReorderEdge("bottom"),
+        disabled: batchWorking,
+      });
+      entries.push({ separator: true });
+      entries.push({
         label: `Move up (${selectedCount})`,
         icon: ArrowUp,
         onClick: () => onBatchReorder("up"),
@@ -127,6 +142,19 @@
         });
         entries.push({ separator: true });
       }
+      entries.push({
+        label: "Move to top",
+        icon: ArrowLineUp,
+        onClick: () => onReorderEdge(item.chapter.id, "top"),
+        disabled: isFirst || isActive,
+      });
+      entries.push({
+        label: "Move to bottom",
+        icon: ArrowLineDown,
+        onClick: () => onReorderEdge(item.chapter.id, "bottom"),
+        disabled: isLast || isActive,
+      });
+      entries.push({ separator: true });
       entries.push({
         label: "Move up",
         icon: ArrowUp,

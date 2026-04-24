@@ -55,6 +55,16 @@ export function estimateEta(pagesPerSec: number, queue: DownloadQueueItem[]): nu
   return remaining / pagesPerSec;
 }
 
+export function reorderSelectedToEdge(
+  queue: DownloadQueueItem[],
+  selected: Set<number>,
+  edge: "top" | "bottom",
+): DownloadQueueItem[] {
+  const pinned   = queue.filter((i) => selected.has(i.chapter.id));
+  const rest     = queue.filter((i) => !selected.has(i.chapter.id));
+  return edge === "top" ? [...pinned, ...rest] : [...rest, ...pinned];
+}
+
 export function formatEta(seconds: number): string {
   if (seconds < 60)  return `~${Math.ceil(seconds)}s`;
   if (seconds < 3600) return `~${Math.ceil(seconds / 60)}m`;

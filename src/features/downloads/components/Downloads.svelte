@@ -121,11 +121,13 @@
       onRemove={(id) => downloadStore.dequeue(id)}
       onRetry={(id) => downloadStore.retryOne(id)}
       onReorder={(id, dir) => downloadStore.reorder(id, dir)}
+      onReorderEdge={(id, edge) => downloadStore.reorderToEdge(id, edge)}
       onSelect={handleSelect}
       onClearSelect={() => { downloadStore.clearSelection(); selectAnchor = null; }}
       onBatchRemove={() => downloadStore.dequeueSelected()}
       onBatchRetry={() => downloadStore.retrySelected()}
       onBatchReorder={(dir) => downloadStore.reorderSelected(dir)}
+      onBatchReorderEdge={(edge) => downloadStore.reorderSelectedToEdge(edge)}
     />
   </div>
 </div>

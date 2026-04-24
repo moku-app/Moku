@@ -231,6 +231,56 @@ class DownloadStore {
     finally { this.batchWorking = false; }
   }
 
+  async reorderToEdge(chapterId: number, edge: "top" | "bottom") {
+    const idx = this.queue.findIndex((i) => i.chapter.id === chapterId);
+    if (idx === -1) return;
+    const first = this.isRunning ? 1 : 0;
+    const last  = this.queue.length - 1;
+    const to    = edge === "top" ? first : last;
+    if (idx === to) return;
+    const newQueue = [...this.queue];
+    newQueue.splice(idx, 1);
+    newQueue.splice(to, 0, this.queue[idx]);
+    if (this.status) this.status = { ...this.status, queue: newQueue };
+    try {
+      const d = await gql<{ reorderChapterDownload: { downloadStatus: DownloadStatus } }>(
+        REORDER_DOWNLOAD, { chapterId, to },
+      );
+      this.applyStatus(d.reorderChapterDownload.downloadStatus);
+    } catch (e) { console.error(e); this.poll(); }
+  }
+
+  async reorderSelectedToEdge(edge: "top" | "bottom") {
+    if (this.batchWorking || this.selected.size === 0) return;
+    this.batchWorking = true;
+
+    const pinned   = this.queue.filter((i) => this.selected.has(i.chapter.id));
+    const rest     = this.queue.filter((i) => !this.selected.has(i.chapter.id));
+    const newQueue = edge === "top" ? [...pinned, ...rest] : [...rest, ...pinned];
+    if (this.status) this.status = { ...this.status, queue: newQueue };
+
+    const first = this.isRunning ? 1 : 0;
+    const last  = this.queue.length - 1;
+
+    try {
+      if (edge === "top") {
+        for (const item of [...pinned].reverse()) {
+          await gql<{ reorderChapterDownload: { downloadStatus: DownloadStatus } }>(
+            REORDER_DOWNLOAD, { chapterId: item.chapter.id, to: first },
+          );
+        }
+      } else {
+        for (const item of pinned) {
+          await gql<{ reorderChapterDownload: { downloadStatus: DownloadStatus } }>(
+            REORDER_DOWNLOAD, { chapterId: item.chapter.id, to: last },
+          );
+        }
+      }
+      this.poll();
+    } catch (e) { console.error(e); this.poll(); }
+    finally { this.batchWorking = false; }
+  }
+
   selectOnly(chapterId: number)   { this.selected = new Set([chapterId]); }
   toggleSelect(chapterId: number) {
     const next = new Set(this.selected);
