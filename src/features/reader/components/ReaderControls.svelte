@@ -4,11 +4,13 @@
     Square, Rows, BookOpen, MonitorPlay,
     ArrowsLeftRight, ArrowsIn, ArrowsOut, ArrowsVertical,
     MagnifyingGlassMinus, MagnifyingGlassPlus,
-    Bookmark, MapPin, Download, Check,
+    Bookmark, MapPin, Download, Check, GearSix,
   } from "phosphor-svelte";
   import { store, updateSettings }       from "@store/state.svelte";
   import { openReader, closeReader }      from "@store/state.svelte";
   import { readerState, MARKER_COLORS, MARKER_COLOR_HEX, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, PAGE_STYLES } from "../store/readerState.svelte";
+  import { fly } from "svelte/transition";
+  import { cubicOut, cubicIn } from "svelte/easing";
   import type { FitMode }                from "@store/state.svelte";
   import type { Chapter }                from "@types";
 
@@ -38,6 +40,7 @@
     onDeleteMarker:     () => void;
     onClampZoom:        (z: number) => number;
     onDlOpen:           () => void;
+    onSettingsOpen:     () => void;
     win:                import("@tauri-apps/api/window").Window;
   }
 
@@ -48,7 +51,7 @@
     autoNext, markOnNext, uiVisible, hideTimer,
     onCaptureZoomAnchor, onRestoreZoomAnchor,
     onMaybeMarkRead, onToggleBookmark, onCommitMarker, onDeleteMarker,
-    onClampZoom, onDlOpen, win,
+    onClampZoom, onDlOpen, onSettingsOpen, win,
   }: Props = $props();
 
   function adjustZoom(delta: number) {
@@ -77,6 +80,19 @@
     readerState.uiVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
   }
+
+  let wcTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function wcResetTimer() {
+    if (wcTimer) clearTimeout(wcTimer);
+    wcTimer = setTimeout(() => { readerState.winOpen = false; }, 1500);
+  }
+
+  $effect(() => {
+    if (readerState.winOpen) wcResetTimer();
+    else if (wcTimer) { clearTimeout(wcTimer); wcTimer = null; }
+    return () => { if (wcTimer) clearTimeout(wcTimer); };
+  });
 
   function openMarkerPopover() {
     if (currentPageMarkers.length > 0) {
@@ -268,31 +284,40 @@
         </svg>
       </button>
       {#if readerState.winOpen}
-        <div class="wc-dropdown" role="presentation" onclick={(e) => e.stopPropagation()}>
-          <button class="wc-btn" onclick={() => { readerState.winOpen = false; win.minimize(); }}>
-            <svg width="10" height="1" viewBox="0 0 10 1"><line x1="0" y1="0.5" x2="10" y2="0.5" stroke="currentColor" stroke-width="1.5"/></svg>
-            <span>Minimize</span>
+        <div class="wc-clip" onmouseenter={wcResetTimer} onmousemove={wcResetTimer}>
+          <div
+            class="wc-bar"
+            role="presentation"
+            onclick={(e) => e.stopPropagation()}
+            in:fly={{ y: '-100%', duration: 200, easing: cubicOut }}
+            out:fly={{ y: '-100%', duration: 150, easing: cubicIn }}
+          >
+          <button class="wc-icon-btn" onclick={() => { readerState.winOpen = false; onSettingsOpen(); }} title="Settings">
+            <GearSix size={13} weight="regular" />
           </button>
-          <button class="wc-btn" onclick={() => { readerState.winOpen = false; win.toggleMaximize(); }}>
+          <div class="wc-bar-sep"></div>
+          <button class="wc-icon-btn" onclick={() => { readerState.winOpen = false; win.minimize(); }} title="Minimize">
+            <svg width="10" height="2" viewBox="0 0 10 2"><line x1="0" y1="1" x2="10" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+          <button class="wc-icon-btn" onclick={() => { readerState.winOpen = false; win.toggleMaximize(); }} title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
             {#if isFullscreen}
-              <svg width="10" height="10" viewBox="0 0 10 10">
+              <svg width="11" height="11" viewBox="0 0 11 11">
                 <polyline points="1,4 1,1 4,1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <polyline points="6,1 9,1 9,4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <polyline points="9,6 9,9 6,9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <polyline points="4,9 1,9 1,6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="7,1 10,1 10,4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="10,7 10,10 7,10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="4,10 1,10 1,7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             {:else}
-              <svg width="9" height="9" viewBox="0 0 9 9"><rect x="0.75" y="0.75" width="7.5" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+              <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.75" y="0.75" width="8.5" height="8.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
             {/if}
-            <span>{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
           </button>
-          <button class="wc-btn wc-close" onclick={() => { readerState.winOpen = false; win.close(); }}>
+          <button class="wc-icon-btn wc-icon-close" onclick={() => { readerState.winOpen = false; win.close(); }} title="Close">
             <svg width="10" height="10" viewBox="0 0 10 10">
               <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
               <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
-            <span>Close</span>
           </button>
+        </div>
         </div>
       {/if}
     </div>
@@ -301,7 +326,7 @@
 </div>
 
 <style>
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-1); padding: 0 var(--sp-3); height: 40px; background: var(--bg-void); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; position: relative; z-index: 2; transition: opacity 0.25s ease; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-1); padding: 0 var(--sp-3); height: 40px; background: var(--bg-void); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; position: relative; z-index: 2; transition: opacity 0.25s ease; overflow: visible; }
   .topbar.hidden { opacity: 0; pointer-events: none; }
 
   .topbar-left  { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; flex: 1; overflow: hidden; }
@@ -362,12 +387,42 @@
   .marker-cancel-btn { flex: 1; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); cursor: pointer; transition: color var(--t-base), border-color var(--t-base); text-align: center; }
   .marker-cancel-btn:hover { color: var(--text-muted); border-color: var(--border-strong); }
 
-  .wc-wrap     { position: relative; flex-shrink: 0; }
-  .wc-dropdown { position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg-raised); border: 1px solid var(--border-base); border-radius: var(--radius-lg); padding: var(--sp-1); display: flex; flex-direction: column; gap: 2px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; min-width: 148px; animation: scaleIn 0.1s ease both; transform-origin: top right; }
-  .wc-btn      { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-2); border-radius: var(--radius-sm); background: none; border: none; color: var(--text-muted); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); cursor: pointer; width: 100%; transition: color var(--t-base), background var(--t-base); }
-  .wc-btn svg  { flex-shrink: 0; opacity: 0.75; }
-  .wc-btn:hover { color: var(--text-primary); background: var(--bg-overlay); }
-  .wc-close:hover { color: #fff; background: #c0392b; }
+  .wc-wrap { position: static; flex-shrink: 0; }
+  .wc-clip {
+    position: absolute;
+    top: 100%;
+    right: var(--sp-3);
+    z-index: 100;
+    clip-path: inset(0 -20px -20px -20px);
+  }
+  .wc-bar {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 3px 10px 4px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-base);
+    border-top: none;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+    border-radius: 0 0 8px 8px;
+  }
+  .wc-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color var(--t-base), background var(--t-base);
+    flex-shrink: 0;
+  }
+  .wc-icon-btn:hover { color: var(--text-primary); background: var(--bg-overlay); }
+  .wc-icon-close:hover { color: #fff; background: #c0392b; }
+  .wc-bar-sep { width: 1px; height: 12px; background: var(--border-dim); margin: 0 2px; flex-shrink: 0; }
 
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
 </style>

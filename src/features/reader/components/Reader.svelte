@@ -465,6 +465,7 @@
     onDeleteMarker={deleteCurrentMarker}
     onClampZoom={clampZoom}
     onDlOpen={() => readerState.dlOpen = true}
+    onSettingsOpen={() => setSettingsOpen(true)}
     {win}
   />
 

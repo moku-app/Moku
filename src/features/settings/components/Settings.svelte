@@ -65,9 +65,9 @@
   let listeningKey: keyof Keybinds | null = $state(null);
 
   $effect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !listeningKey) close(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !listeningKey) { e.stopPropagation(); close(); } };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   });
 
   $effect(() => {
@@ -118,7 +118,7 @@
 
 <div class="s-backdrop" role="presentation" tabindex="-1"
   onclick={(e) => { if (e.target === e.currentTarget) close(); }}
-  onkeydown={(e) => { if (e.key === "Escape") close(); }}>
+  onkeydown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}>
   <div class="s-modal" role="dialog" aria-label="Settings">
 
     <div class="s-sidebar">
