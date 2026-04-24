@@ -15,6 +15,7 @@
     remainingCount:  number;
     renderLimit:     number;
     cropCovers:      boolean;
+    statsAlways:     boolean;
     libraryFilter:   string;
     bulkWorking:     boolean;
     visibleCategories: Category[];
@@ -34,7 +35,7 @@
 
   let {
     visibleManga, filtered, loading, cols, anims, selectMode, selectedIds,
-    hasMore, remainingCount, renderLimit, cropCovers, libraryFilter,
+    hasMore, remainingCount, renderLimit, cropCovers, statsAlways, libraryFilter,
     bulkWorking, visibleCategories,
     onCardClick, onCardContextMenu, onCardPointerDown, onCardPointerUp, onCardPointerLeave,
     onLoadMore, onRetry, onExitSelectMode, onSelectAll, onBulkMove, onBulkRemove, onBulkAutomate,
@@ -128,23 +129,17 @@
         >
           <div class="cover-wrap" class:completed={isCompleted}>
             <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" style="object-fit:{cropCovers ? 'cover' : 'contain'}" draggable="false" />
-            <div class="card-info-overlay" class:anim={anims} class:instant={!anims}>
-              {#if isCompleted}
-                <span class="info-chip info-chip-done">✓ complete</span>
-              {:else if m.unreadCount}
-                <span class="info-chip info-chip-unread">
-                  <span class="info-chip-dot"></span>
-                  {m.unreadCount} unread
-                </span>
-              {:else}
-                <span></span>
-              {/if}
-              {#if m.downloadCount}
-                <span class="info-chip info-chip-dl">
-                  <span class="info-chip-dot"></span>
-                  {m.downloadCount}
-                </span>
-              {/if}
+            <div class="card-info-overlay" class:anim={anims} class:instant={!anims} class:always={statsAlways}>
+              <div class="overlay-badges">
+                {#if isCompleted}
+                  <span class="badge badge-done">✓ Done</span>
+                {:else if m.unreadCount}
+                  <span class="badge badge-unread">{m.unreadCount} new</span>
+                {/if}
+                {#if m.downloadCount}
+                  <span class="badge badge-dl">↓ {m.downloadCount}</span>
+                {/if}
+              </div>
             </div>
             {#if selectMode}
               <div class="select-overlay" aria-hidden="true">
@@ -200,15 +195,16 @@
   .card.anims .cover-wrap { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color var(--t-base), box-shadow 0.18s cubic-bezier(0.16,1,0.3,1); }
   .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
   .card.anims .cover { transition: filter var(--t-base); }
-  .card-info-overlay { position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: flex-end; justify-content: space-between; padding: 20px 5px 5px; background: linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.3) 55%, transparent 100%); opacity: 0; transform: translateY(3px); pointer-events: none; }
-  .card-info-overlay.anim { transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1); }
+  .card-info-overlay { position: absolute; bottom: -4px; left: 0; right: 0; padding: 32px 6px 10px; background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 50%, transparent 100%); opacity: 0; pointer-events: none; }
+  .card-info-overlay.anim { transition: opacity 0.18s ease; }
   .card-info-overlay.instant { transition: none; }
-  .card:not(.select-mode):hover .card-info-overlay { opacity: 1; transform: translateY(0); }
-  .info-chip { display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; line-height: 1; padding: 3px 6px; border-radius: 4px; background: rgba(0,0,0,0.52); backdrop-filter: blur(6px); }
-  .info-chip-unread { color: #fff; }
-  .info-chip-done { color: var(--accent-fg); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
-  .info-chip-dl { color: var(--accent-fg); }
-  .info-chip-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .card-info-overlay.always { opacity: 1; }
+  .card:not(.select-mode):hover .card-info-overlay { opacity: 1; }
+  .overlay-badges { display: flex; align-items: flex-end; justify-content: space-between; gap: 4px; flex-wrap: wrap; }
+  .badge { font-family: var(--font-ui); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; line-height: 1; padding: 3px 7px; border-radius: 20px; white-space: nowrap; }
+  .badge-unread { background: var(--accent); color: #fff; box-shadow: 0 1px 8px rgba(0,0,0,0.5); }
+  .badge-done { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.25); }
+  .badge-dl { background: rgba(0,0,0,0.55); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.18); margin-left: auto; }
   .select-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.18); display: flex; align-items: flex-start; justify-content: flex-end; padding: 6px; pointer-events: none; }
   .select-check { color: var(--text-faint); opacity: 0.7; transition: color var(--t-base), opacity var(--t-base); }
   .select-check.checked { color: var(--accent-fg); opacity: 1; }

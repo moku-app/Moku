@@ -573,6 +573,7 @@
       {remainingCount}
       renderLimit={store.settings.renderLimit ?? 48}
       cropCovers={store.settings.libraryCropCovers}
+      statsAlways={store.settings.libraryStatsAlways ?? false}
       libraryFilter={tab}
       onCardClick={onCardClick}
       onCardContextMenu={openCtx}

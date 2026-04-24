@@ -20,6 +20,10 @@
     <p class="s-section-title">Display</p>
     <div class="s-section-body">
       <label class="s-row">
+        <div class="s-row-info"><span class="s-label">Always show card stats</span><span class="s-desc">Show unread and download counts without needing to hover</span></div>
+        <button role="switch" aria-checked={store.settings.libraryStatsAlways ?? false} aria-label="Always show card stats" class="s-toggle" class:on={store.settings.libraryStatsAlways ?? false} onclick={() => updateSettings({ libraryStatsAlways: !(store.settings.libraryStatsAlways ?? false) })}><span class="s-toggle-thumb"></span></button>
+      </label>
+      <label class="s-row">
         <div class="s-row-info"><span class="s-label">Crop cover images</span><span class="s-desc">Fills the card with the cover art instead of letterboxing</span></div>
         <button role="switch" aria-checked={store.settings.libraryCropCovers} aria-label="Crop cover images" class="s-toggle" class:on={store.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !store.settings.libraryCropCovers })}><span class="s-toggle-thumb"></span></button>
       </label>
