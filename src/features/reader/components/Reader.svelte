@@ -5,7 +5,8 @@
   import { ENQUEUE_CHAPTERS_DOWNLOAD } from "@api/mutations/downloads";
   import { store, updateSettings, openReader, closeReader, addHistory,
            addBookmark, removeBookmark, addMarker, updateMarker, removeMarker,
-           setSettingsOpen }                                                    from "@store/state.svelte";
+           setSettingsOpen, setMangaReaderSettings, clearMangaReaderSettings,
+           saveReaderPreset, updateReaderPreset, deleteReaderPreset }           from "@store/state.svelte";
   import { setReading }               from "@store/discord";
   import { DEFAULT_KEYBINDS }         from "@core/keybinds/defaultBinds";
   import { readerState, PAGE_STYLES } from "../store/readerState.svelte";
@@ -21,17 +22,27 @@
   import PageView                     from "./PageView.svelte";
   import ReaderProgressBar            from "./ReaderProgressBar.svelte";
   import ReaderOverlay                from "./ReaderOverlay.svelte";
+  import ReaderPresetPanel            from "./ReaderPresetPanel.svelte";
 
   const win       = getCurrentWindow();
   const useBlob   = $derived((store.settings.serverAuthMode ?? "NONE") === "BASIC_AUTH");
-  const rtl       = $derived(store.settings.readingDirection === "rtl");
-  const fit       = $derived((store.settings.fitMode ?? "width") as FitMode);
-  const style     = $derived((store.settings.pageStyle ?? "single") as typeof PAGE_STYLES[number]);
-  const zoom      = $derived(store.settings.readerZoom ?? 1.0);
+
+  const effectiveReaderSettings = $derived.by(() => {
+    const mangaId  = store.activeManga?.id;
+    const override = mangaId != null ? (store.settings.mangaReaderSettings ?? {})[mangaId] : undefined;
+    return override ? { ...store.settings, ...override } : store.settings;
+  });
+
+  const rtl       = $derived(effectiveReaderSettings.readingDirection === "rtl");
+  const fit       = $derived((effectiveReaderSettings.fitMode ?? "width") as FitMode);
+  const style     = $derived((effectiveReaderSettings.pageStyle ?? "single") as typeof PAGE_STYLES[number]);
+  const zoom      = $derived(effectiveReaderSettings.readerZoom ?? 1.0);
   const autoNext  = $derived(store.settings.autoNextChapter ?? false);
   const markOnNext = $derived(store.settings.markReadOnNext ?? true);
   const overlayBars    = $derived(store.settings.overlayBars ?? false);
   const tapToToggleBar = $derived(store.settings.tapToToggleBar ?? false);
+  const barPosition    = $derived((store.settings.barPosition ?? "top") as "top" | "left" | "right");
+  const isVerticalBar  = $derived(barPosition === "left" || barPosition === "right");
   const lastPage       = $derived(store.pageUrls.length);
   const effectiveWidth = $derived(readerState.containerWidth > 0 ? Math.round(readerState.containerWidth * zoom) : undefined);
   const zoomPct        = $derived(Math.round(zoom * 100));
@@ -84,7 +95,7 @@
     fit === "height"   && "fit-height",
     fit === "screen"   && "fit-screen",
     fit === "original" && "fit-original",
-    store.settings.optimizeContrast && "optimize-contrast",
+    effectiveReaderSettings.optimizeContrast && "optimize-contrast",
   ].filter(Boolean).join(" "));
 
   const fitLabel = $derived({ width: "Fit W", height: "Fit H", screen: "Fit Screen", original: "1:1" }[fit]);
@@ -118,6 +129,11 @@
 
   const sliderPctRaw = $derived(sliderMax > 1 ? ((sliderPage - 1) / (sliderMax - 1)) * 100 : 0);
   const sliderPct    = $derived(rtl ? 100 - sliderPctRaw : sliderPctRaw);
+
+  const perMangaEnabled = $derived(
+    store.activeManga?.id != null &&
+    !!(store.settings.mangaReaderSettings ?? {})[store.activeManga.id]
+  );
 
   let containerEl: HTMLDivElement | null = null;
   let pageViewRef: PageView;
@@ -184,7 +200,7 @@
     e.preventDefault();
     captureZoomAnchor(containerEl, style, zoomAnchor);
     const ZOOM_STEP = 0.05;
-    updateSettings({ readerZoom: clampZoom(zoom + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)) });
+    applySettings({ readerZoom: clampZoom(zoom + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)) });
     restoreZoomAnchor(containerEl, zoomAnchor);
   }
 
@@ -202,10 +218,10 @@
     closeReader,
     goToPage:        (p) => jumpToPage(p, style, lastPage, containerEl),
     lastPage:        () => lastPage,
-    adjustZoom:      (d) => { captureZoomAnchor(containerEl, style, zoomAnchor); updateSettings({ readerZoom: clampZoom(zoom + d) }); restoreZoomAnchor(containerEl, zoomAnchor); },
-    resetZoom:       () => { captureZoomAnchor(containerEl, style, zoomAnchor); updateSettings({ readerZoom: 1.0 }); restoreZoomAnchor(containerEl, zoomAnchor); },
-    cycleStyle:      () => { const idx = PAGE_STYLES.indexOf(style); updateSettings({ pageStyle: PAGE_STYLES[(idx + 1) % PAGE_STYLES.length] }); },
-    toggleDirection: () => updateSettings({ readingDirection: rtl ? "ltr" : "rtl" }),
+    adjustZoom:      (d) => { captureZoomAnchor(containerEl, style, zoomAnchor); applySettings({ readerZoom: clampZoom(zoom + d) }); restoreZoomAnchor(containerEl, zoomAnchor); },
+    resetZoom:       () => { captureZoomAnchor(containerEl, style, zoomAnchor); applySettings({ readerZoom: 1.0 }); restoreZoomAnchor(containerEl, zoomAnchor); },
+    cycleStyle:      () => { const idx = PAGE_STYLES.indexOf(style); applySettings({ pageStyle: PAGE_STYLES[(idx + 1) % PAGE_STYLES.length] }); },
+    toggleDirection: () => applySettings({ readingDirection: rtl ? "ltr" : "rtl" }),
     openSettings:    () => setSettingsOpen(true),
     toggleBookmark:  () => toggleBookmark(displayChapter, store.pageNumber),
     toggleMarker:    () => {
@@ -229,6 +245,54 @@
   });
 
   function bindContainer(el: HTMLDivElement) { containerEl = el; }
+
+  function captureCurrentReaderSettings() {
+    return {
+      pageStyle:           style,
+      fitMode:             fit,
+      readingDirection:    (store.settings.readingDirection ?? "ltr") as import("@store/state.svelte").ReadingDirection,
+      readerZoom:          zoom,
+      pageGap:             effectiveReaderSettings.pageGap ?? true,
+      optimizeContrast:    effectiveReaderSettings.optimizeContrast ?? false,
+      offsetDoubleSpreads: effectiveReaderSettings.offsetDoubleSpreads ?? false,
+    } satisfies import("@store/state.svelte").ReaderSettings;
+  }
+
+  function applySettings(patch: Parameters<typeof updateSettings>[0]) {
+    const mangaId = store.activeManga?.id;
+    if (mangaId != null && (store.settings.mangaReaderSettings ?? {})[mangaId]) {
+      setMangaReaderSettings(mangaId, { ...(store.settings.mangaReaderSettings ?? {})[mangaId]!, ...patch });
+    } else {
+      updateSettings(patch);
+    }
+  }
+
+  function handleTogglePerManga() {
+    const mangaId = store.activeManga?.id;
+    if (mangaId == null) return;
+    if ((store.settings.mangaReaderSettings ?? {})[mangaId]) {
+      clearMangaReaderSettings(mangaId);
+    } else {
+      setMangaReaderSettings(mangaId, captureCurrentReaderSettings());
+    }
+  }
+
+  function handleSavePreset(name: string) {
+    saveReaderPreset(name, captureCurrentReaderSettings());
+  }
+
+  function handleApplyPreset(settings: import("@store/state.svelte").ReaderSettings) {
+    const mangaId = store.activeManga?.id;
+    if (mangaId != null && (store.settings.mangaReaderSettings ?? {})[mangaId]) {
+      setMangaReaderSettings(mangaId, settings);
+    } else {
+      updateSettings(settings);
+    }
+  }
+
+  function handleBarPositionChange(pos: "top" | "left" | "right") {
+    updateSettings({ barPosition: pos });
+  }
 
   $effect(() => {
     const chapter = displayChapter;
@@ -346,7 +410,7 @@
       const snap = store.pageUrls;
       Promise.all(snap.map(url => measureAspect(url, useBlob))).then(aspects => {
         if (cancelled || snap !== store.pageUrls) return;
-        readerState.pageGroups = buildPageGroups(snap, aspects, store.settings.offsetDoubleSpreads ?? false);
+        readerState.pageGroups = buildPageGroups(snap, aspects, effectiveReaderSettings.offsetDoubleSpreads ?? false);
       });
       return () => { cancelled = true; };
     } else { readerState.pageGroups = []; }
@@ -446,17 +510,26 @@
 <div
   class="root"
   class:overlay-bars={overlayBars}
+  class:bar-left={barPosition === "left"}
+  class:bar-right={barPosition === "right"}
   role="presentation"
-  onmousemove={(e) => { if (!tapToToggleBar && (e.clientY < 60 || window.innerHeight - e.clientY < 60)) showUi(); }}
+  onmousemove={(e) => {
+    if (!tapToToggleBar) {
+      if (barPosition === "top" && (e.clientY < 60 || window.innerHeight - e.clientY < 60)) showUi();
+      if (barPosition === "left" && e.clientX < 60) showUi();
+      if (barPosition === "right" && window.innerWidth - e.clientX < 60) showUi();
+    }
+  }}
 >
   <ReaderControls
     {displayChapter} {adjacent} {visibleChunkLastPage}
-    {fit} {fitLabel} {style} {rtl} {zoom} {zoomPct}
+    {zoom} {zoomPct}
     isFullscreen={readerState.isFullscreen}
     {isBookmarked} {hasMarkerOnPage} {currentPageMarkers}
-    {autoNext} {markOnNext}
     uiVisible={readerState.uiVisible}
     {hideTimer}
+    {barPosition}
+    progressBar={isVerticalBar ? progressBarSnippet : undefined}
     onCaptureZoomAnchor={() => captureZoomAnchor(containerEl, style, zoomAnchor)}
     onRestoreZoomAnchor={() => restoreZoomAnchor(containerEl, zoomAnchor)}
     onMaybeMarkRead={maybeMarkCurrentRead}
@@ -464,10 +537,30 @@
     onCommitMarker={commitMarker}
     onDeleteMarker={deleteCurrentMarker}
     onClampZoom={clampZoom}
+    onApplySettings={applySettings}
     onDlOpen={() => readerState.dlOpen = true}
     onSettingsOpen={() => setSettingsOpen(true)}
+    {perMangaEnabled}
     {win}
   />
+
+  {#if readerState.presetOpen}
+    <ReaderPresetPanel
+      {fit} {style} {rtl} {zoom} {zoomPct}
+      {perMangaEnabled}
+      {barPosition}
+      onBarPositionChange={handleBarPositionChange}
+      onTogglePerManga={handleTogglePerManga}
+      onApplySettings={applySettings}
+      onSavePreset={handleSavePreset}
+      onApplyPreset={handleApplyPreset}
+      onUpdatePreset={updateReaderPreset}
+      onDeletePreset={deleteReaderPreset}
+      onCaptureZoomAnchor={() => captureZoomAnchor(containerEl, style, zoomAnchor)}
+      onRestoreZoomAnchor={() => restoreZoomAnchor(containerEl, zoomAnchor)}
+      onClampZoom={clampZoom}
+    />
+  {/if}
 
   <ReaderOverlay
     {showResumeBanner}
@@ -494,21 +587,42 @@
     {bindContainer}
   />
 
-  <ReaderProgressBar
-    {style}
-    loading={readerState.loading}
-    {rtl} {sliderPage} {sliderMax} {sliderPct} {lastPage}
-    {displayChapter} {currentBookmark} {activeChapterMarkers} {adjacent}
-    uiVisible={readerState.uiVisible}
-    onGoPrev={goPrev}
-    onGoNext={goNext}
-    onJumpToPage={(p) => jumpToPage(p, style, lastPage, containerEl)}
-  />
+  {#snippet progressBarSnippet()}
+    <ReaderProgressBar
+      {style}
+      loading={readerState.loading}
+      {rtl} {sliderPage} {sliderMax} {sliderPct} {lastPage}
+      {displayChapter} {currentBookmark} {activeChapterMarkers} {adjacent}
+      uiVisible={readerState.uiVisible}
+      {barPosition}
+      onGoPrev={goPrev}
+      onGoNext={goNext}
+      onJumpToPage={(p) => jumpToPage(p, style, lastPage, containerEl)}
+    />
+  {/snippet}
+
+  {#if !isVerticalBar}
+    <ReaderProgressBar
+      {style}
+      loading={readerState.loading}
+      {rtl} {sliderPage} {sliderMax} {sliderPct} {lastPage}
+      {displayChapter} {currentBookmark} {activeChapterMarkers} {adjacent}
+      uiVisible={readerState.uiVisible}
+      {barPosition}
+      onGoPrev={goPrev}
+      onGoNext={goNext}
+      onJumpToPage={(p) => jumpToPage(p, style, lastPage, containerEl)}
+    />
+  {/if}
 </div>
+
 <style>
   .root { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: var(--z-reader); transform: translateZ(0); will-change: transform; }
 
   .root.overlay-bars :global(.topbar)    { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
   .root.overlay-bars :global(.bottombar) { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; }
   .root.overlay-bars :global(.viewer)    { height: 100%; }
+
+  .root.bar-left  :global(.viewer) { margin-left: 40px; }
+  .root.bar-right :global(.viewer) { margin-right: 40px; }
 </style>

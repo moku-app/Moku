@@ -95,6 +95,23 @@ export const DEFAULT_MANGA_PREFS: MangaPrefs = {
   autoDownloadScanlators: [],
 };
 
+export interface ReaderSettings {
+  pageStyle:           PageStyle;
+  fitMode:             FitMode;
+  readingDirection:    ReadingDirection;
+  readerZoom:          number;
+  pageGap:             boolean;
+  optimizeContrast:    boolean;
+  offsetDoubleSpreads: boolean;
+  barPosition?:        "top" | "left" | "right";
+}
+
+export interface ReaderPreset {
+  id:       string;
+  name:     string;
+  settings: ReaderSettings;
+}
+
 export interface Settings {
   pageStyle: PageStyle; readingDirection: ReadingDirection; fitMode: FitMode;
   readerZoom: number; pageGap: boolean; optimizeContrast: boolean;
@@ -128,6 +145,9 @@ export interface Settings {
   extraScanDirs: string[]; serverDownloadsPath: string; serverLocalSourcePath: string;
   qolAnimations: boolean;
   pinnedSourceIds: string[];
+  readerPresets: ReaderPreset[];
+  mangaReaderSettings: Record<number, ReaderSettings>;
+  barPosition?: "top" | "left" | "right";
 }
 
 export const DEFAULT_READING_STATS: ReadingStats = {
@@ -163,6 +183,8 @@ export const DEFAULT_SETTINGS: Settings = {
   extraScanDirs: [], serverDownloadsPath: "", serverLocalSourcePath: "",
   qolAnimations: true,
   pinnedSourceIds: [],
+  readerPresets: [],
+  mangaReaderSettings: {},
 };
 
 const STORE_VERSION    = 3;
@@ -207,8 +229,10 @@ function mergeSettings(saved: any): Settings {
     libraryTabSort:       saved?.settings?.libraryTabSort       ?? {},
     libraryTabStatus:     saved?.settings?.libraryTabStatus     ?? {},
     libraryTabFilters:    saved?.settings?.libraryTabFilters    ?? {},
-    extraScanDirs:        saved?.settings?.extraScanDirs        ?? [],
-    pinnedSourceIds:      saved?.settings?.pinnedSourceIds      ?? [],
+    extraScanDirs:          saved?.settings?.extraScanDirs          ?? [],
+    pinnedSourceIds:        saved?.settings?.pinnedSourceIds        ?? [],
+    readerPresets:          saved?.settings?.readerPresets          ?? [],
+    mangaReaderSettings:    saved?.settings?.mangaReaderSettings    ?? {},
   };
 }
 
@@ -419,6 +443,30 @@ class Store {
     this.settings = { ...this.settings, pinnedSourceIds: pins.includes(sourceId) ? pins.filter(id => id !== sourceId) : [...pins, sourceId] };
   }
 
+  saveReaderPreset(name: string, settings: ReaderSettings): string {
+    const id = Math.random().toString(36).slice(2);
+    this.settings = { ...this.settings, readerPresets: [...(this.settings.readerPresets ?? []), { id, name: name.trim() || "Preset", settings }] };
+    return id;
+  }
+
+  updateReaderPreset(id: string, patch: Partial<Pick<ReaderPreset, "name" | "settings">>) {
+    this.settings = { ...this.settings, readerPresets: (this.settings.readerPresets ?? []).map(p => p.id === id ? { ...p, ...patch } : p) };
+  }
+
+  deleteReaderPreset(id: string) {
+    this.settings = { ...this.settings, readerPresets: (this.settings.readerPresets ?? []).filter(p => p.id !== id) };
+  }
+
+  setMangaReaderSettings(mangaId: number, settings: ReaderSettings) {
+    this.settings = { ...this.settings, mangaReaderSettings: { ...(this.settings.mangaReaderSettings ?? {}), [mangaId]: settings } };
+  }
+
+  clearMangaReaderSettings(mangaId: number) {
+    const next = { ...(this.settings.mangaReaderSettings ?? {}) };
+    delete next[mangaId];
+    this.settings = { ...this.settings, mangaReaderSettings: next };
+  }
+
   setCategories(cats: Category[])       { this.categories       = cats; }
   setActiveManga(next: Manga | null)    { this.activeManga      = next; }
   setPreviewManga(next: Manga | null)   { this.previewManga     = next; }
@@ -452,6 +500,11 @@ export function setPageNumber(next: number)                                     
 export function setLibraryFilter(next: LibraryFilter)                                      { store.setLibraryFilter(next); }
 export function setLibraryTagFilter(next: string[])                                        { store.setLibraryTagFilter(next); }
 export function togglePinnedSource(sourceId: string)                                       { store.togglePinnedSource(sourceId); }
+export function saveReaderPreset(name: string, settings: ReaderSettings): string           { return store.saveReaderPreset(name, settings); }
+export function updateReaderPreset(id: string, patch: Partial<Pick<ReaderPreset, "name" | "settings">>) { store.updateReaderPreset(id, patch); }
+export function deleteReaderPreset(id: string)                                             { store.deleteReaderPreset(id); }
+export function setMangaReaderSettings(mangaId: number, settings: ReaderSettings)         { store.setMangaReaderSettings(mangaId, settings); }
+export function clearMangaReaderSettings(mangaId: number)                                  { store.clearMangaReaderSettings(mangaId); }
 export function updateSettings(patch: Partial<Settings>)                                   { store.updateSettings(patch); }
 export function resetKeybinds()                                                            { store.resetKeybinds(); }
 export function clearSearchCache()                                                         { store.clearSearchCache(); }

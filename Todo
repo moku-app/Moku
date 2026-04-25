@@ -33,11 +33,7 @@ In-Progress:
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
 
-- MacOS Fixes
-   - Revamp Server-State Check (MacOS does not pick up) (TESTING)
-   - Check Moku Sidebar Icon (Looks ugly on MacOS)
-      - Icon appears as a Square
-      - Icon appears to have Green Underglow?
 
 
-Testing Bugs:
+Notes from last time:
+ - Currently working on #42, just need to mount panel and fix button in reader
