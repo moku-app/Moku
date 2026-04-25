@@ -52,7 +52,6 @@
   let selectedIds:      Set<number> = $state(new Set());
   let selectMode:       boolean     = $state(false);
   let bulkWorking:      boolean     = $state(false);
-  let bulkMoveOpen:     boolean     = $state(false);
   let bulkAutomateOpen: boolean     = $state(false);
 
   let sortPanelOpen:   boolean = $state(false);
@@ -68,7 +67,7 @@
   let dragInsertIdx:    number       = $state(-1);
   let dragTabId:        number | null = $state(null);
   let dragOverTabId:    number | null = $state(null);
-  let dropTargetTabId:  number | null = $state(null);
+
 
   const DT_TAB = "application/x-moku-tab";
   const anims  = $derived(store.settings.qolAnimations ?? true);
@@ -185,7 +184,7 @@
   }
 
   function enterSelectMode(id?: number) { selectMode = true; if (id !== undefined) selectedIds = new Set([id]); }
-  function exitSelectMode()              { selectMode = false; selectedIds = new Set(); bulkMoveOpen = false; }
+  function exitSelectMode()              { selectMode = false; selectedIds = new Set(); }
   function toggleSelect(id: number)     { const next = new Set(selectedIds); if (next.has(id)) next.delete(id); else next.add(id); selectedIds = next; if (next.size === 0) exitSelectMode(); }
   function selectAll()                  { selectedIds = new Set(visibleManga.map(m => m.id)); }
   function loadMore()                   { renderVisible = paginator.nextVisible(renderVisible); }
@@ -299,7 +298,7 @@
   }
 
   async function bulkMoveToCategory(cat: Category) {
-    bulkWorking = true; bulkMoveOpen = false;
+    bulkWorking = true;
     try { await Promise.all([...selectedIds].map(id => { const m = allManga.find(x => x.id === id); return m ? toggleMangaCategory(m, cat) : Promise.resolve(); })); }
     finally { bulkWorking = false; exitSelectMode(); }
   }
@@ -584,13 +583,11 @@
       onRetry={() => retryCount++}
       onExitSelectMode={exitSelectMode}
       onSelectAll={selectAll}
-      onBulkMove={(cat) => { bulkMoveOpen = !bulkMoveOpen; }}
+      onBulkMove={bulkMoveToCategory}
       onBulkRemove={bulkRemoveFromLibrary}
       onBulkAutomate={bulkAutomate}
       {bulkWorking}
-      {bulkMoveOpen}
       {visibleCategories}
-      onCategoryMove={bulkMoveToCategory}
     />
   {/if}
 </div>

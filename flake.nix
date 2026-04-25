@@ -300,6 +300,7 @@ EOF
               suwayomi-server
               cloudflared
               xdg-utils
+              (python3.withPackages (ps: [ ps.aiohttp ps.tomlkit ]))
             ];
             shellHook = ''
               export NO_STRIP=true
