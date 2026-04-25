@@ -29,6 +29,7 @@
   let search       = $state("");
   let langFilter   = $state<string | null>(null);
   let working      = $state(new Set<string>());
+  let updatingAll  = $state(false);
   let expanded     = $state(new Set<string>());
   let panel        = $state<Panel>(null);
 
@@ -124,6 +125,15 @@
     }
   }
 
+  async function updateAll() {
+    const pending = extensions.filter((e) => e.hasUpdate);
+    if (!pending.length || updatingAll) return;
+    updatingAll = true;
+    for (const ext of pending) await mutate(ext.pkgName, "update");
+    updatingAll = false;
+    addToast({ kind: "success", title: "All extensions updated", body: `${pending.length} extension${pending.length === 1 ? "" : "s"} updated` });
+  }
+
   async function installExternal() {
     const url = externalUrl.trim();
     const err = validateUrl(url, ".apk");
@@ -206,13 +216,14 @@
 <div class="root anim-fade-in">
   <ExtensionFilters
     {filter} {search} {panel} {refreshing} {updateCount} {availableLangs} {langFilter}
-    {anims} {tabIndicator}
+    {anims} {tabIndicator} {updatingAll}
     bind:tabsEl
     onFilter={setFilter}
     onSearch={(q) => search = q}
     onLang={(l) => langFilter = l}
     onPanel={openPanel}
     onRefresh={fetchFromRepo}
+    onUpdateAll={updateAll}
   />
 
   {#if panel === "apk"}
