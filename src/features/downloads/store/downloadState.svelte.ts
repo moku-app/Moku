@@ -12,6 +12,7 @@ import {
   isRunning, getErrored, calcSpeed, estimateEta,
   type SpeedSample,
 } from "../lib/downloadQueue";
+import { startAutoRetry, type AutoRetryHandle } from "../lib/autoRetry";
 
 class DownloadStore {
   status:       DownloadStatus | null = $state(null);
@@ -24,17 +25,39 @@ class DownloadStore {
   pagesPerSec:  number | null         = $state(null);
   eta:          number | null         = $state(null);
 
-  toastsEnabled = $state(true);
+  toastsEnabled    = $state(true);
+  autoRetryEnabled = $state(false);
 
-  private lastSample: SpeedSample | null  = null;
-  private prevQueue:  DownloadQueueItem[] = [];
+  private lastSample:   SpeedSample | null   = null;
+  private prevQueue:    DownloadQueueItem[]   = [];
+  private autoRetryHnd: AutoRetryHandle | null = null;
 
   get queue()      { return this.status?.queue ?? []; }
   get isRunning()  { return isRunning(this.status?.state); }
   get erroredIds() { return new Set(getErrored(this.queue).map((i) => i.chapter.id)); }
   get hasErrored() { return this.erroredIds.size > 0; }
 
-  toggleToasts() { this.toastsEnabled = !this.toastsEnabled; }
+  toggleToasts() {
+    this.toastsEnabled = !this.toastsEnabled;
+    addToast({ kind: "info", title: this.toastsEnabled ? "Notifications enabled" : "Notifications muted", body: this.toastsEnabled ? "You'll be notified when chapters finish downloading" : "Download notifications are silenced", duration: 2500 });
+  }
+
+  toggleAutoRetry() {
+    if (this.autoRetryEnabled) {
+      this.autoRetryHnd?.stop();
+      this.autoRetryHnd    = null;
+      this.autoRetryEnabled = false;
+      addToast({ kind: "info", title: "Auto-retry disabled", body: "Failed downloads will no longer retry automatically", duration: 2500 });
+    } else {
+      this.autoRetryEnabled = true;
+      this.autoRetryHnd = startAutoRetry(
+        () => this.queue,
+        () => this.isRunning,
+        () => this.retryAllErrored(),
+      );
+      addToast({ kind: "info", title: "Auto-retry enabled", body: "Errored downloads will retry automatically", duration: 3000 });
+    }
+  }
 
   detectTransitions(next: DownloadQueueItem[]) {
     if (!this.toastsEnabled) return;
@@ -101,7 +124,10 @@ class DownloadStore {
         this.applyStatus(d.startDownloader.downloadStatus);
       }
     } catch (e) { console.error(e); this.poll(); }
-    finally { this.togglingPlay = false; }
+    finally {
+      this.togglingPlay = false;
+      addToast({ kind: "info", title: wasRunning ? "Downloads paused" : "Downloads resumed", body: wasRunning ? "The download queue has been paused" : "The download queue is running", duration: 2500 });
+    }
   }
 
   async clear() {
@@ -113,6 +139,7 @@ class DownloadStore {
     try {
       const d = await gql<{ clearDownloader: { downloadStatus: DownloadStatus } }>(CLEAR_DOWNLOADER);
       this.applyStatus(d.clearDownloader.downloadStatus);
+      addToast({ kind: "info", title: "Queue cleared", body: "All pending downloads have been removed", duration: 2500 });
     } catch (e) { console.error(e); this.poll(); }
     finally { this.clearing = false; }
   }
@@ -137,6 +164,7 @@ class DownloadStore {
     try {
       await gql(DEQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: ids });
       this.poll();
+      addToast({ kind: "info", title: `Removed ${ids.length} download${ids.length !== 1 ? "s" : ""}`, body: "Selected items have been removed from the queue", duration: 2500 });
     } catch (e) { console.error(e); this.poll(); }
     finally { this.batchWorking = false; }
   }
@@ -160,6 +188,7 @@ class DownloadStore {
       await gql(DEQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: ids });
       for (const id of ids) await gql(ENQUEUE_DOWNLOAD, { chapterId: id });
       this.poll();
+      addToast({ kind: "info", title: `Retrying ${ids.length} failed download${ids.length !== 1 ? "s" : ""}`, duration: 3000 });
     } catch (e) { console.error(e); this.poll(); }
     finally { this.batchWorking = false; }
   }
@@ -173,6 +202,7 @@ class DownloadStore {
       if (ids.length > 0) {
         await gql(DEQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: ids });
         for (const id of ids) await gql(ENQUEUE_DOWNLOAD, { chapterId: id });
+        addToast({ kind: "info", title: `Retrying ${ids.length} failed download${ids.length !== 1 ? "s" : ""}`, duration: 3000 });
       }
       this.poll();
     } catch (e) { console.error(e); this.poll(); }

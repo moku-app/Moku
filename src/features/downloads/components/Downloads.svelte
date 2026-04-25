@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Pause, Trash, CircleNotch, ArrowClockwise, Bell, BellSlash } from "phosphor-svelte";
+  import { Play, Pause, Trash, CircleNotch, ArrowClockwise, Bell, BellSlash, Repeat } from "phosphor-svelte";
   import DownloadQueue from "./DownloadQueue.svelte";
   import { downloadStore } from "../store/downloadState.svelte";
   import { formatEta } from "../lib/downloadQueue";
@@ -45,6 +45,14 @@
   <div class="header">
     <h1 class="heading">Downloads</h1>
     <div class="header-actions">
+      <button
+        class="icon-btn"
+        class:active={downloadStore.autoRetryEnabled}
+        onclick={() => downloadStore.toggleAutoRetry()}
+        title={downloadStore.autoRetryEnabled ? "Disable auto-retry" : "Enable auto-retry"}
+      >
+        <Repeat size={14} weight="regular" />
+      </button>
       {#if downloadStore.hasErrored}
         <button
           class="icon-btn"
@@ -183,7 +191,8 @@
     cursor: pointer;
     transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
   }
-  .icon-btn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
+  .icon-btn:hover:not(:disabled):not(.active) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
+  .icon-btn.active:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-muted); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
   .icon-btn.loading { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }
   .icon-btn.active  { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }

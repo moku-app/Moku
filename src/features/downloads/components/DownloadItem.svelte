@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleNotch, ArrowUp, ArrowDown, ArrowLineUp, ArrowLineDown, ArrowClockwise, X } from "phosphor-svelte";
+  import { CircleNotch, ArrowLineUp, ArrowLineDown, ArrowClockwise, X } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
   import ContextMenu from "@shared/ui/ContextMenu.svelte";
   import type { MenuEntry } from "@shared/ui/ContextMenu.svelte";
@@ -229,12 +229,6 @@
         </button>
       {/if}
       {#if !isActive}
-        <button class="action-btn" onclick={(e) => { e.stopPropagation(); onReorder(item.chapter.id, "up"); }} disabled={isFirst} title="Move up">
-          <ArrowUp size={11} weight="light" />
-        </button>
-        <button class="action-btn" onclick={(e) => { e.stopPropagation(); onReorder(item.chapter.id, "down"); }} disabled={isLast} title="Move down">
-          <ArrowDown size={11} weight="light" />
-        </button>
         <button class="action-btn remove" onclick={(e) => { e.stopPropagation(); onRemove(item.chapter.id); }} disabled={isRemoving} title="Remove">
           {#if isRemoving}<CircleNotch size={11} weight="light" class="anim-spin" />{:else}<X size={12} weight="light" />{/if}
         </button>
@@ -261,6 +255,11 @@
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
+  }
+
+  .row:hover:not(.row-active):not(.row-removing) {
+    border-color: var(--border-strong);
+    background: var(--bg-elevated);
   }
 
   .row.row-active   { border-color: var(--accent-dim); }
