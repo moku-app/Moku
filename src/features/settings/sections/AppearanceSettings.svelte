@@ -1,12 +1,18 @@
 <script lang="ts">
   import { Pencil, Trash, Plus } from "phosphor-svelte";
   import { store, updateSettings, deleteCustomTheme } from "@store/state.svelte";
+  import { mountSystemThemeSync } from "@core/theme";
+  import { selectPortal } from "@core/actions/selectPortal";
 
   interface Props {
+    selectOpen: string | null;
+    closingSelect: string | null;
+    toggleSelect: (id: string) => void;
+    anims: boolean;
     onOpenThemeEditor?: (id?: string | null) => void;
   }
 
-  let { onOpenThemeEditor }: Props = $props();
+  let { selectOpen, closingSelect, toggleSelect, anims, onOpenThemeEditor }: Props = $props();
 
   const THEMES: { id: string; label: string; description: string; swatches: string[] }[] = [
     { id: "dark",           label: "Dark",           description: "Default near-black",            swatches: ["#101010","#151515","#a8c4a8","#f0efec"] },
@@ -16,9 +22,81 @@
     { id: "midnight",       label: "Midnight",       description: "Deep blue-black tint",          swatches: ["#0c1020","#101428","#a8b4e8","#eeeef8"] },
     { id: "warm",           label: "Warm",           description: "Amber and sepia tones",         swatches: ["#16130c","#1c1810","#e0b860","#f5f0e0"] },
   ];
+
+  const allThemeOptions = $derived([
+    ...THEMES.map(t => ({ id: t.id, label: t.label })),
+    ...(store.settings.customThemes ?? []).map(t => ({ id: t.id, label: t.name })),
+  ]);
+
+  function toggleSync() {
+    updateSettings({ systemThemeSync: !store.settings.systemThemeSync });
+    mountSystemThemeSync();
+  }
+
+  let triggerDark:  HTMLButtonElement;
+  let triggerLight: HTMLButtonElement;
 </script>
 
 <div class="s-panel">
+
+  <div class="s-section">
+    <div class="s-row">
+      <div class="s-row-info">
+        <span class="s-label">Match system theme</span>
+        <span class="s-desc">Automatically switch theme when your OS switches between light and dark</span>
+      </div>
+      <button
+        class="s-toggle"
+        class:on={store.settings.systemThemeSync}
+        onclick={toggleSync}
+        role="switch"
+        aria-checked={store.settings.systemThemeSync}
+      ><span class="s-toggle-thumb"></span></button>
+    </div>
+
+    {#if store.settings.systemThemeSync}
+      <div class="s-sync-pair">
+        <div class="s-sync-item">
+          <span class="s-sync-label">Dark theme</span>
+          <div class="s-select">
+            <button bind:this={triggerDark} class="s-select-btn" onclick={() => toggleSelect("sync-dark")}>
+              <span>{allThemeOptions.find(o => o.id === (store.settings.systemThemeDark ?? "dark"))?.label ?? "Dark"}</span>
+              <svg class="s-select-caret" class:open={selectOpen === "sync-dark"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+            </button>
+            {#if selectOpen === "sync-dark" || closingSelect === "sync-dark"}
+              <div class="s-select-menu" class:anims class:closing={closingSelect === "sync-dark"} {@attach selectPortal(triggerDark)}>
+                {#each allThemeOptions as opt}
+                  <button class="s-select-option" class:active={opt.id === (store.settings.systemThemeDark ?? "dark")}
+                    onclick={() => { updateSettings({ systemThemeDark: opt.id }); mountSystemThemeSync(); toggleSelect("sync-dark"); }}>
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
+        <div class="s-sync-item">
+          <span class="s-sync-label">Light theme</span>
+          <div class="s-select">
+            <button bind:this={triggerLight} class="s-select-btn" onclick={() => toggleSelect("sync-light")}>
+              <span>{allThemeOptions.find(o => o.id === (store.settings.systemThemeLight ?? "light"))?.label ?? "Light"}</span>
+              <svg class="s-select-caret" class:open={selectOpen === "sync-light"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+            </button>
+            {#if selectOpen === "sync-light" || closingSelect === "sync-light"}
+              <div class="s-select-menu" class:anims class:closing={closingSelect === "sync-light"} {@attach selectPortal(triggerLight)}>
+                {#each allThemeOptions as opt}
+                  <button class="s-select-option" class:active={opt.id === (store.settings.systemThemeLight ?? "light")}
+                    onclick={() => { updateSettings({ systemThemeLight: opt.id }); mountSystemThemeSync(); toggleSelect("sync-light"); }}>
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+  </div>
 
   <div class="s-section">
     <p class="s-section-title">Theme</p>

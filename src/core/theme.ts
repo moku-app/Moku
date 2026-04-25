@@ -1,6 +1,8 @@
-import { store } from "@store/state.svelte";
+import { store, updateSettings } from "@store/state.svelte";
 
 let themeStyleEl: HTMLStyleElement | null = null;
+let mediaQuery:   MediaQueryList | null   = null;
+let mediaHandler: (() => void) | null     = null;
 
 export function applyTheme() {
   const themeId  = store.settings.theme ?? "dark";
@@ -33,4 +35,33 @@ export function applyTheme() {
   }
   themeStyleEl.textContent = css;
   document.documentElement.setAttribute("data-theme", "custom");
+}
+
+function applySystemTheme(dark: boolean) {
+  const themeId = dark
+    ? (store.settings.systemThemeDark ?? "dark")
+    : (store.settings.systemThemeLight ?? "light");
+  updateSettings({ theme: themeId });
+}
+
+export function mountSystemThemeSync() {
+  if (mediaQuery && mediaHandler) {
+    mediaQuery.removeEventListener("change", mediaHandler);
+    mediaHandler = null;
+  }
+
+  if (!store.settings.systemThemeSync) return;
+
+  mediaQuery   = window.matchMedia("(prefers-color-scheme: dark)");
+  mediaHandler = () => applySystemTheme(mediaQuery!.matches);
+  mediaQuery.addEventListener("change", mediaHandler);
+  applySystemTheme(mediaQuery.matches);
+}
+
+export function unmountSystemThemeSync() {
+  if (mediaQuery && mediaHandler) {
+    mediaQuery.removeEventListener("change", mediaHandler);
+    mediaHandler = null;
+    mediaQuery   = null;
+  }
 }

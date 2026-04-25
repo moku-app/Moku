@@ -226,7 +226,8 @@
   flex-shrink: 0;
   transition: background var(--t-base), border-color var(--t-base);
 }
-.s-toggle.on { background: var(--accent); border-color: var(--accent); }
+.s-toggle.on,
+.s-toggle-on { background: var(--accent); border-color: var(--accent); }
 
 .s-toggle-thumb {
   position: absolute;
@@ -238,9 +239,43 @@
   background: var(--text-faint);
   transition: transform var(--t-base), background var(--t-base);
 }
-.s-toggle.on .s-toggle-thumb {
+.s-toggle.on .s-toggle-thumb,
+.s-toggle-on .s-toggle-thumb {
   transform: translateX(15px);
   background: var(--bg-void);
+}
+
+
+/* ── System theme sync pair ───────────────────────────────────────── */
+.s-sync-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  border-top: 1px solid var(--border-dim);
+  background: var(--border-dim);
+}
+
+.s-sync-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 8px var(--sp-4);
+  background: var(--bg-raised);
+}
+
+.s-sync-label {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  flex-shrink: 0;
+}
+
+.s-sync-item .s-select-btn {
+  font-size: var(--text-xs);
+  min-width: 0;
+  padding: 4px 8px;
 }
 
 

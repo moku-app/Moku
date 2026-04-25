@@ -162,7 +162,7 @@
         {#if tab === "general"}
           <GeneralSettings {selectOpen} {closingSelect} {toggleSelect} {anims} />
         {:else if tab === "appearance"}
-          <AppearanceSettings {onOpenThemeEditor} />
+          <AppearanceSettings {selectOpen} {closingSelect} {toggleSelect} {anims} {onOpenThemeEditor} />
         {:else if tab === "reader"}
           <ReaderSettings {selectOpen} {closingSelect} {toggleSelect} {anims} />
         {:else if tab === "library"}
