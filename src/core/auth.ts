@@ -12,6 +12,12 @@ function getServerBase(): string {
   return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : "http://127.0.0.1:4567";
 }
 
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 function basicHeader(user: string, pass: string): Record<string, string> {
   return { Authorization: `Basic ${btoa(`${user}:${pass}`)}` };
 }
@@ -34,7 +40,7 @@ export async function loginBasic(user: string, pass: string): Promise<void> {
     method: "POST", credentials: "omit",
     headers: { "Content-Type": "application/json", ...basicHeader(user, pass) },
     body: JSON.stringify({ query: "{ __typename }" }),
-    signal: AbortSignal.timeout(5000),
+    signal: timeoutSignal(5000),
   });
   if (!res.ok) throw new Error(`Authentication failed (${res.status})`);
   updateSettings({ serverAuthMode: "BASIC_AUTH", serverAuthUser: user, serverAuthPass: pass });
@@ -58,7 +64,7 @@ export async function probeServer(): Promise<"ok" | "auth_required" | "unsupport
     const res = await fetch(`${base}/api/graphql`, {
       method: "POST", credentials: "omit", headers,
       body: JSON.stringify({ query: "{ __typename }" }),
-      signal: AbortSignal.timeout(5000),
+      signal: timeoutSignal(5000),
     });
     if (res.ok) return "ok";
     if (res.status === 401) {
