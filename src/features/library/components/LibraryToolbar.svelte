@@ -99,7 +99,6 @@
         class="tab"
         class:active={tab === String(cat.id)}
         class:tab-dragging={dragTabId === cat.id}
-        class:tab-drop-target={dragOverTabId === cat.id}
         draggable="true"
         onclick={() => onTabChange(String(cat.id))}
         ondragstart={(e) => onTabDragStart(e, cat)}
@@ -205,7 +204,6 @@
   .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid transparent; }
   .tabs-anims .tab.active { background: transparent; }
   .tab-dragging { opacity: 0.4; cursor: grabbing; }
-  .tab-drop-target { background: var(--accent-muted) !important; color: var(--accent-fg) !important; outline: 1px dashed var(--accent); }
   .tab-insert-bar { width: 2px; height: 22px; background: var(--accent); border-radius: 2px; flex-shrink: 0; box-shadow: 0 0 6px var(--accent); pointer-events: none; }
   .tab-count { font-size: var(--text-2xs); opacity: 0.6; }
   .search-wrap { position: relative; display: flex; align-items: center; }

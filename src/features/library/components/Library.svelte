@@ -416,26 +416,30 @@
   function onTabDragOver(e: DragEvent, cat: Category, idx: number) {
     if (activeDragKind !== "tab" || dragTabId === null || dragTabId === cat.id) return;
     e.preventDefault(); e.dataTransfer!.dropEffect = "move";
-    dragOverTabId = cat.id; dragInsertIdx = idx;
+    dragOverTabId = cat.id;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dragInsertIdx = e.clientX < rect.left + rect.width / 2 ? idx : idx + 1;
   }
 
   function onTabDragLeave() { dragOverTabId = null; }
 
   async function onTabDrop(e: DragEvent, dropCat: Category) {
-    e.preventDefault(); dragOverTabId = null; dragInsertIdx = -1;
+    e.preventDefault(); dragOverTabId = null;
+    const insertAt = dragInsertIdx;
+    dragInsertIdx = -1;
     if (activeDragKind !== "tab" || dragTabId === null || dragTabId === dropCat.id) { dragTabId = null; return; }
     const dragId = dragTabId; dragTabId = null; activeDragKind = null;
     const sorted  = [...store.categories].filter(c => c.id !== 0).sort((a, b) => a.order - b.order);
     const fromIdx = sorted.findIndex(c => c.id === dragId);
-    const toIdx   = sorted.findIndex(c => c.id === dropCat.id);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const reordered  = [...sorted];
-    const [moved]    = reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, moved);
+    if (fromIdx < 0) return;
+    const reordered = [...sorted];
+    const [moved]   = reordered.splice(fromIdx, 1);
+    const dest      = Math.max(0, Math.min(insertAt > fromIdx ? insertAt - 1 : insertAt, reordered.length));
+    reordered.splice(dest, 0, moved);
     const withNewOrder = reordered.map((c, i) => ({ ...c, order: i + 1 }));
     setCategories(store.categories.map(c => withNewOrder.find(u => u.id === c.id) ?? c));
     try {
-      await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id: dragId, position: toIdx + 1 });
+      await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id: dragId, position: dest + 1 });
     } catch (err) { console.error("Tab reorder failed:", err); await reloadCategories(); }
   }
 
