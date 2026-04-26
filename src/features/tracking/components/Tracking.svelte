@@ -1,110 +1,143 @@
 <script lang="ts">
   import { CircleNotch, ArrowSquareOut, ArrowsClockwise, X, Lock, MagnifyingGlass } from "phosphor-svelte";
-  import { gql }           from "@api/client";
+  import { gql }              from "@api/client";
   import { addToast, setActiveManga, setNavPage } from "@store/state.svelte";
-  import { GET_ALL_TRACKER_RECORDS } from "@api/queries";
-  import { UPDATE_TRACK, UNBIND_TRACK, FETCH_TRACK } from "@api/mutations";
-  import Thumbnail         from "@shared/manga/Thumbnail.svelte";
+  import { GET_CHAPTERS }     from "@api/queries/chapters";
+  import { store }            from "@store/state.svelte";
+  import { trackingState }    from "@features/tracking/store/trackingState.svelte";
+  import Thumbnail            from "@shared/manga/Thumbnail.svelte";
   import type { TrackRecord } from "@types/index";
+  import type { Chapter }     from "@types/index";
   import {
     flattenRecords, filterRecords, sortRecords, dedupeStatuses,
-    scoreToStars, calcProgress, patchTracker, removeRecord,
-    type TrackerWithRecords, type FlatRecord, type SortKey,
+    scoreToStars, calcProgress,
+    type FlatRecord, type SortKey,
   } from "../lib/trackingSync";
-
-  let trackers   = $state<TrackerWithRecords[]>([]);
-  let loading    = $state(true);
-  let error      = $state<string | null>(null);
 
   let activeTrackerId = $state<number | "all">("all");
   let statusFilter    = $state<number | "all">("all");
   let searchQuery     = $state("");
   let sortBy          = $state<SortKey>("title");
 
-  let updatingId   = $state<number | null>(null);
-  let syncingId    = $state<number | null>(null);
-  let editingChapter  = $state<number | null>(null);
-  let chapterDraft    = $state(0);
-  let confirmUnbind   = $state<FlatRecord | null>(null);
+  let updatingId    = $state<number | null>(null);
+  let syncingId     = $state<number | null>(null);
+  let editingChapter = $state<number | null>(null);
+  let chapterDraft  = $state(0);
+  let confirmUnbind = $state<FlatRecord | null>(null);
 
-  async function load() {
-    loading = true; error = null;
-    try {
-      const res = await gql<{ trackers: { nodes: TrackerWithRecords[] } }>(GET_ALL_TRACKER_RECORDS);
-      trackers = res.trackers.nodes;
-    } catch (e: any) {
-      error = e?.message ?? "Failed to load tracking data";
-    } finally { loading = false; }
-  }
+  $effect(() => {
+    if (trackingState.allTrackers.length === 0 && !trackingState.loadingAll) {
+      trackingState.loadAll();
+    }
+  });
 
-  $effect(() => { load(); });
-
-  const loggedIn     = $derived(trackers.filter((t) => t.isLoggedIn));
-  const allRecords   = $derived(flattenRecords(trackers));
+  const loggedIn     = $derived(trackingState.allTrackers.filter(t => t.isLoggedIn));
+  const allRecords   = $derived(flattenRecords(trackingState.allTrackers));
   const totalCount   = $derived(allRecords.length);
 
   const statusOptions = $derived(
     activeTrackerId === "all"
-      ? dedupeStatuses(trackers)
-      : loggedIn.find((t) => t.id === activeTrackerId)?.statuses ?? []
+      ? dedupeStatuses(trackingState.allTrackers)
+      : loggedIn.find(t => t.id === activeTrackerId)?.statuses ?? []
   );
 
   const filtered = $derived(
     sortRecords(filterRecords(allRecords, activeTrackerId, statusFilter, searchQuery), sortBy)
   );
 
+  function mangaIdForRecord(record: FlatRecord): number | null {
+    return record.manga?.id ?? null;
+  }
+
+  function prefsForManga(mangaId: number) {
+    return store.settings.mangaPrefs?.[mangaId] ?? {};
+  }
+
   async function updateStatus(record: FlatRecord, status: number) {
+    const mangaId = mangaIdForRecord(record);
+    if (mangaId === null) return;
     updatingId = record.id;
     try {
-      const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, status });
-      trackers = patchTracker(trackers, record.trackerId, res.updateTrack.trackRecord);
+      await trackingState.updateStatus(mangaId, record, status);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally { updatingId = null; }
   }
 
   async function updateScore(record: FlatRecord, scoreString: string) {
+    const mangaId = mangaIdForRecord(record);
+    if (mangaId === null) return;
     updatingId = record.id;
     try {
-      const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, scoreString });
-      trackers = patchTracker(trackers, record.trackerId, res.updateTrack.trackRecord);
+      await trackingState.updateScore(mangaId, record, scoreString);
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Update failed", body: e?.message });
+    } finally { updatingId = null; }
+  }
+
+  async function submitChapter(record: FlatRecord) {
+    const val     = Math.max(0, chapterDraft);
+    editingChapter = null;
+    if (val === record.lastChapterRead) return;
+
+    const mangaId = mangaIdForRecord(record);
+    if (mangaId === null) return;
+    updatingId = record.id;
+
+    try {
+      await trackingState.updateChapterProgress(mangaId, record, val);
+
+      if (store.settings.trackerSyncBack && record.manga?.id) {
+        const chapRes = await gql<{ chapters: { nodes: Chapter[] } }>(
+          GET_CHAPTERS, { mangaId: record.manga.id }
+        );
+        await trackingState.syncFromRemote(
+          mangaId,
+          { ...record, lastChapterRead: val },
+          chapRes.chapters.nodes,
+          prefsForManga(mangaId),
+        );
+      }
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally { updatingId = null; }
   }
 
   async function syncRecord(record: FlatRecord) {
+    const mangaId = mangaIdForRecord(record);
+    if (mangaId === null) return;
     syncingId = record.id;
     try {
-      const res = await gql<{ fetchTrack: { trackRecord: TrackRecord } }>(FETCH_TRACK, { recordId: record.id });
-      trackers = patchTracker(trackers, record.trackerId, res.fetchTrack.trackRecord);
-      addToast({ kind: "success", title: "Synced from tracker" });
+      let chapters: Chapter[] = [];
+      if (store.settings.trackerSyncBack && record.manga?.id) {
+        const res = await gql<{ chapters: { nodes: Chapter[] } }>(
+          GET_CHAPTERS, { mangaId: record.manga.id }
+        );
+        chapters = res.chapters.nodes;
+      }
+
+      const { markedIds } = await trackingState.syncFromRemote(
+        mangaId, record, chapters, prefsForManga(mangaId)
+      );
+
+      const body = markedIds.length > 0
+        ? `${markedIds.length} chapter${markedIds.length !== 1 ? "s" : ""} marked read`
+        : undefined;
+      addToast({ kind: "success", title: "Synced from tracker", body });
     } catch (e: any) {
       addToast({ kind: "error", title: "Sync failed", body: e?.message });
     } finally { syncingId = null; }
   }
 
   async function unbind(record: FlatRecord) {
+    const mangaId = mangaIdForRecord(record);
+    if (mangaId === null) return;
     updatingId = record.id;
     try {
-      await gql(UNBIND_TRACK, { recordId: record.id });
-      trackers = removeRecord(trackers, record.trackerId, record.id);
+      await trackingState.unbind(mangaId, record);
       addToast({ kind: "info", title: `Unlinked from ${record.tracker.name}` });
     } catch (e: any) {
       addToast({ kind: "error", title: "Unbind failed", body: e?.message });
-    } finally { updatingId = null; }
-  }
-
-  async function submitChapter(record: FlatRecord) {
-    const val = Math.max(0, chapterDraft);
-    editingChapter = null;
-    if (val === record.lastChapterRead) return;
-    updatingId = record.id;
-    try {
-      const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, lastChapterRead: val });
-      trackers = patchTracker(trackers, record.trackerId, res.updateTrack.trackRecord);
-    } catch (e: any) {
-      addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally { updatingId = null; }
   }
 
@@ -127,12 +160,12 @@
   <div class="header">
     <div class="header-top">
       <h1 class="heading">Tracking</h1>
-      <button class="icon-btn" onclick={load} disabled={loading} title="Refresh">
-        <ArrowsClockwise size={14} weight="light" class={loading ? "anim-spin" : ""} />
+      <button class="icon-btn" onclick={() => trackingState.loadAll()} disabled={trackingState.loadingAll} title="Refresh">
+        <ArrowsClockwise size={14} weight="light" class={trackingState.loadingAll ? "anim-spin" : ""} />
       </button>
     </div>
 
-    {#if !loading && loggedIn.length > 0}
+    {#if !trackingState.loadingAll && loggedIn.length > 0}
       <div class="tracker-tabs">
         <button
           class="tracker-tab" class:active={activeTrackerId === "all"}
@@ -179,15 +212,15 @@
   </div>
 
   <div class="body">
-    {#if loading}
+    {#if trackingState.loadingAll}
       <div class="state">
         <CircleNotch size={18} weight="light" class="anim-spin" style="color:var(--text-faint)" />
       </div>
 
-    {:else if error}
+    {:else if trackingState.error}
       <div class="state">
-        <span class="state-error">{error}</span>
-        <button class="ghost-btn" onclick={load}>Retry</button>
+        <span class="state-error">{trackingState.error}</span>
+        <button class="ghost-btn" onclick={() => trackingState.loadAll()}>Retry</button>
       </div>
 
     {:else if loggedIn.length === 0}
@@ -234,7 +267,7 @@
                 {#if isSyncing}
                   <span class="cover-btn"><CircleNotch size={10} weight="light" class="anim-spin" /></span>
                 {:else}
-                  <button class="cover-btn" title="Sync" onclick={() => syncRecord(record)}>
+                  <button class="cover-btn" title="Sync from tracker" onclick={() => syncRecord(record)}>
                     <ArrowsClockwise size={10} weight="light" />
                   </button>
                 {/if}

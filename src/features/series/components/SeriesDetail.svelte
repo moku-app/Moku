@@ -81,18 +81,21 @@
   const scanlatorBlacklist = $derived((get("scanlatorBlacklist") ?? []) as string[]);
   const scanlatorForce     = $derived((get("scanlatorForce")     ?? false) as boolean);
 
+  const currentPrefs = $derived({
+    sortMode,
+    sortDir,
+    preferredScanlator:  get("preferredScanlator") as string,
+    scanlatorFilter:     scanlatorFilter as string[],
+    scanlatorBlacklist:  scanlatorBlacklist as string[],
+    scanlatorForce:      scanlatorForce as boolean,
+  });
+
   const availableScanlators = $derived(
     [...new Set(chapters.map(c => c.scanlator).filter((s): s is string => !!s?.trim()))]
       .sort((a, b) => a.localeCompare(b))
   );
 
-  const sortedChapters = $derived(buildChapterList(chapters, {
-    sortMode, sortDir,
-    preferredScanlator:  get("preferredScanlator") as string,
-    scanlatorFilter:     scanlatorFilter as string[],
-    scanlatorBlacklist:  scanlatorBlacklist as string[],
-    scanlatorForce:      scanlatorForce as boolean,
-  }));
+  const sortedChapters = $derived(buildChapterList(chapters, currentPrefs));
 
   const totalPages      = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
   const pageChapters    = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
@@ -158,13 +161,7 @@
 
   function applyChapters(nodes: Chapter[]) {
     if (get("autoDownload") && _prevChapterIds.size > 0) {
-      const filtered = buildChapterList(nodes, {
-        sortMode, sortDir,
-        preferredScanlator:  get("preferredScanlator") as string,
-        scanlatorFilter:     scanlatorFilter as string[],
-        scanlatorBlacklist:  scanlatorBlacklist as string[],
-        scanlatorForce:      scanlatorForce as boolean,
-      });
+      const filtered = buildChapterList(nodes, currentPrefs);
       const newChapters = filtered.filter(c => !_prevChapterIds.has(c.id) && !c.isDownloaded);
       if (newChapters.length) enqueueMultiple(newChapters.map(c => c.id));
     }
@@ -254,9 +251,33 @@
     }).catch(() => { if (!ctrl.signal.aborted) loadingChapters = false; });
   }
 
+  async function syncTrackersIntoChapters(mangaId: number, chaps: Chapter[]) {
+    if (!store.settings.trackerSyncBack) return;
+    const records = trackingState.recordsFor(mangaId);
+    if (!records.length) return;
+    for (const record of records) {
+      try {
+        const { markedIds } = await trackingState.syncFromRemote(mangaId, record, chaps, currentPrefs);
+        if (markedIds.length > 0) {
+          const idSet = new Set(markedIds);
+          chapters = chapters.map(c => idSet.has(c.id) ? { ...c, isRead: true } : c);
+          if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
+        }
+      } catch {}
+    }
+  }
+
   $effect(() => {
     const m = store.activeManga;
-    if (m) untrack(() => { acknowledgeUpdate(m.id); loadManga(m.id); loadChapters(m.id); loadCategories(m.id); trackingState.loadForManga(m.id); });
+    if (m) untrack(() => {
+      acknowledgeUpdate(m.id);
+      loadManga(m.id);
+      loadChapters(m.id);
+      loadCategories(m.id);
+      trackingState.loadForManga(m.id).then(() => {
+        syncTrackersIntoChapters(m.id, chapters);
+      });
+    });
   });
 
   let prevChapterId: number | null = null;
@@ -303,12 +324,22 @@
   }
 
   async function markRead(chapterId: number, isRead: boolean) {
+    const mangaId = store.activeManga?.id;
     await gql(MARK_CHAPTER_READ, { id: chapterId, isRead }).catch(console.error);
     chapters = chapters.map(c => c.id === chapterId ? { ...c, isRead } : c);
-    if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
-    if (isRead) {
+    if (mangaId) {
+      chapterStore.set(mangaId, { data: chapters, fetchedAt: Date.now() });
+      checkAndMarkCompleted(mangaId, chapters);
       const ch = chapters.find(c => c.id === chapterId);
-      if (ch) trackingState.updateFromRead(ch, chapters, { sortMode, sortDir, preferredScanlator: get("preferredScanlator") as string, scanlatorFilter: scanlatorFilter as string[], scanlatorBlacklist: scanlatorBlacklist as string[], scanlatorForce: scanlatorForce as boolean });
+      if (ch) {
+        if (isRead) {
+          await trackingState.updateFromRead(mangaId, ch, chapters, currentPrefs);
+        } else {
+          await trackingState.updateFromUnread(mangaId, chapters, currentPrefs);
+        }
+      }
+    }
+    if (isRead) {
       if (get("deleteOnRead")) {
         const ch = chapters.find(c => c.id === chapterId);
         if (ch?.isDownloaded) {
@@ -330,14 +361,22 @@
 
   async function markBulk(ids: number[], isRead: boolean) {
     if (!ids.length) return;
+    const mangaId = store.activeManga?.id;
     await gql(MARK_CHAPTERS_READ, { ids, isRead }).catch(console.error);
     const idSet = new Set(ids);
     chapters = chapters.map(c => idSet.has(c.id) ? { ...c, isRead } : c);
-    if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
+    if (mangaId) {
+      chapterStore.set(mangaId, { data: chapters, fetchedAt: Date.now() });
+      checkAndMarkCompleted(mangaId, chapters);
+      if (isRead) {
+        const ascending   = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
+        const lastInBatch = ascending.filter(c => idSet.has(c.id)).at(-1);
+        if (lastInBatch) await trackingState.updateFromRead(mangaId, lastInBatch, chapters, currentPrefs);
+      } else {
+        await trackingState.updateFromUnread(mangaId, chapters, currentPrefs);
+      }
+    }
     if (isRead) {
-      const ascending   = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
-      const lastInBatch = ascending.filter(c => idSet.has(c.id)).at(-1);
-      if (lastInBatch) trackingState.updateFromRead(lastInBatch, chapters, { sortMode, sortDir, preferredScanlator: get("preferredScanlator") as string, scanlatorFilter: scanlatorFilter as string[], scanlatorBlacklist: scanlatorBlacklist as string[], scanlatorForce: scanlatorForce as boolean });
       if (get("deleteOnRead")) {
         const toDelete = ids.filter(id => chapters.find(c => c.id === id)?.isDownloaded);
         if (toDelete.length) {
@@ -345,7 +384,7 @@
           const doDelete = async () => {
             await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: toDelete }).catch(console.error);
             chapters = chapters.map(c => toDelete.includes(c.id) ? { ...c, isDownloaded: false } : c);
-            if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
+            if (mangaId) chapterStore.set(mangaId, { data: chapters, fetchedAt: Date.now() });
           };
           if (delayMs === 0) doDelete();
           else setTimeout(doDelete, delayMs);

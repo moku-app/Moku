@@ -32,8 +32,8 @@ export function markChapterRead(id: number, markedRead: Set<number>) {
       const updated = store.activeChapterList.map(c => c.id === id ? { ...c, isRead: true } : c);
       checkAndMarkCompleted(mangaId, updated);
       const ch = store.activeChapterList.find(c => c.id === id) ?? store.activeChapter;
-      if (ch) trackingState.updateFromRead(ch, store.activeChapterList, getMangaPrefs());
       const prefs = getMangaPrefs();
+      if (ch) trackingState.updateFromRead(mangaId, ch, store.activeChapterList, prefs);
       if (prefs.deleteOnRead) {
         const ch = store.activeChapterList.find(c => c.id === id);
         if (ch?.isDownloaded) {

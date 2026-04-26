@@ -1,5 +1,6 @@
 import { store } from "@store/state.svelte";
 import { probeServer, loginBasic } from "@core/auth";
+import { trackingState } from "@features/tracking/store/trackingState.svelte";
 
 const MAX_ATTEMPTS = 40;
 
@@ -33,6 +34,7 @@ export function startProbe() {
     if (result === "ok") {
       boot.serverProbeOk = true;
       boot.loginRequired = false;
+      trackingState.bootSync().catch(() => {});
       return;
     }
 
@@ -44,6 +46,7 @@ export function startProbe() {
         try {
           await loginBasic(savedUser, savedPass);
           boot.loginRequired = false;
+          trackingState.bootSync().catch(() => {});
           return;
         } catch {}
       }
@@ -82,6 +85,7 @@ export async function submitLogin(onSuccess: () => void) {
     boot.loginRequired = false;
     boot.loginPass     = "";
     boot.loginError    = null;
+    trackingState.bootSync().catch(() => {});
     onSuccess();
   } catch (e: any) {
     boot.loginError = e?.message ?? "Login failed";
