@@ -18,6 +18,7 @@
     checkAndMarkCompleted as storeCheckAndMarkCompleted,
     clearMarkersForManga,
   } from "@store/state.svelte";
+  import { trackingState } from "@features/tracking/store/trackingState.svelte";
   import type { MangaPrefs } from "@store/state.svelte";
   import { DEFAULT_MANGA_PREFS } from "@store/state.svelte";
   import type { Manga, Chapter, Category } from "@types";
@@ -102,24 +103,21 @@
 
   const continueChapter = $derived((() => {
     if (!sortedChapters.length) return null;
-    const asc     = [...sortedChapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
-    const anyRead = asc.some(c => c.isRead);
+    const asc      = [...sortedChapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
+    const anyRead  = asc.some(c => c.isRead);
     const bookmark = store.activeManga
       ? store.bookmarks.find(b => b.mangaId === store.activeManga!.id)
       : null;
-    if (bookmark) {
-      const ch = asc.find(c => c.id === bookmark.chapterId);
-      if (ch) {
-        const isLastChapter = asc[asc.length - 1]?.id === ch.id;
-        const allRead = asc.every(c => c.isRead);
-        if (!(isLastChapter && allRead))
-          return { chapter: ch, type: "continue" as const, resumePage: bookmark.pageNumber };
-      }
+    const bookmarkedCh = bookmark ? asc.find(c => c.id === bookmark.chapterId) : null;
+    if (bookmarkedCh && !bookmarkedCh.isRead) {
+      return { chapter: bookmarkedCh, type: (anyRead ? "continue" : "start") as const, resumePage: bookmark!.pageNumber };
     }
     const inProgress  = asc.find(c => !c.isRead && (c.lastPageRead ?? 0) > 0);
-    if (inProgress) return { chapter: inProgress, type: "continue" as const, resumePage: inProgress.lastPageRead! };
     const firstUnread = asc.find(c => !c.isRead);
-    if (firstUnread) return { chapter: firstUnread, type: (anyRead ? "continue" : "start") as const, resumePage: null };
+    const target      = inProgress ?? firstUnread;
+    if (target) {
+      return { chapter: target, type: (anyRead ? "continue" : "start") as const, resumePage: null };
+    }
     return { chapter: asc[0], type: "reread" as const, resumePage: null };
   })());
 
@@ -258,7 +256,7 @@
 
   $effect(() => {
     const m = store.activeManga;
-    if (m) untrack(() => { acknowledgeUpdate(m.id); loadManga(m.id); loadChapters(m.id); loadCategories(m.id); });
+    if (m) untrack(() => { acknowledgeUpdate(m.id); loadManga(m.id); loadChapters(m.id); loadCategories(m.id); trackingState.loadForManga(m.id); });
   });
 
   let prevChapterId: number | null = null;
@@ -309,6 +307,8 @@
     chapters = chapters.map(c => c.id === chapterId ? { ...c, isRead } : c);
     if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
     if (isRead) {
+      const ch = chapters.find(c => c.id === chapterId);
+      if (ch) trackingState.updateFromRead(ch, chapters, { sortMode, sortDir, preferredScanlator: get("preferredScanlator") as string, scanlatorFilter: scanlatorFilter as string[], scanlatorBlacklist: scanlatorBlacklist as string[], scanlatorForce: scanlatorForce as boolean });
       if (get("deleteOnRead")) {
         const ch = chapters.find(c => c.id === chapterId);
         if (ch?.isDownloaded) {
@@ -334,17 +334,22 @@
     const idSet = new Set(ids);
     chapters = chapters.map(c => idSet.has(c.id) ? { ...c, isRead } : c);
     if (store.activeManga) { chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() }); checkAndMarkCompleted(store.activeManga.id, chapters); }
-    if (isRead && get("deleteOnRead")) {
-      const toDelete = ids.filter(id => chapters.find(c => c.id === id)?.isDownloaded);
-      if (toDelete.length) {
-        const delayMs = (get("deleteDelayHours") as number) * 60 * 60 * 1000;
-        const doDelete = async () => {
-          await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: toDelete }).catch(console.error);
-          chapters = chapters.map(c => toDelete.includes(c.id) ? { ...c, isDownloaded: false } : c);
-          if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
-        };
-        if (delayMs === 0) doDelete();
-        else setTimeout(doDelete, delayMs);
+    if (isRead) {
+      const ascending   = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
+      const lastInBatch = ascending.filter(c => idSet.has(c.id)).at(-1);
+      if (lastInBatch) trackingState.updateFromRead(lastInBatch, chapters, { sortMode, sortDir, preferredScanlator: get("preferredScanlator") as string, scanlatorFilter: scanlatorFilter as string[], scanlatorBlacklist: scanlatorBlacklist as string[], scanlatorForce: scanlatorForce as boolean });
+      if (get("deleteOnRead")) {
+        const toDelete = ids.filter(id => chapters.find(c => c.id === id)?.isDownloaded);
+        if (toDelete.length) {
+          const delayMs = (get("deleteDelayHours") as number) * 60 * 60 * 1000;
+          const doDelete = async () => {
+            await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: toDelete }).catch(console.error);
+            chapters = chapters.map(c => toDelete.includes(c.id) ? { ...c, isDownloaded: false } : c);
+            if (store.activeManga) chapterStore.set(store.activeManga.id, { data: chapters, fetchedAt: Date.now() });
+          };
+          if (delayMs === 0) doDelete();
+          else setTimeout(doDelete, delayMs);
+        }
       }
     }
   }

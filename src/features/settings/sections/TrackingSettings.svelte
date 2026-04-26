@@ -3,7 +3,12 @@
   import { GET_TRACKERS } from "@api/queries/tracking";
   import { LOGIN_TRACKER_OAUTH, LOGIN_TRACKER_CREDENTIALS, LOGOUT_TRACKER } from "@api/mutations/tracking";
   import { open as openUrl } from "@tauri-apps/plugin-shell";
-  import type { Tracker } from "../../lib/types";
+  import { store, updateSettings, addToast } from "@store/state.svelte";
+  import { syncBackFromTracker } from "@features/tracking/lib/trackingSync";
+  import { GET_ALL_TRACKER_RECORDS } from "@api/queries/tracking";
+  import { GET_CHAPTERS } from "@api/queries/chapters";
+  import type { Tracker, TrackRecord } from "../../lib/types";
+  import type { Chapter } from "@types/index";
 
   let trackers        = $state<Tracker[]>([]);
   let trackersLoading = $state(false);
@@ -78,6 +83,42 @@
   }
 
   function focusEl(node: HTMLElement) { setTimeout(() => node.focus(), 0); }
+
+  let syncing = $state(false);
+
+  async function runSyncAll() {
+    syncing = true;
+    try {
+      const res = await gql<{ trackers: { nodes: any[] } }>(GET_ALL_TRACKER_RECORDS);
+      const allTrackers = res.trackers.nodes.filter((t: any) => t.isLoggedIn);
+      let totalMarked = 0;
+
+      for (const tracker of allTrackers) {
+        for (const record of tracker.trackRecords.nodes as TrackRecord[]) {
+          if (!record.manga?.id) continue;
+          const mangaId = record.manga.id;
+          const chapRes = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId });
+          const prefs   = store.settings.mangaPrefs?.[mangaId] ?? {};
+
+          const marked = await syncBackFromTracker(
+            [record],
+            chapRes.chapters.nodes,
+            {
+              threshold:              store.settings.trackerSyncBackThreshold ?? null,
+              respectScanlatorFilter: store.settings.trackerRespectScanlatorFilter ?? true,
+              chapterPrefs:           prefs,
+            },
+            (query, vars) => gql(query, vars),
+          );
+          totalMarked += marked.length;
+        }
+      }
+
+      addToast({ kind: "success", title: "Sync complete", body: `${totalMarked} chapter${totalMarked !== 1 ? "s" : ""} marked read` });
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Sync failed", body: e?.message });
+    } finally { syncing = false; }
+  }
 </script>
 
 <div class="s-panel">
@@ -146,6 +187,66 @@
         {/each}
       {/if}
     </div>
+  </div>
+
+  <div class="s-section">
+    <p class="s-section-title">Sync back from tracker</p>
+    <div class="s-row">
+      <div class="s-row-info">
+        <span class="s-label">Enable sync back</span>
+        <span class="s-desc">Mark chapters read locally based on tracker progress</span>
+      </div>
+      <button class="s-toggle" class:on={store.settings.trackerSyncBack}
+        onclick={() => updateSettings({ trackerSyncBack: !store.settings.trackerSyncBack })}
+        role="switch" aria-checked={store.settings.trackerSyncBack}>
+        <span class="s-toggle-thumb"></span>
+      </button>
+    </div>
+
+    {#if store.settings.trackerSyncBack}
+      <label class="s-row">
+        <div class="s-row-info">
+          <span class="s-label">Chapter number tolerance</span>
+          <span class="s-desc">Allow source and tracker chapter numbers to differ by up to the set amount. When off, the tracker number is used as-is with no range check.</span>
+        </div>
+        <button role="switch" aria-checked={store.settings.trackerSyncBackThreshold !== null} class="s-toggle" class:on={store.settings.trackerSyncBackThreshold !== null}
+          onclick={() => updateSettings({ trackerSyncBackThreshold: store.settings.trackerSyncBackThreshold !== null ? null : 20 })}>
+          <span class="s-toggle-thumb"></span>
+        </button>
+      </label>
+      {#if store.settings.trackerSyncBackThreshold !== null}
+        <div class="s-row">
+          <div class="s-row-info"><span class="s-label">Tolerance</span><span class="s-desc">Max chapter number difference allowed (1–20)</span></div>
+          <div class="s-stepper">
+            <button class="s-step-btn" onclick={() => updateSettings({ trackerSyncBackThreshold: Math.max(1, (store.settings.trackerSyncBackThreshold ?? 20) - 1) })}>−</button>
+            <span class="s-step-val">{store.settings.trackerSyncBackThreshold}</span>
+            <button class="s-step-btn" onclick={() => updateSettings({ trackerSyncBackThreshold: Math.min(20, (store.settings.trackerSyncBackThreshold ?? 20) + 1) })}>+</button>
+          </div>
+        </div>
+      {/if}
+
+      <div class="s-row">
+        <div class="s-row-info">
+          <span class="s-label">Respect scanlator filter</span>
+          <span class="s-desc">Only mark chapters matching the series' active scanlator filter</span>
+        </div>
+        <button class="s-toggle" class:on={store.settings.trackerRespectScanlatorFilter}
+          onclick={() => updateSettings({ trackerRespectScanlatorFilter: !store.settings.trackerRespectScanlatorFilter })}
+          role="switch" aria-checked={store.settings.trackerRespectScanlatorFilter}>
+          <span class="s-toggle-thumb"></span>
+        </button>
+      </div>
+
+      <div class="s-row">
+        <div class="s-row-info">
+          <span class="s-label">Sync now</span>
+          <span class="s-desc">Apply tracker progress to all linked manga in your library</span>
+        </div>
+        <button class="s-btn" onclick={runSyncAll} disabled={syncing}>
+          {syncing ? "Syncing…" : "Sync all"}
+        </button>
+      </div>
+    {/if}
   </div>
 
 </div>

@@ -22,7 +22,7 @@ export type LibrarySortDir = "asc" | "desc";
 export type LibraryStatusFilter  = "ALL" | "ONGOING" | "COMPLETED" | "CANCELLED" | "HIATUS" | "UNKNOWN";
 export type LibraryContentFilter = "unread" | "started" | "downloaded" | "bookmarked" | "marked";
 
-export type BuiltinTheme = "original" | "dark" | "light" | "midnight" | "warm";
+export type BuiltinTheme = "original" | "dark" | "light" | "light-contrast" | "midnight" | "warm" | "starry";
 export type Theme        = BuiltinTheme | string;
 
 export interface ThemeTokens {
@@ -148,6 +148,9 @@ export interface Settings {
   readerPresets: ReaderPreset[];
   mangaReaderSettings: Record<number, ReaderSettings>;
   barPosition?: "top" | "left" | "right";
+  trackerSyncBack: boolean;
+  trackerSyncBackThreshold: number | null;
+  trackerRespectScanlatorFilter: boolean;
 }
 
 export const DEFAULT_READING_STATS: ReadingStats = {
@@ -185,6 +188,9 @@ export const DEFAULT_SETTINGS: Settings = {
   pinnedSourceIds: [],
   readerPresets: [],
   mangaReaderSettings: {},
+  trackerSyncBack: false,
+  trackerSyncBackThreshold: 20,
+  trackerRespectScanlatorFilter: true,
 };
 
 const STORE_VERSION    = 3;

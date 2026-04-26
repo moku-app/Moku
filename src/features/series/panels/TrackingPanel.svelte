@@ -1,11 +1,15 @@
 <script lang="ts">
-  import { CircleNotch, X, MagnifyingGlass, ArrowSquareOut, Lock, LockOpen, ArrowsClockwise } from "phosphor-svelte";
+  import { CircleNotch, X, MagnifyingGlass, ArrowSquareOut, Lock, LockOpen, ArrowsClockwise, ArrowLineDown } from "phosphor-svelte";
   import { gql }        from "@api/client";
   import Thumbnail      from "@shared/manga/Thumbnail.svelte";
-  import { GET_TRACKERS, GET_MANGA_TRACK_RECORDS, SEARCH_TRACKER } from "@api/queries/tracking";
-  import { BIND_TRACK, UPDATE_TRACK, UNBIND_TRACK, FETCH_TRACK } from "@api/mutations/tracking";
-  import { addToast }                     from "@store/state.svelte";
+  import { GET_TRACKERS, SEARCH_TRACKER } from "@api/queries/tracking";
+  import { BIND_TRACK, UPDATE_TRACK, UNBIND_TRACK } from "@api/mutations/tracking";
+  import { GET_CHAPTERS } from "@api/queries/chapters";
+  import { addToast, store }             from "@store/state.svelte";
+  import { trackingState }               from "@features/tracking/store/trackingState.svelte";
+  import { syncBackFromTracker }         from "@features/tracking/lib/trackingSync";
   import type { Tracker, TrackRecord, TrackSearch } from "@types";
+  import type { Chapter } from "@types/index";
 
   let { mangaId, mangaTitle, onClose }: {
     mangaId:    number;
@@ -16,8 +20,7 @@
   type TabId = "records" | number;
 
   let trackers:    Tracker[]     = $state([]);
-  let records:     TrackRecord[] = $state([]);
-  let loading:     boolean       = $state(true);
+  let loadingTrackers: boolean   = $state(true);
   let activeTab:   TabId         = $state("records");
 
   let searchQuery:   string        = $state("");
@@ -30,26 +33,22 @@
   let syncing:        number | null = $state(null);
   let editingChapter: number | null = $state(null);
   let chapterDraft:   number        = $state(0);
+  let applyingRecord: number | null = $state(null);
+
+  const records        = $derived(trackingState.records);
+  const loading        = $derived(trackingState.loading || loadingTrackers);
+  const loggedInTrackers = $derived(trackers.filter(t => t.isLoggedIn));
 
   function autoFocus(node: HTMLElement) { setTimeout(() => node.focus(), 50); }
 
-  async function load() {
-    loading = true;
-    try {
-      const [tRes, rRes] = await Promise.all([
-        gql<{ trackers: { nodes: Tracker[] } }>(GET_TRACKERS),
-        gql<{ manga: { trackRecords: { nodes: TrackRecord[] } } }>(GET_MANGA_TRACK_RECORDS, { mangaId }),
-      ]);
-      trackers = tRes.trackers.nodes;
-      records  = rRes.manga.trackRecords.nodes;
-    } catch (e: any) {
-      addToast({ kind: "error", title: "Failed to load tracking", body: e?.message });
-    } finally {
-      loading = false;
-    }
-  }
-
-  $effect(() => { load(); });
+  $effect(() => {
+    loadingTrackers = true;
+    gql<{ trackers: { nodes: Tracker[] } }>(GET_TRACKERS)
+      .then(r => { trackers = r.trackers.nodes; })
+      .catch(e => addToast({ kind: "error", title: "Failed to load trackers", body: e?.message }))
+      .finally(() => { loadingTrackers = false; });
+    trackingState.loadForManga(mangaId);
+  });
 
   $effect(() => {
     const tab = activeTab;
@@ -62,7 +61,6 @@
 
   function trackerFor(id: number)       { return trackers.find(t => t.id === id); }
   function recordFor(trackerId: number) { return records.find(r => r.trackerId === trackerId); }
-  const loggedInTrackers = $derived(trackers.filter(t => t.isLoggedIn));
 
   let searchTimer: ReturnType<typeof setTimeout>;
 
@@ -96,7 +94,7 @@
       const res = await gql<{ bindTrack: { trackRecord: TrackRecord } }>(
         BIND_TRACK, { mangaId, trackerId: activeTab, remoteId: result.remoteId }
       );
-      records   = [...records.filter(r => r.trackerId !== activeTab), res.bindTrack.trackRecord];
+      trackingState.patchRecord(res.bindTrack.trackRecord);
       activeTab = "records";
       addToast({ kind: "success", title: "Now tracking", body: result.title });
     } catch (e: any) {
@@ -110,7 +108,7 @@
     updatingRecord = record.id;
     try {
       await gql(UNBIND_TRACK, { recordId: record.id });
-      records = records.filter(r => r.id !== record.id);
+      trackingState.removeRecord(record.id);
       addToast({ kind: "info", title: "Unlinked from " + trackerFor(record.trackerId)?.name });
     } catch (e: any) {
       addToast({ kind: "error", title: "Failed to unlink", body: e?.message });
@@ -119,15 +117,11 @@
     }
   }
 
-  function patchRecord(updated: Partial<TrackRecord> & { id: number }) {
-    records = records.map(r => r.id === updated.id ? { ...r, ...updated } : r);
-  }
-
   async function updateStatus(record: TrackRecord, status: number) {
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, status });
-      patchRecord(res.updateTrack.trackRecord);
+      trackingState.patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
@@ -139,7 +133,7 @@
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, scoreString });
-      patchRecord(res.updateTrack.trackRecord);
+      trackingState.patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
@@ -151,7 +145,7 @@
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, private: !record.private });
-      patchRecord(res.updateTrack.trackRecord);
+      trackingState.patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
@@ -162,9 +156,8 @@
   async function syncRecord(record: TrackRecord) {
     syncing = record.id;
     try {
-      const res = await gql<{ fetchTrack: { trackRecord: TrackRecord } }>(FETCH_TRACK, { recordId: record.id });
-      patchRecord(res.fetchTrack.trackRecord);
-      addToast({ kind: "success", title: "Synced from tracker" });
+      const fresh = await trackingState.syncRecordFromRemote(record.id);
+      if (fresh) addToast({ kind: "success", title: "Synced from tracker" });
     } catch (e: any) {
       addToast({ kind: "error", title: "Sync failed", body: e?.message });
     } finally {
@@ -179,6 +172,33 @@
 
   function cancelChapterEditor() { editingChapter = null; }
 
+  async function applyToLibrary(record: TrackRecord) {
+    applyingRecord = record.id;
+    try {
+      const chapRes = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId });
+      const prefs   = store.settings.mangaPrefs?.[mangaId] ?? {};
+      const marked  = await syncBackFromTracker(
+        [record],
+        chapRes.chapters.nodes,
+        {
+          threshold:              store.settings.trackerSyncBackThreshold ?? null,
+          respectScanlatorFilter: store.settings.trackerRespectScanlatorFilter ?? true,
+          chapterPrefs:           prefs,
+        },
+        (query, vars) => gql(query, vars),
+      );
+      if (marked.length > 0) {
+        addToast({ kind: "success", title: `${marked.length} chapter${marked.length !== 1 ? "s" : ""} marked read` });
+      } else {
+        addToast({ kind: "info", title: "Already up to date" });
+      }
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Apply failed", body: e?.message });
+    } finally {
+      applyingRecord = null;
+    }
+  }
+
   async function submitChapter(record: TrackRecord) {
     const val = Math.max(0, chapterDraft);
     editingChapter = null;
@@ -186,7 +206,7 @@
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, lastChapterRead: val });
-      patchRecord(res.updateTrack.trackRecord);
+      trackingState.patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
@@ -269,6 +289,11 @@
                     <button class="record-icon-btn" title="Sync from tracker" disabled={syncing === record.id} onclick={() => syncRecord(record)}>
                       <ArrowsClockwise size={11} weight="light" class={syncing === record.id ? "anim-spin" : ""} />
                     </button>
+                    {#if store.settings.trackerSyncBack}
+                      <button class="record-icon-btn" title="Apply tracker progress to library" disabled={applyingRecord === record.id} onclick={() => applyToLibrary(record)}>
+                        <ArrowLineDown size={11} weight="light" class={applyingRecord === record.id ? "anim-spin" : ""} />
+                      </button>
+                    {/if}
                     <button class="record-icon-btn icon-danger" title="Unlink" disabled={isBusy} onclick={() => unbind(record)}>
                       <X size={11} weight="bold" />
                     </button>

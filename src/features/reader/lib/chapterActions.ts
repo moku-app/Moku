@@ -3,6 +3,7 @@ import { store, addHistory, addBookmark, removeBookmark,
          checkAndMarkCompleted, DEFAULT_MANGA_PREFS } from "@store/state.svelte";
 import { MARK_CHAPTER_READ, DELETE_DOWNLOADED_CHAPTERS } from "@api/mutations/chapters";
 import { ENQUEUE_CHAPTERS_DOWNLOAD }                     from "@api/mutations/downloads";
+import { trackingState }                                 from "@features/tracking/store/trackingState.svelte";
 
 const AVG_MIN_PER_PAGE = 0.33;
 
@@ -30,6 +31,8 @@ export function markChapterRead(id: number, markedRead: Set<number>) {
       if (!mangaId) return;
       const updated = store.activeChapterList.map(c => c.id === id ? { ...c, isRead: true } : c);
       checkAndMarkCompleted(mangaId, updated);
+      const ch = store.activeChapterList.find(c => c.id === id) ?? store.activeChapter;
+      if (ch) trackingState.updateFromRead(ch, store.activeChapterList, getMangaPrefs());
       const prefs = getMangaPrefs();
       if (prefs.deleteOnRead) {
         const ch = store.activeChapterList.find(c => c.id === id);

@@ -1,6 +1,7 @@
 import { store, openReader } from "@store/state.svelte";
 import { readerState }       from "../store/readerState.svelte";
 import { fetchPages }        from "./pageLoader";
+import { trackingState }     from "@features/tracking/store/trackingState.svelte";
 
 export function scheduleResumeDismiss() {
   setTimeout(() => { readerState.resumeFading = true; }, 1500);
@@ -22,6 +23,9 @@ export async function loadChapter(
   markedRead.clear();
   readerState.resetForChapter();
   store.pageUrls = [];
+
+  const mangaId = store.activeManga?.id;
+  if (mangaId) trackingState.loadForManga(mangaId);
 
   const bookmark = store.bookmarks.find(b => b.chapterId === id);
   const resumeTo = bookmark ? bookmark.pageNumber : 0;

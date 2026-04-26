@@ -1,4 +1,8 @@
 import type { Tracker, TrackRecord } from "@types/index";
+import type { Chapter } from "@types/index";
+import { FETCH_TRACK } from "@api/mutations/tracking";
+import { MARK_CHAPTERS_READ } from "@api/mutations/chapters";
+import { buildChapterList, type ChapterDisplayPrefs } from "@features/series/lib/chapterList";
 
 export interface TrackerWithRecords extends Tracker {
   trackRecords: { nodes: TrackRecord[] };
@@ -108,4 +112,58 @@ export function removeRecord(
       trackRecords: { nodes: t.trackRecords.nodes.filter((r) => r.id !== recordId) },
     }
   );
+}
+
+export interface SyncBackOptions {
+  threshold:              number | null;
+  respectScanlatorFilter: boolean;
+  chapterPrefs:           ChapterDisplayPrefs;
+}
+
+export async function syncBackFromTracker(
+  records:  TrackRecord[],
+  chapters: Chapter[],
+  opts:     SyncBackOptions,
+  gqlFn:    (query: string, vars: Record<string, unknown>) => Promise<unknown>,
+): Promise<number[]> {
+  const eligible = opts.respectScanlatorFilter
+    ? buildChapterList(chapters, opts.chapterPrefs)
+    : chapters;
+
+  const toMark: number[] = [];
+
+  for (const record of records) {
+    let fresh: TrackRecord;
+    try {
+      const res = await gqlFn(FETCH_TRACK, { recordId: record.id }) as { fetchTrack: { trackRecord: TrackRecord } };
+      fresh = res.fetchTrack.trackRecord;
+    } catch {
+      continue;
+    }
+
+    const remote = fresh.lastChapterRead;
+    if (!remote || remote <= 0) continue;
+
+    let ceiling: number;
+
+    if (opts.threshold === null) {
+      ceiling = remote;
+    } else {
+      const match = eligible
+        .filter(c => Math.abs(c.chapterNumber - remote) <= opts.threshold!)
+        .sort((a, b) => Math.abs(a.chapterNumber - remote) - Math.abs(b.chapterNumber - remote))[0];
+      if (!match) continue;
+      ceiling = match.chapterNumber;
+    }
+
+    const unread = eligible.filter(c => !c.isRead && c.chapterNumber <= ceiling);
+    toMark.push(...unread.map(c => c.id));
+  }
+
+  const ids = [...new Set(toMark)];
+  if (ids.length > 0) {
+    await gqlFn(MARK_CHAPTERS_READ, { ids, isRead: true });
+  }
+
+  return ids;
 }
