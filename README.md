@@ -54,6 +54,18 @@ Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://gith
 
 ## Installation
 
+### Windows
+
+**winget:**
+
+```powershell
+winget install Moku.Moku
+```
+
+> Thanks to [@frozenKelp](https://github.com/frozenKelp) for setting up and maintaining the winget package through v0.9.0.
+
+Or download the `.exe` installer from the [releases page](https://github.com/Youwes09/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
+
 ### Flatpak (Linux, recommended)
 
 Suwayomi-Server and a bundled JRE are included — no separate install needed.
@@ -76,10 +88,6 @@ Add to your flake:
 ```nix
 inputs.moku.url = "github:Youwes09/Moku";
 ```
-
-### Windows
-
-Download the `.exe` installer from the [releases page](https://github.com/Youwes09/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
 
 ### macOS
 
