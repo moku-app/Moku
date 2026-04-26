@@ -20,16 +20,20 @@ Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://gith
 ## Screenshots
 
 <div align="center">
-  <img src="docs/screenshots/Moku-Home.png" width="49%" alt="Home" />
-  <img src="docs/screenshots/Moku-TagSearch.png" width="49%" alt="TagSearch" />
-  <img src="docs/screenshots/Moku-Reader.png" width="49%" alt="Reader" />
-  <img src="docs/screenshots/Moku-Preview.png" width="49%" alt="Preview" />
-  <img src="docs/screenshots/Moku-Tracker.png" width="49%" alt="Tracker" />
-  <img src="docs/screenshots/Moku-Settings.png" width="49%" alt="Settings" />
+  <img src="docs/screenshots/Moku-Home.png" width="100%" alt="Home" />
 </div>
 
 <div align="center">
-  <a href="docs/screenshots">View all screenshots →</a>
+  <img src="docs/screenshots/Moku-Search.png" width="49%" alt="Search" />
+  <img src="docs/screenshots/Moku-TagSearch.png" width="49%" alt="Tag Search" />
+  <img src="docs/screenshots/Moku-Settings.png" width="49%" alt="Settings" />
+  <img src="docs/screenshots/Moku-Preview.png" width="49%" alt="Preview" />
+  <img src="docs/screenshots/Moku-Downloads.png" width="49%" alt="Downloads" />
+  <img src="docs/screenshots/Moku-ReaderSettings.png" width="49%" alt="Reader Settings" />
+</div>
+
+<div align="center">
+  <a href="docs/screenshots" style="color: #a8c4a8;">View all screenshots →</a>
 </div>
 
 ---
@@ -43,7 +47,6 @@ Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://gith
 - **Extension support** — install and manage Suwayomi extensions directly from the app
 - **Download management** — queue and monitor chapter downloads with progress toasts
 - **Automation** — pre-download titles automatically and optionally delete chapters after they're marked as read (accessible from Series Detail)
-- **Tracker integration** — sync reading progress with AniList, MyAnimeList, Kitsu, and more
 - **Discord Rich Presence** — shows the manga title, current chapter, and an elapsed timer in your Discord status; configurable in Settings → General
 - **Auto-start server** — optionally launch Suwayomi in the background on startup
 - **Multiple themes** — Dark, Light, Midnight, Warm, High Contrast, and more
