@@ -91,30 +91,35 @@
         <span class="tab-count">{counts[f] ?? 0}</span>
       </button>
     {/each}
-    {#each visibleCategories as cat, idx}
-      {#if dragInsertIdx === idx && activeDragKind === "tab"}
-        <div class="tab-insert-bar" aria-hidden="true"></div>
-      {/if}
-      <button
-        class="tab"
-        class:active={tab === String(cat.id)}
-        class:tab-dragging={dragTabId === cat.id}
-        draggable="true"
-        onclick={() => onTabChange(String(cat.id))}
-        ondragstart={(e) => onTabDragStart(e, cat)}
-        ondragover={(e) => onTabDragOver(e, cat, idx)}
-        ondragleave={onTabDragLeave}
-        ondrop={(e) => onTabDrop(e, cat)}
-        ondragend={onTabDragEnd}
-      >
-        <Folder size={11} weight="bold" />
-        {cat.name}
-        <span class="tab-count">{counts[String(cat.id)] ?? 0}</span>
-      </button>
-      {#if dragInsertIdx === idx + 1 && activeDragKind === "tab" && idx === visibleCategories.length - 1}
-        <div class="tab-insert-bar" aria-hidden="true"></div>
-      {/if}
-    {/each}
+    {#if visibleCategories.length > 0}
+      <div class="tab-separator" aria-hidden="true"></div>
+      <div class="tabs-scroll">
+        {#each visibleCategories as cat, idx}
+          {#if dragInsertIdx === idx && activeDragKind === "tab"}
+            <div class="tab-insert-bar" aria-hidden="true"></div>
+          {/if}
+          <button
+            class="tab"
+            class:active={tab === String(cat.id)}
+            class:tab-dragging={dragTabId === cat.id}
+            draggable="true"
+            onclick={() => onTabChange(String(cat.id))}
+            ondragstart={(e) => onTabDragStart(e, cat)}
+            ondragover={(e) => onTabDragOver(e, cat, idx)}
+            ondragleave={onTabDragLeave}
+            ondrop={(e) => onTabDrop(e, cat)}
+            ondragend={onTabDragEnd}
+          >
+            <Folder size={11} weight="bold" />
+            {cat.name}
+            <span class="tab-count">{counts[String(cat.id)] ?? 0}</span>
+          </button>
+          {#if dragInsertIdx === idx + 1 && activeDragKind === "tab" && idx === visibleCategories.length - 1}
+            <div class="tab-insert-bar" aria-hidden="true"></div>
+          {/if}
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <div class="header-right">
@@ -194,12 +199,15 @@
 </div>
 
 <style>
-  .header { position: relative; z-index: 100; display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
-  .header-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+  .header { position: relative; z-index: 100; display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; min-width: 0; }
+  .header-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
-  .tabs { display: flex; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; }
+  .tabs { display: flex; align-items: center; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; flex-shrink: 1; min-width: 0; }
+  .tabs-scroll { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex-shrink: 1; }
+  .tabs-scroll::-webkit-scrollbar { display: none; }
+  .tab-separator { width: 1px; height: 16px; background: var(--border-dim); flex-shrink: 0; margin: 0 2px; }
   .tab-slide-indicator { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-sm); background: var(--accent-muted); border: 1px solid var(--accent-dim); pointer-events: none; z-index: 0; transition: left 0.22s cubic-bezier(0.16,1,0.3,1), width 0.22s cubic-bezier(0.16,1,0.3,1); }
-  .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: grab; }
+  .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: grab; flex-shrink: 0; }
   .tab:hover { color: var(--text-muted); }
   .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid transparent; }
   .tabs-anims .tab.active { background: transparent; }
