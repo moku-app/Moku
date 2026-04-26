@@ -22,7 +22,7 @@ export type LibrarySortDir = "asc" | "desc";
 export type LibraryStatusFilter  = "ALL" | "ONGOING" | "COMPLETED" | "CANCELLED" | "HIATUS" | "UNKNOWN";
 export type LibraryContentFilter = "unread" | "started" | "downloaded" | "bookmarked" | "marked";
 
-export type BuiltinTheme = "dark" | "high-contrast" | "light" | "light-contrast" | "midnight" | "warm";
+export type BuiltinTheme = "original" | "dark" | "light" | "midnight" | "warm";
 export type Theme        = BuiltinTheme | string;
 
 export interface ThemeTokens {

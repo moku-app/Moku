@@ -1,4 +1,4 @@
-:root {
+[data-theme="original"] {
   --bg-void:      #080808;
   --bg-base:      #0c0c0c;
   --bg-surface:   #101010;
@@ -28,10 +28,4 @@
   --color-success:  #7aab7a;
   --color-info:     #7a9ec4;
   --color-info-bg:  #121a1f;
-  --color-read:     #2e2e2c;
-
-  --dot-active:   var(--accent);
-  --dot-inactive: var(--text-faint);
-
-  --bg-image: none;
 }

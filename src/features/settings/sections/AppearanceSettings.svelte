@@ -15,10 +15,9 @@
   let { selectOpen, closingSelect, toggleSelect, anims, onOpenThemeEditor }: Props = $props();
 
   const THEMES: { id: string; label: string; description: string; swatches: string[] }[] = [
-    { id: "dark",           label: "Dark",           description: "Default near-black",            swatches: ["#101010","#151515","#a8c4a8","#f0efec"] },
-    { id: "high-contrast",  label: "High Contrast",  description: "Darker base, sharper text",     swatches: ["#080808","#111111","#bcd8bc","#ffffff"] },
+    { id: "original",       label: "Original",       description: "Default near-black",            swatches: ["#101010","#151515","#a8c4a8","#f0efec"] },
+    { id: "dark",           label: "Dark",           description: "Darker base, sharper text",     swatches: ["#080808","#111111","#bcd8bc","#ffffff"] },
     { id: "light",          label: "Light",          description: "Warm off-white",                swatches: ["#f4f2ee","#faf8f4","#2a5a2a","#1a1916"] },
-    { id: "light-contrast", label: "Light Contrast", description: "Light with maximum contrast",   swatches: ["#ece8e2","#f5f2ec","#183818","#080806"] },
     { id: "midnight",       label: "Midnight",       description: "Deep blue-black tint",          swatches: ["#0c1020","#101428","#a8b4e8","#eeeef8"] },
     { id: "warm",           label: "Warm",           description: "Amber and sepia tones",         swatches: ["#16130c","#1c1810","#e0b860","#f5f0e0"] },
   ];
@@ -60,7 +59,7 @@
           <span class="s-sync-label">Dark theme</span>
           <div class="s-select">
             <button bind:this={triggerDark} class="s-select-btn" onclick={() => toggleSelect("sync-dark")}>
-              <span>{allThemeOptions.find(o => o.id === (store.settings.systemThemeDark ?? "dark"))?.label ?? "Dark"}</span>
+              <span>{allThemeOptions.find(o => o.id === (store.settings.systemThemeDark ?? "dark"))?.label ?? "Original"}</span>
               <svg class="s-select-caret" class:open={selectOpen === "sync-dark"} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
             </button>
             {#if selectOpen === "sync-dark" || closingSelect === "sync-dark"}

@@ -1,5 +1,5 @@
-@import "./high-contrast.css";
-@import "./light-contrast.css";
+@import "./original.css";
+@import "./dark.css";
 @import "./light.css";
 @import "./midnight.css";
 @import "./warm.css";
