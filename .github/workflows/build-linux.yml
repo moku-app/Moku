@@ -131,6 +131,14 @@ jobs:
              src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
           chmod +x src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
 
+      - name: Set up FUSE for AppImage
+        run: |
+          sudo apt-get install -y libfuse2
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appimage-extract
+          echo "LINUXDEPLOY=$(pwd)/squashfs-root/AppRun" >> $GITHUB_ENV
+
       - name: Patch tauri.conf.json for CI
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
