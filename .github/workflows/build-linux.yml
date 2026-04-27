@@ -63,23 +63,10 @@ jobs:
             patchelf \
             libfuse2
 
-      - name: Verify system dependencies
-        run: |
-          echo "=== FUSE ==="
-          dpkg -l libfuse2 | grep libfuse2
-          ls -la /usr/lib/x86_64-linux-gnu/libfuse.so* || echo "WARNING: libfuse.so not found"
-          echo "=== WebKit ==="
-          dpkg -l libwebkit2gtk-4.1-dev | grep webkit
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Check Rust host triple
-        run: |
-          echo "=== Rust host triple ==="
-          rustc -vV
-          echo "=== Cargo version ==="
-          cargo --version
+        with:
+          targets: x86_64-unknown-linux-gnu
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -100,20 +87,14 @@ jobs:
 
       - name: Download Suwayomi (Linux x64)
         run: |
-          echo "=== Downloading Suwayomi ==="
           curl -fsSL \
             "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-linux-x64.tar.gz" \
             -o suwayomi-linux.tar.gz
 
-          echo "=== Verifying checksum ==="
           echo "b2344bd73c4e26bede63cdb4b44b1b4168d8a8500b3b2b1a0219519a3ef708fe  suwayomi-linux.tar.gz" | sha256sum -c -
 
-          echo "=== Extracting ==="
           mkdir -p suwayomi-extracted
           tar -xzf suwayomi-linux.tar.gz -C suwayomi-extracted --strip-components=1
-
-          echo "=== Extracted layout ==="
-          find suwayomi-extracted -type f | sort
 
       - name: Stage Suwayomi bundle
         run: |
@@ -123,68 +104,45 @@ jobs:
           JAVA="suwayomi-extracted/jre/bin/java"
           CATCH="suwayomi-extracted/bin/catch_abort.so"
 
-          echo "=== Checking required files ==="
           for f in "$JAR" "$JAVA" "$CATCH"; do
             if [ ! -e "$f" ]; then
               echo "ERROR: expected file not found: $f"
               find suwayomi-extracted -type f | head -40
               exit 1
             fi
-            echo "OK: $f"
           done
+
+          echo "JAR=$JAR  JAVA=$JAVA  CATCH=$CATCH"
 
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
           chmod +x src-tauri/binaries/suwayomi-bundle/jre/bin/java
 
-          echo "=== Staged bundle contents ==="
-          find src-tauri/binaries/suwayomi-bundle -type f | sort
-
       - name: Stage Linux launcher sidecar
         run: |
-          HOST_TRIPLE=$(rustc -vV | grep host | awk '{print $2}')
-          echo "=== Host triple: $HOST_TRIPLE ==="
-
-          SIDECAR="src-tauri/binaries/suwayomi-launcher-linux-${HOST_TRIPLE}"
-          cp src-tauri/binaries/suwayomi-launcher-linux.sh "$SIDECAR"
-          chmod +x "$SIDECAR"
-
-          echo "=== Sidecar staged as: $SIDECAR ==="
-          ls -la src-tauri/binaries/
+          cp src-tauri/binaries/suwayomi-launcher-linux.sh \
+             src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
+          chmod +x src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
 
       - name: Patch tauri.conf.json for CI
         run: |
-          echo "=== Before patch ==="
-          grep beforeBuildCommand src-tauri/tauri.conf.json
-
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
-          echo "=== After patch ==="
-          grep beforeBuildCommand src-tauri/tauri.conf.json
-
       - name: Build Tauri app
-        run: pnpm tauri build --config src-tauri/tauri.linux.conf.json --verbose
-
-      - name: List build artifacts
-        if: always()
-        run: |
-          echo "=== Bundle output ==="
-          find src-tauri/target -path "*/bundle/*" -type f | sort || echo "No bundle artifacts found"
+        run: pnpm tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json --verbose
+        env:
+          NO_STRIP: "true"
 
       - name: Upload Linux artifacts to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ github.event.inputs.version }}
         run: |
-          echo "=== Looking for release v$VERSION ==="
           for i in $(seq 1 12); do
             RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
               "https://api.github.com/repos/moku-project/Moku/releases" \
               | jq -r '.[] | select(.tag_name == "v'"$VERSION"'") | .id' | head -1)
-            if [ -n "$RELEASE_ID" ]; then
-              echo "Found release ID: $RELEASE_ID"
-              break
-            fi
-            echo "Attempt $i: release not found yet, waiting 15s..."
+            if [ -n "$RELEASE_ID" ]; then break; fi
+            echo "Waiting for release to exist... attempt $i"
             sleep 15
           done
 
@@ -193,24 +151,21 @@ jobs:
             exit 1
           fi
 
+          echo "Found release ID: $RELEASE_ID"
+
           upload_asset() {
             local file="$1"
             local name="$2"
-            echo "Uploading $name ($file)..."
-            RESPONSE=$(curl -s -X POST \
+            echo "Uploading $name..."
+            curl -s -X POST \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               --data-binary @"$file" \
-              "https://uploads.github.com/repos/moku-project/Moku/releases/$RELEASE_ID/assets?name=$name")
-            echo "Response: $RESPONSE" | jq '{id: .id, name: .name, state: .state}' 2>/dev/null || echo "$RESPONSE"
+              "https://uploads.github.com/repos/moku-project/Moku/releases/$RELEASE_ID/assets?name=$name"
           }
 
-          APPIMAGE=$(find src-tauri/target -path "*/bundle/appimage/*.AppImage" ! -name "*.sig" | head -1)
-          DEB=$(find src-tauri/target -path "*/bundle/deb/*.deb" ! -name "*.sig" | head -1)
-
-          echo "=== Artifacts to upload ==="
-          echo "AppImage: ${APPIMAGE:-not found}"
-          echo "Deb:      ${DEB:-not found}"
+          APPIMAGE=$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -name "*.AppImage" | head -1)
+          DEB=$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -name "*.deb" | head -1)
 
           [ -n "$APPIMAGE" ] && upload_asset "$APPIMAGE" "moku-linux-x64-${VERSION}.AppImage"
           [ -n "$DEB"      ] && upload_asset "$DEB"      "moku-linux-x64-${VERSION}.deb"
