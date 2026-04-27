@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc="Native Linux manga reader frontend for Suwayomi-Server"
 arch=('x86_64')
 url="https://github.com/moku-project/Moku"
-license=('Apache 2.0')
+license=('Apache-2.0')
 depends=(
     'webkit2gtk-4.1'
     'gtk3'
@@ -19,12 +19,12 @@ makedepends=(
 )
 source=(
     "$pkgname-$pkgver.tar.gz::https://github.com/moku-project/Moku/archive/refs/tags/v$pkgver.tar.gz"
-    "suwayomi-server.jar::https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/suwayomi-server-v2.1.1867.jar"
-    "jdk.tar.gz::https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jre_x64_linux_hotspot_21.0.3_9.tar.gz"
+    "Suwayomi-Server-v2.1.1867.jar::https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867.jar"
 )
-sha256sums=('8e04e82773764a6d3ab2080c7564ff3851433d7de96a8c8991c75c4bcb1ad968'
-            '51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af'
-            'f1af100c4afca2035f446967323230150cfe5872b5a664d98c86963e5c066e0d')
+sha256sums=(
+    'SKIP'
+    '51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af'
+)
 
 prepare() {
     cd "Moku-$pkgver"
@@ -34,7 +34,6 @@ prepare() {
 build() {
     cd "Moku-$pkgver"
     pnpm build
-    tar -czf packaging/frontend-dist.tar.gz -C dist .
     TAURI_SKIP_DEVSERVER_CHECK=true cargo build \
         --release \
         --manifest-path src-tauri/Cargo.toml
@@ -46,10 +45,7 @@ package() {
     install -Dm755 src-tauri/target/release/moku \
         "$pkgdir/usr/bin/moku"
 
-    install -dm755 "$pkgdir/usr/lib/moku/jre"
-    tar -xf "$srcdir/jdk.tar.gz" -C "$pkgdir/usr/lib/moku/jre" --strip-components=1
-
-    install -Dm644 "$srcdir/suwayomi-server.jar" \
+    install -Dm644 "$srcdir/Suwayomi-Server-v2.1.1867.jar" \
         "$pkgdir/usr/lib/moku/tachidesk/Suwayomi-Server.jar"
 
     install -dm755 "$pkgdir/usr/lib/moku/tachidesk/default-conf"
@@ -66,7 +62,7 @@ server.maxSourcesInParallel = 6
 server.extensionRepos = []
 EOF
 
-    install -Dm755 /dev/stdin "$pkgdir/usr/bin/tachidesk-server" << 'EOF'
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/moku-suwayomi" << 'EOF'
 #!/bin/sh
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/moku/tachidesk"
 mkdir -p "$DATA_DIR"
@@ -90,7 +86,7 @@ unset WAYLAND_DISPLAY
 export _JAVA_OPTIONS="-Djava.awt.headless=true"
 export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
 
-exec /usr/lib/moku/jre/bin/java \
+exec java \
   -Djava.awt.headless=true \
   -Dapple.awt.UIElement=true \
   -Dsun.java2d.noddraw=true \
