@@ -42,8 +42,6 @@ jobs:
   tauri:
     name: Tauri (Linux x64)
     needs: frontend
-    # Pin to 22.04 — libwebkit2gtk-4.1 ABI changed in 24.04 and AppImages
-    # built there will not run on older distros.
     runs-on: ubuntu-22.04
 
     steps:
@@ -62,7 +60,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            libfuse2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -101,12 +100,6 @@ jobs:
         run: |
           mkdir -p src-tauri/binaries
 
-          # Actual layout after --strip-components=1:
-          #   bin/Suwayomi-Server.jar
-          #   bin/catch_abort.so   ← already compiled, ship it directly
-          #   jre/bin/java
-          #   jre/lib/...
-          #   electron/            ← ignored
           JAR="suwayomi-extracted/bin/Suwayomi-Server.jar"
           JAVA="suwayomi-extracted/jre/bin/java"
           CATCH="suwayomi-extracted/bin/catch_abort.so"
@@ -126,18 +119,9 @@ jobs:
 
       - name: Stage Linux launcher sidecar
         run: |
-          # Tauri names externalBin sidecars as <name>-<target-triple> at build time.
           cp src-tauri/binaries/suwayomi-launcher-linux.sh \
              src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
           chmod +x src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
-
-      - name: Set up FUSE for AppImage
-        run: |
-          sudo apt-get install -y libfuse2
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-x86_64.AppImage
-          ./linuxdeploy-x86_64.AppImage --appimage-extract
-          echo "LINUXDEPLOY=$(pwd)/squashfs-root/AppRun" >> $GITHUB_ENV
 
       - name: Patch tauri.conf.json for CI
         run: |
@@ -151,7 +135,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ github.event.inputs.version }}
         run: |
-          # Wait for the Windows workflow to have created the draft release.
           for i in $(seq 1 12); do
             RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
               "https://api.github.com/repos/moku-project/Moku/releases" \
