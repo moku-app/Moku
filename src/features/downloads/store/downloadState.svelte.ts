@@ -284,25 +284,29 @@ class DownloadStore {
     if (this.batchWorking || this.selected.size === 0) return;
     this.batchWorking = true;
 
-    const pinned   = this.queue.filter((i) => this.selected.has(i.chapter.id));
-    const rest     = this.queue.filter((i) => !this.selected.has(i.chapter.id));
-    const newQueue = edge === "top" ? [...pinned, ...rest] : [...rest, ...pinned];
+    const first    = this.isRunning ? 1 : 0;
+    const active   = this.queue.slice(0, first);
+    const moveable = this.queue.slice(first);
+    const pinned   = moveable.filter((i) => this.selected.has(i.chapter.id));
+    const rest     = moveable.filter((i) => !this.selected.has(i.chapter.id));
+    const newQueue = edge === "top"
+      ? [...active, ...pinned, ...rest]
+      : [...active, ...rest, ...pinned];
     if (this.status) this.status = { ...this.status, queue: newQueue };
 
-    const first = this.isRunning ? 1 : 0;
-    const last  = this.queue.length - 1;
+    const last = this.queue.length - 1;
 
     try {
       if (edge === "top") {
-        for (const item of [...pinned].reverse()) {
+        for (let i = 0; i < pinned.length; i++) {
           await gql<{ reorderChapterDownload: { downloadStatus: DownloadStatus } }>(
-            REORDER_DOWNLOAD, { chapterId: item.chapter.id, to: first },
+            REORDER_DOWNLOAD, { chapterId: pinned[i].chapter.id, to: first + i },
           );
         }
       } else {
-        for (const item of pinned) {
+        for (let i = 0; i < pinned.length; i++) {
           await gql<{ reorderChapterDownload: { downloadStatus: DownloadStatus } }>(
-            REORDER_DOWNLOAD, { chapterId: item.chapter.id, to: last },
+            REORDER_DOWNLOAD, { chapterId: pinned[i].chapter.id, to: last - (pinned.length - 1 - i) },
           );
         }
       }
