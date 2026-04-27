@@ -46,6 +46,7 @@
   const lastPage       = $derived(store.pageUrls.length);
   const effectiveWidth = $derived(readerState.containerWidth > 0 ? Math.round(readerState.containerWidth * zoom) : undefined);
   const zoomPct        = $derived(Math.round(zoom * 100));
+  const pinchZoomEnabled = $derived(store.settings.pinchZoom ?? false);
 
   const displayChapter = $derived(
     style === "longstrip" && readerState.visibleChapterId
@@ -195,8 +196,6 @@
     if (x > 0.6) goNext(); else if (x < 0.4) goPrev();
   }
 
-  // onWheel is only invoked from PageView for longstrip Ctrl+scroll (reader-level zoom).
-  // In paged modes, Ctrl+scroll is handled inside PageView as inspect-zoom instead.
   function handleWheel(e: WheelEvent) {
     if (!e.ctrlKey) return;
     e.preventDefault();
@@ -481,6 +480,8 @@
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousemove", pageViewRef.onInspectMouseMove);
     window.addEventListener("mouseup",  pageViewRef.onInspectMouseUp);
+    window.addEventListener("pointermove", pageViewRef.onPointerMove);
+    window.addEventListener("pointerup",   pageViewRef.onPointerUp);
 
     readerState.isFullscreen = await win.isFullscreen();
     const unlistenFs = await win.onResized(async () => {
@@ -502,6 +503,8 @@
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousemove", pageViewRef.onInspectMouseMove);
       window.removeEventListener("mouseup",  pageViewRef.onInspectMouseUp);
+      window.removeEventListener("pointermove", pageViewRef.onPointerMove);
+      window.removeEventListener("pointerup",   pageViewRef.onPointerUp);
       cleanupScroll();
       unlistenFs();
       ro.disconnect();
@@ -514,6 +517,7 @@
   class:overlay-bars={overlayBars}
   class:bar-left={barPosition === "left"}
   class:bar-right={barPosition === "right"}
+  class:pinch-active={pinchZoomEnabled}
   role="presentation"
   onmousemove={(e) => {
     if (!tapToToggleBar) {
@@ -582,6 +586,9 @@
     {currentGroup} {stripToRender}
     fadingOut={readerState.fadingOut}
     {tapToToggleBar}
+    {pinchZoomEnabled}
+    onGetZoom={() => zoom}
+    onSetZoom={(z) => { captureZoomAnchor(containerEl, style, zoomAnchor); applySettings({ readerZoom: z }); restoreZoomAnchor(containerEl, zoomAnchor); }}
     resolveUrl={(url, priority) => resolveUrl(url, useBlob, priority)}
     onTap={handleTap}
     onWheel={handleWheel}
@@ -627,4 +634,6 @@
 
   .root.bar-left  :global(.viewer) { margin-left: 40px; }
   .root.bar-right :global(.viewer) { margin-right: 40px; }
+
+  .root.pinch-active :global(.viewer) { touch-action: none; }
 </style>

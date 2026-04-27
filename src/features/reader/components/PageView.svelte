@@ -3,6 +3,8 @@
   import { store }       from "@store/state.svelte";
   import { readerState } from "../store/readerState.svelte";
   import type { StripChapter } from "../lib/scrollHandler";
+  import { createPinchTracker } from "../lib/pinchZoom";
+  import type { PinchTracker }  from "../lib/pinchZoom";
 
   interface Props {
     style:           string;
@@ -16,6 +18,9 @@
     stripToRender:   StripChapter[];
     fadingOut:       boolean;
     tapToToggleBar:  boolean;
+    pinchZoomEnabled: boolean;
+    onGetZoom:       () => number;
+    onSetZoom:       (z: number) => void;
     resolveUrl:      (url: string, priority?: number) => Promise<string>;
     onTap:           (e: MouseEvent) => void;
     onWheel:         (e: WheelEvent) => void;
@@ -26,7 +31,8 @@
   const {
     style, imgCls, effectiveWidth, loading, error, pageReady,
     pageGroups, currentGroup, stripToRender, fadingOut,
-    tapToToggleBar, resolveUrl, onTap, onWheel, onToggleUi, bindContainer,
+    tapToToggleBar, pinchZoomEnabled, onGetZoom, onSetZoom,
+    resolveUrl, onTap, onWheel, onToggleUi, bindContainer,
   }: Props = $props();
 
   const INSPECT_ZOOM_STEP = 0.15;
@@ -57,11 +63,27 @@
   let inspectPanStartX  = 0;
   let inspectPanStartY  = 0;
 
-  // Drag-to-scroll state for longstrip mode
   let stripDragging    = false;
   let stripDragMoved   = false;
   let stripDragStartY  = 0;
   let stripScrollStart = 0;
+
+  let pinch: PinchTracker | null = null;
+
+  $effect(() => {
+    if (pinchZoomEnabled) {
+      pinch = createPinchTracker({
+        getZoom:         onGetZoom,
+        setZoom:         onSetZoom,
+        getInspectScale: () => readerState.inspectScale,
+        setInspectScale: (s) => { readerState.inspectScale = s; },
+        resetInspectPan: () => { readerState.inspectPanX = 0; readerState.inspectPanY = 0; },
+        isLongstrip:     () => style === "longstrip",
+      });
+    } else {
+      pinch = null;
+    }
+  });
 
   export function onInspectMouseDown(e: MouseEvent) {
     if (style === "longstrip") {
@@ -103,13 +125,43 @@
     inspectDragging = false;
   }
 
+  export function onPointerDown(e: PointerEvent) {
+    pinch?.onPointerDown(e);
+  }
+
+  export function onPointerMove(e: PointerEvent) {
+    if (pinch?.isPinching()) {
+      pinch.onPointerMove(e);
+      return;
+    }
+    if (stripDragging) {
+      const dy = e.clientY - stripDragStartY;
+      if (!stripDragMoved && Math.abs(dy) > 4) stripDragMoved = true;
+      if (containerEl) containerEl.scrollTop = stripScrollStart - dy;
+    }
+    if (inspectDragging) {
+      if (!inspectDragMoved && Math.abs(e.clientX - inspectDragStartX) + Math.abs(e.clientY - inspectDragStartY) > 4) inspectDragMoved = true;
+      const rawX = inspectPanStartX + (e.clientX - inspectDragStartX);
+      const rawY = inspectPanStartY + (e.clientY - inspectDragStartY);
+      const [cx, cy] = clampInspectPan(readerState.inspectScale, rawX, rawY);
+      readerState.inspectPanX = cx;
+      readerState.inspectPanY = cy;
+    }
+  }
+
+  export function onPointerUp(e: PointerEvent) {
+    pinch?.onPointerUp(e);
+    if (!pinch?.isPinching()) {
+      stripDragging   = false;
+      inspectDragging = false;
+    }
+  }
+
   export function handleWheel(e: WheelEvent) {
     if (style === "longstrip") {
-      // In longstrip, Ctrl+scroll drives reader-level zoom; plain scroll scrolls naturally.
       if (e.ctrlKey) { onWheel(e); }
       return;
     }
-    // In paged modes, Ctrl+scroll drives inspect-zoom (magnify); plain scroll pages forward/back.
     if (!e.ctrlKey) { onWheel(e); return; }
     e.preventDefault();
     const delta = e.deltaY < 0 ? INSPECT_ZOOM_STEP : -INSPECT_ZOOM_STEP;
@@ -154,6 +206,7 @@
   onclick={handleTap}
   ondblclick={(e) => { if (tapToToggleBar) { const x = e.clientX / window.innerWidth; if (x >= 0.3 && x <= 0.7) onToggleUi(); } }}
   onmousedown={onInspectMouseDown}
+  onpointerdown={pinchZoomEnabled ? onPointerDown : undefined}
   onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
   style:cursor={style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
   onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); containerEl?.scrollBy({ top: containerEl.clientHeight * 0.85, behavior: "smooth" }); } }}
@@ -217,11 +270,13 @@
 </div>
 
 <style>
-  .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; }
+  .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; touch-action: pan-x pan-y; }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
   .viewer.inspect-active { cursor: grab; overflow: hidden; }
   .viewer.inspect-active:active { cursor: grabbing; }
+
+  :global(.pinch-active) .viewer { touch-action: none; }
 
   .inspect-wrap { display: flex; align-items: center; justify-content: center; transform-origin: center center; will-change: transform; }
 

@@ -267,6 +267,16 @@
         ><span class="toggle-knob"></span></button>
       </label>
       <label class="toggle-row">
+        <span class="toggle-label">Pinch to zoom <span class="toggle-badge">experimental</span></span>
+        <button
+          class="toggle"
+          class:on={store.settings.pinchZoom ?? false}
+          onclick={() => updateSettings({ pinchZoom: !(store.settings.pinchZoom ?? false) })}
+          role="switch"
+          aria-checked={store.settings.pinchZoom ?? false}
+        ><span class="toggle-knob"></span></button>
+      </label>
+      <label class="toggle-row">
         <span class="toggle-label">Mark read on chapter advance</span>
         <button
           class="toggle"
@@ -532,6 +542,19 @@
   .toggle-label {
     font-size: var(--text-xs);
     color: var(--text-secondary);
+  }
+
+  .toggle-badge {
+    font-family: var(--font-ui);
+    font-size: 9px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text-faint);
+    border: 1px solid var(--border-dim);
+    border-radius: 3px;
+    padding: 1px 4px;
+    margin-left: var(--sp-1);
+    vertical-align: middle;
   }
 
   .toggle {
