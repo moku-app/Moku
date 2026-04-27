@@ -4,10 +4,10 @@
 
 <div align="center">
 
-[![release](https://img.shields.io/github/v/release/Youwes09/Moku?style=flat&color=a8c4a8&labelColor=151515)](https://github.com/Youwes09/Moku/releases/latest)
-[![downloads](https://img.shields.io/github/downloads/Youwes09/Moku/total?style=flat&color=a8c4a8&labelColor=151515)](https://github.com/Youwes09/Moku/releases/latest)
-[![license](https://img.shields.io/github/license/Youwes09/Moku?style=flat&color=a8c4a8&labelColor=151515)](./LICENSE)
-[![discord](https://img.shields.io/discord/1485151759511978077?style=flat&color=a8c4a8&labelColor=151515&label=discord)](https://discord.gg/x97hj8zR72)
+[![Release](https://www.shieldcn.dev/github/release/moku-app/Moku.svg?variant=secondary&size=default)](https://github.com/moku-app/Moku/releases/latest)
+[![Last Commit](https://www.shieldcn.dev/github/last-commit/moku-app/Moku.svg?variant=secondary&size=default)](https://github.com/moku-app/Moku/commits/main)
+[![Stars](https://www.shieldcn.dev/github/stars/moku-app/Moku.svg?variant=secondary&size=default)](https://github.com/moku-app/Moku)
+[![Discord](https://www.shieldcn.dev/discord/members/x97hj8zR72.svg?variant=secondary&size=default)](https://discord.gg/x97hj8zR72)
 
 </div>
 
@@ -57,6 +57,14 @@ Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://gith
 
 ## Installation
 
+<div align="center">
+
+![Runs on Windows](https://www.shieldcn.dev/badge/Runs%20on-Windows-0078D4.svg?logo=windows&logoColor=fff)
+![Runs on Linux](https://www.shieldcn.dev/badge/Runs%20on-Linux-FCC624.svg?logo=linux&logoColor=000)
+![Runs on MacOS](https://www.shieldcn.dev/badge/Runs%20on-MacOS-000000.svg?mode=light&logo=apple&logoColor=fff)
+
+</div>
+
 ### Windows
 
 **winget:**
@@ -67,34 +75,37 @@ winget install Moku.Moku
 
 > Thanks to [@frozenKelp](https://github.com/frozenKelp) for setting up and maintaining the winget package through v0.9.0.
 
-Or download the `.exe` installer from the [releases page](https://github.com/Youwes09/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
+Or download the `.exe` installer from the [releases page](https://github.com/moku-app/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
 
-### Flatpak (Linux, recommended)
+### Linux (Flatpak, recommended)
 
 Suwayomi-Server and a bundled JRE are included — no separate install needed.
 
 ```bash
-flatpak install moku.flatpak
-flatpak run dev.moku.app
+flatpak install io.github.moku_app.Moku
 ```
 
-Download the latest `moku.flatpak` from the [releases page](https://github.com/Youwes09/Moku/releases/latest).
+Or download the latest `moku.flatpak` from the [releases page](https://github.com/moku-app/Moku/releases/latest) and install manually:
+
+```bash
+flatpak install moku.flatpak
+```
 
 ### Nix
 
 ```bash
-nix run github:Youwes09/Moku
+nix run github:moku-app/Moku
 ```
 
 Add to your flake:
 
 ```nix
-inputs.moku.url = "github:Youwes09/Moku";
+inputs.moku.url = "github:moku-app/Moku";
 ```
 
 ### macOS
 
-Download the `.dmg` from the [releases page](https://github.com/Youwes09/Moku/releases/latest).
+Download the `.dmg` from the [releases page](https://github.com/moku-app/Moku/releases/latest).
 
 > **Note:** Builds are ad-hoc signed. On first launch you may need to run:
 > ```bash
@@ -116,7 +127,7 @@ You can point Moku at any Suwayomi instance — local or remote — via **Settin
 **Prerequisites:** [Rust](https://rustup.rs), [Node.js](https://nodejs.org), [pnpm](https://pnpm.io), and [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/).
 
 ```bash
-git clone https://github.com/Youwes09/Moku
+git clone https://github.com/moku-app/Moku
 cd Moku
 pnpm install
 pnpm tauri:dev
@@ -147,7 +158,7 @@ pnpm tauri:dev
 
 Questions, feedback, or just want to hang out — join the Discord.
 
-[![Discord](https://img.shields.io/discord/1485151759511978077?style=for-the-badge&color=a8c4a8&labelColor=151515&label=Join+the+Discord)](https://discord.gg/x97hj8zR72)
+[![Discord](https://www.shieldcn.dev/discord/members/x97hj8zR72.svg?variant=secondary&size=large)](https://discord.gg/x97hj8zR72)
 
 ---
 
