@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.Youwes09.Moku</id>
+  <id>io.github.moku_project.Moku</id>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
 
@@ -19,30 +19,30 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">io.github.Youwes09.Moku.desktop</launchable>
+  <launchable type="desktop-id">io.github.moku_project.Moku.desktop</launchable>
 
-  <url type="homepage">https://github.com/Youwes09/Moku</url>
-  <url type="bugtracker">https://github.com/Youwes09/Moku/issues</url>
+  <url type="homepage">https://github.com/moku-project/Moku</url>
+  <url type="bugtracker">https://github.com/moku-project/Moku/issues</url>
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/Youwes09/Moku/main/docs/screenshots/Moku-Home.png</image>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Home.png</image>
       <caption>Home screen showing your manga library</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Youwes09/Moku/main/docs/screenshots/Moku-Reader.png</image>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Reader.png</image>
       <caption>Built-in manga reader</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Youwes09/Moku/main/docs/screenshots/Moku-Discover.png</image>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Discover.png</image>
       <caption>Discover new manga across hundreds of sources</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Youwes09/Moku/main/docs/screenshots/Moku-Downloads.png</image>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Downloads.png</image>
       <caption>Download manager</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Youwes09/Moku/main/docs/screenshots/Moku-Settings.png</image>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Settings.png</image>
       <caption>Settings</caption>
     </screenshot>
   </screenshots>

@@ -269,7 +269,7 @@ fn suwayomi_data_dir() -> PathBuf {
     {
         dirs::data_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from("~")))
-            .join("io.github.Youwes09.Moku.app/tachidesk")
+            .join("io.github.moku_project.Moku.app/tachidesk")
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
@@ -589,7 +589,7 @@ async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
         .map_err(|e| e.to_string())?;
 
     let resp = client
-        .get("https://api.github.com/repos/Youwes09/Moku/releases?per_page=30")
+        .get("https://api.github.com/repos/moku-project/Moku/releases?per_page=30")
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -635,7 +635,7 @@ async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Resu
             .build()
             .map_err(|e| e.to_string())?;
 
-        let url = format!("https://api.github.com/repos/Youwes09/Moku/releases/tags/{}", tag);
+        let url = format!("https://api.github.com/repos/moku-project/Moku/releases/tags/{}", tag);
         let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
             return Err(format!("GitHub API returned {} for tag {}", resp.status(), tag));

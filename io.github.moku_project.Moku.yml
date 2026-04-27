@@ -1,4 +1,4 @@
-app-id: io.github.Youwes09.Moku
+app-id: io.github.moku_project.Moku
 runtime: org.gnome.Platform
 runtime-version: '48'
 sdk: org.gnome.Sdk
@@ -171,14 +171,14 @@ modules:
       - tar -xzf frontend-dist.tar.gz
       - . /usr/lib/sdk/rust-stable/enable.sh && PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig cargo build --release --manifest-path src-tauri/Cargo.toml
       - install -Dm755 src-tauri/target/release/moku /app/bin/moku
-      - install -Dm644 packaging/io.github.Youwes09.Moku.desktop /app/share/applications/io.github.Youwes09.Moku.desktop
-      - install -Dm644 src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.Youwes09.Moku.png
-      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.Youwes09.Moku.png
-      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.Youwes09.Moku.png
-      - install -Dm644 packaging/io.github.Youwes09.Moku.metainfo.xml /app/share/metainfo/io.github.Youwes09.Moku.metainfo.xml
+      - install -Dm644 packaging/io.github.moku_project.Moku.desktop /app/share/applications/io.github.moku_project.Moku.desktop
+      - install -Dm644 src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.moku_project.Moku.png
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.moku_project.Moku.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.moku_project.Moku.png
+      - install -Dm644 packaging/io.github.moku_project.Moku.metainfo.xml /app/share/metainfo/io.github.moku_project.Moku.metainfo.xml
     sources:
       - type: git
-        url: https://github.com/Youwes09/Moku.git
+        url: https://github.com/moku-project/Moku.git
         tag: v0.9.0
         commit: 514910667b0d6e375569a48fb7cef11411d30fbd
       - type: file

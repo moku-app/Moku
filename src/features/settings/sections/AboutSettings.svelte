@@ -221,7 +221,7 @@
     <p class="s-section-title">Links</p>
     <div class="s-section-body">
       <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:var(--sp-2)">
-        <a href="https://github.com/Youwes09/Moku" target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
+        <a href="https://github.com/moku-project/Moku" target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
         <a href="https://discord.gg/Jq3pwuNqPp" target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">Discord →</a>
       </div>
     </div>

@@ -5,7 +5,7 @@ import type { Manga, Chapter }                              from "@types";
 const APP_ID         = "1487894643613106298";
 const FALLBACK_IMAGE = "moku_logo";
 const BUTTONS = [
-  { label: "GitHub",  url: "https://github.com/Youwes09/Moku" },
+  { label: "GitHub",  url: "https://github.com/moku-project/Moku" },
   { label: "Discord", url: "https://discord.gg/Jq3pwuNqPp" },
 ];
 

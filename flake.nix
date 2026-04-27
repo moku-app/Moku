@@ -177,7 +177,7 @@ EOF
               [[ $# -lt 1 ]] && { echo "Usage: nix run .#flatpak -- <version>"; exit 1; }
               VERSION="$1"
               REPO="$(git rev-parse --show-toplevel)"
-              MANIFEST="$REPO/io.github.Youwes09.Moku.yml"
+              MANIFEST="$REPO/io.github.moku_project.Moku.yml"
 
               echo "── Bumping versions ──"
               sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" \
@@ -226,7 +226,7 @@ EOF
                 --force-clean \
                 "$REPO/build-dir" \
                 "$MANIFEST"
-              flatpak build-bundle "$REPO/repo" "$REPO/moku.flatpak" io.github.Youwes09.Moku
+              flatpak build-bundle "$REPO/repo" "$REPO/moku.flatpak" io.github.moku_project.Moku
               rm -rf "$REPO/build-dir" "$REPO/repo"
               echo "moku.flatpak created"
 
@@ -249,7 +249,7 @@ EOF
               PKGBUILD="$REPO/PKGBUILD"
               [[ -f "$PKGBUILD" ]] || { echo "PKGBUILD not found"; exit 1; }
 
-              TARBALL_URL="https://github.com/Youwes09/Moku/archive/refs/tags/v$VERSION.tar.gz"
+              TARBALL_URL="https://github.com/moku-project/Moku/archive/refs/tags/v$VERSION.tar.gz"
               echo "Fetching tarball sha256..."
               TARBALL_SHA=$(curl -fsSL "$TARBALL_URL" | sha256sum | awk '{print $1}')
 

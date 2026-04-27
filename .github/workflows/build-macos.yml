@@ -167,7 +167,7 @@ jobs:
         run: |
           # Wait for the Windows workflow to have created the draft release
           for i in $(seq 1 12); do
-            RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN"               "https://api.github.com/repos/Youwes09/Moku/releases"               | jq -r '.[] | select(.tag_name == "v'"$VERSION"'") | .id' | head -1)
+            RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN"               "https://api.github.com/repos/moku-project/Moku/releases"               | jq -r '.[] | select(.tag_name == "v'"$VERSION"'") | .id' | head -1)
             if [ -n "$RELEASE_ID" ]; then break; fi
             echo "Waiting for release to exist... attempt $i"
             sleep 15
@@ -184,7 +184,7 @@ jobs:
             local file="$1"
             local name="$2"
             echo "Uploading $name..."
-            curl -s -X POST               -H "Authorization: Bearer $GITHUB_TOKEN"               -H "Content-Type: application/octet-stream"               --data-binary @"$file"               "https://uploads.github.com/repos/Youwes09/Moku/releases/$RELEASE_ID/assets?name=$name"
+            curl -s -X POST               -H "Authorization: Bearer $GITHUB_TOKEN"               -H "Content-Type: application/octet-stream"               --data-binary @"$file"               "https://uploads.github.com/repos/moku-project/Moku/releases/$RELEASE_ID/assets?name=$name"
           }
 
           ARM64_DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)

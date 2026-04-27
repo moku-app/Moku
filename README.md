@@ -4,9 +4,9 @@
 
 <div align="center">
 
-[![Release](https://www.shieldcn.dev/github/release/moku-app/Moku.svg?variant=outline&size=default)](https://github.com/moku-app/Moku/releases/latest)
-[![Last Commit](https://www.shieldcn.dev/github/last-commit/moku-app/Moku.svg?variant=outline&size=default)](https://github.com/moku-app/Moku/commits/main)
-[![Stars](https://www.shieldcn.dev/github/stars/moku-app/Moku.svg?variant=outline&size=default)](https://github.com/moku-app/Moku)
+[![Release](https://www.shieldcn.dev/github/release/moku-project/Moku.svg?variant=outline&size=default)](https://github.com/moku-project/Moku/releases/latest)
+[![Last Commit](https://www.shieldcn.dev/github/last-commit/moku-project/Moku.svg?variant=outline&size=default)](https://github.com/moku-project/Moku/commits/main)
+[![Stars](https://www.shieldcn.dev/github/stars/moku-project/Moku.svg?variant=outline&size=default)](https://github.com/moku-project/Moku)
 [![Discord](https://www.shieldcn.dev/discord/members/x97hj8zR72.svg?variant=outline&size=default)](https://discord.gg/x97hj8zR72)
 
 </div>
@@ -75,7 +75,7 @@ winget install Moku.Moku
 
 > Thanks to [@frozenKelp](https://github.com/frozenKelp) for setting up and maintaining the winget package through v0.9.0.
 
-Or download the `.exe` installer from the [releases page](https://github.com/moku-app/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
+Or download the `.exe` installer from the [releases page](https://github.com/moku-project/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
 
 ### Linux (Flatpak, recommended)
 
@@ -85,7 +85,7 @@ Suwayomi-Server and a bundled JRE are included — no separate install needed.
 flatpak install io.github.moku_app.Moku
 ```
 
-Or download the latest `moku.flatpak` from the [releases page](https://github.com/moku-app/Moku/releases/latest) and install manually:
+Or download the latest `moku.flatpak` from the [releases page](https://github.com/moku-project/Moku/releases/latest) and install manually:
 
 ```bash
 flatpak install moku.flatpak
@@ -94,18 +94,18 @@ flatpak install moku.flatpak
 ### Nix
 
 ```bash
-nix run github:moku-app/Moku
+nix run github:moku-project/Moku
 ```
 
 Add to your flake:
 
 ```nix
-inputs.moku.url = "github:moku-app/Moku";
+inputs.moku.url = "github:moku-project/Moku";
 ```
 
 ### macOS
 
-Download the `.dmg` from the [releases page](https://github.com/moku-app/Moku/releases/latest).
+Download the `.dmg` from the [releases page](https://github.com/moku-project/Moku/releases/latest).
 
 > **Note:** Builds are ad-hoc signed. On first launch you may need to run:
 > ```bash
@@ -127,7 +127,7 @@ You can point Moku at any Suwayomi instance — local or remote — via **Settin
 **Prerequisites:** [Rust](https://rustup.rs), [Node.js](https://nodejs.org), [pnpm](https://pnpm.io), and [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/).
 
 ```bash
-git clone https://github.com/moku-app/Moku
+git clone https://github.com/moku-project/Moku
 cd Moku
 pnpm install
 pnpm tauri:dev

@@ -25,14 +25,14 @@ In-Progress:
  - Working on 3D Display Cards
  - Add Flathub Support (Pending Video)
 
- - QOL Animations & Revamps
-   - Tracking Revamp
-      - Completely Revamp Tracking
-
 
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
 
+- Tracking
+   - Fix SeriesDetail Tracking Window (Maybe Link to TrackingPanel)
+
+- Hide Completed from Library Settting
 
 
 Notes from last time:

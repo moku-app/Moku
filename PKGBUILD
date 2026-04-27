@@ -1,9 +1,9 @@
 pkgname=moku
-pkgver=0.5.0
+pkgver=0.9.0
 pkgrel=1
 pkgdesc="Native Linux manga reader frontend for Suwayomi-Server"
 arch=('x86_64')
-url="https://github.com/Youwes09/Moku"
+url="https://github.com/moku-project/Moku"
 license=('Apache 2.0')
 depends=(
     'webkit2gtk-4.1'
@@ -18,11 +18,11 @@ makedepends=(
     'pnpm'
 )
 source=(
-    "$pkgname-$pkgver.tar.gz::https://github.com/Youwes09/Moku/archive/refs/tags/v$pkgver.tar.gz"
+    "$pkgname-$pkgver.tar.gz::https://github.com/moku-project/Moku/archive/refs/tags/v$pkgver.tar.gz"
     "suwayomi-server.jar::https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/suwayomi-server-v2.1.1867.jar"
     "jdk.tar.gz::https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jre_x64_linux_hotspot_21.0.3_9.tar.gz"
 )
-sha256sums=('2475d4bb4c7e8527384f7fcf9b0ace1c8a6354416f3af31398b844e35953fb73'
+sha256sums=('8e04e82773764a6d3ab2080c7564ff3851433d7de96a8c8991c75c4bcb1ad968'
             '51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af'
             'f1af100c4afca2035f446967323230150cfe5872b5a664d98c86963e5c066e0d')
 
@@ -99,16 +99,16 @@ exec /usr/lib/moku/jre/bin/java \
   -jar /usr/lib/moku/tachidesk/Suwayomi-Server.jar
 EOF
 
-    install -Dm644 packaging/io.github.Youwes09.Moku.app.desktop \
-        "$pkgdir/usr/share/applications/io.github.Youwes09.Moku.app.desktop"
+    install -Dm644 packaging/io.github.moku_project.Moku.desktop \
+        "$pkgdir/usr/share/applications/io.github.moku_project.Moku.desktop"
     install -Dm644 src-tauri/icons/32x32.png \
-        "$pkgdir/usr/share/icons/hicolor/32x32/apps/io.github.Youwes09.Moku.app.png"
+        "$pkgdir/usr/share/icons/hicolor/32x32/apps/io.github.moku_project.Moku.png"
     install -Dm644 src-tauri/icons/128x128.png \
-        "$pkgdir/usr/share/icons/hicolor/128x128/apps/io.github.Youwes09.Moku.app.png"
+        "$pkgdir/usr/share/icons/hicolor/128x128/apps/io.github.moku_project.Moku.png"
     install -Dm644 src-tauri/icons/128x128@2x.png \
-        "$pkgdir/usr/share/icons/hicolor/256x256/apps/io.github.Youwes09.Moku.app.png"
-    install -Dm644 packaging/io.github.Youwes09.Moku.app.metainfo.xml \
-        "$pkgdir/usr/share/metainfo/io.github.Youwes09.Moku.metainfo.xml"
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/io.github.moku_project.Moku.png"
+    install -Dm644 packaging/io.github.moku_project.Moku.metainfo.xml \
+        "$pkgdir/usr/share/metainfo/io.github.moku_project.Moku.metainfo.xml"
 
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
