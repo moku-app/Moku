@@ -31,6 +31,12 @@
         <div class="s-row-info"><span class="s-label">Show all in Saved tab</span><span class="s-desc">Include manga that are in folders — lets you see your whole library in one place</span></div>
         <button role="switch" aria-checked={store.settings.libraryShowAllInSaved ?? true} aria-label="Show all manga in Saved tab" class="s-toggle" class:on={store.settings.libraryShowAllInSaved ?? true} onclick={() => updateSettings({ libraryShowAllInSaved: !(store.settings.libraryShowAllInSaved ?? true) })}><span class="s-toggle-thumb"></span></button>
       </label>
+      {#if store.settings.libraryShowAllInSaved ?? true}
+        <label class="s-row">
+          <div class="s-row-info"><span class="s-label">Hide completed in Saved tab</span><span class="s-desc">Keep manga in the Completed folder out of the Saved view</span></div>
+          <button role="switch" aria-checked={store.settings.libraryHideCompletedInSaved ?? false} aria-label="Hide completed manga in Saved tab" class="s-toggle" class:on={store.settings.libraryHideCompletedInSaved ?? false} onclick={() => updateSettings({ libraryHideCompletedInSaved: !(store.settings.libraryHideCompletedInSaved ?? false) })}><span class="s-toggle-thumb"></span></button>
+        </label>
+      {/if}
     </div>
   </div>
 

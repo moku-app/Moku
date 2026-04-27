@@ -106,6 +106,14 @@
       items = (store.settings.libraryShowAllInSaved ?? true)
         ? allManga.filter(m => m.inLibrary)
         : (categoryMangaMap.get(0) ?? []);
+
+      if ((store.settings.libraryShowAllInSaved ?? true) && (store.settings.libraryHideCompletedInSaved ?? false)) {
+        const completedCat = store.categories.find(c => c.name === COMPLETED_NAME);
+        if (completedCat) {
+          const completedIds = new Set((categoryMangaMap.get(completedCat.id) ?? []).map(m => m.id));
+          items = items.filter(m => !completedIds.has(m.id));
+        }
+      }
     } else if (tab === "downloaded") {
       items = allManga.filter(m => (m.downloadCount ?? 0) > 0);
     } else {
