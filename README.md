@@ -4,10 +4,10 @@
 
 <div align="center">
 
-[![Release](https://www.shieldcn.dev/github/release/moku-app/Moku.svg?variant=secondary&size=default)](https://github.com/moku-app/Moku/releases/latest)
-[![Last Commit](https://www.shieldcn.dev/github/last-commit/moku-app/Moku.svg?variant=secondary&size=default)](https://github.com/moku-app/Moku/commits/main)
-[![Stars](https://www.shieldcn.dev/github/stars/moku-app/Moku.svg?variant=secondary&size=default)](https://github.com/moku-app/Moku)
-[![Discord](https://www.shieldcn.dev/discord/members/x97hj8zR72.svg?variant=secondary&size=default)](https://discord.gg/x97hj8zR72)
+[![Release](https://www.shieldcn.dev/github/release/moku-app/Moku.svg?variant=outline&size=default)](https://github.com/moku-app/Moku/releases/latest)
+[![Last Commit](https://www.shieldcn.dev/github/last-commit/moku-app/Moku.svg?variant=outline&size=default)](https://github.com/moku-app/Moku/commits/main)
+[![Stars](https://www.shieldcn.dev/github/stars/moku-app/Moku.svg?variant=outline&size=default)](https://github.com/moku-app/Moku)
+[![Discord](https://www.shieldcn.dev/discord/members/x97hj8zR72.svg?variant=outline&size=default)](https://discord.gg/x97hj8zR72)
 
 </div>
 
