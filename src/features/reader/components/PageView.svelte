@@ -57,8 +57,22 @@
   let inspectPanStartX  = 0;
   let inspectPanStartY  = 0;
 
+  // Drag-to-scroll state for longstrip mode
+  let stripDragging    = false;
+  let stripDragMoved   = false;
+  let stripDragStartY  = 0;
+  let stripScrollStart = 0;
+
   export function onInspectMouseDown(e: MouseEvent) {
-    if (style === "longstrip" || readerState.inspectScale <= 1) return;
+    if (style === "longstrip") {
+      stripDragging    = true;
+      stripDragMoved   = false;
+      stripDragStartY  = e.clientY;
+      stripScrollStart = containerEl?.scrollTop ?? 0;
+      e.preventDefault();
+      return;
+    }
+    if (readerState.inspectScale <= 1) return;
     inspectDragging   = true;
     inspectDragMoved  = false;
     inspectDragStartX = e.clientX;
@@ -69,6 +83,12 @@
   }
 
   export function onInspectMouseMove(e: MouseEvent) {
+    if (stripDragging) {
+      const dy = e.clientY - stripDragStartY;
+      if (!stripDragMoved && Math.abs(dy) > 4) stripDragMoved = true;
+      if (containerEl) containerEl.scrollTop = stripScrollStart - dy;
+      return;
+    }
     if (!inspectDragging) return;
     if (!inspectDragMoved && Math.abs(e.clientX - inspectDragStartX) + Math.abs(e.clientY - inspectDragStartY) > 4) inspectDragMoved = true;
     const rawX = inspectPanStartX + (e.clientX - inspectDragStartX);
@@ -79,12 +99,18 @@
   }
 
   export function onInspectMouseUp() {
+    stripDragging   = false;
     inspectDragging = false;
   }
 
   export function handleWheel(e: WheelEvent) {
-    if (e.ctrlKey) { onWheel(e); return; }
-    if (style === "longstrip") return;
+    if (style === "longstrip") {
+      // In longstrip, Ctrl+scroll drives reader-level zoom; plain scroll scrolls naturally.
+      if (e.ctrlKey) { onWheel(e); }
+      return;
+    }
+    // In paged modes, Ctrl+scroll drives inspect-zoom (magnify); plain scroll pages forward/back.
+    if (!e.ctrlKey) { onWheel(e); return; }
     e.preventDefault();
     const delta = e.deltaY < 0 ? INSPECT_ZOOM_STEP : -INSPECT_ZOOM_STEP;
     const next  = Math.max(1, Math.min(INSPECT_ZOOM_MAX, readerState.inspectScale + delta));
@@ -107,6 +133,7 @@
   function handleTap(e: MouseEvent) {
     if (style === "longstrip") return;
     if (inspectDragMoved) { inspectDragMoved = false; return; }
+    if (stripDragMoved)   { stripDragMoved   = false; return; }
     onTap(e);
   }
 
@@ -128,6 +155,7 @@
   ondblclick={(e) => { if (tapToToggleBar) { const x = e.clientX / window.innerWidth; if (x >= 0.3 && x <= 0.7) onToggleUi(); } }}
   onmousedown={onInspectMouseDown}
   onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
+  style:cursor={style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
   onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); containerEl?.scrollBy({ top: containerEl.clientHeight * 0.85, behavior: "smooth" }); } }}
 >
 

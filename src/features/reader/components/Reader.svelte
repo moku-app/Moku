@@ -195,6 +195,8 @@
     if (x > 0.6) goNext(); else if (x < 0.4) goPrev();
   }
 
+  // onWheel is only invoked from PageView for longstrip Ctrl+scroll (reader-level zoom).
+  // In paged modes, Ctrl+scroll is handled inside PageView as inspect-zoom instead.
   function handleWheel(e: WheelEvent) {
     if (!e.ctrlKey) return;
     e.preventDefault();
