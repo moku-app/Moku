@@ -27,9 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis"
-    ],
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -49,10 +47,6 @@
   "plugins": {
     "shell": {
       "open": true
-    },
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM2NEQzNDdFRjlDNUVEN0MKUldSODdjWDVmalJOTml1b0xzMDU3ZE1sNWJLZUhqUDN5cmJUdkdpeFlEVGNoQVN3UjhCc3AxV3QK",
-      "endpoints": []
     }
   }
 }

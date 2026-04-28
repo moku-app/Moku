@@ -1,20 +1,8 @@
 {
   "bundle": {
-    "createUpdaterArtifacts": true,
     "resources": [
       "binaries/suwayomi-bundle/bin/Suwayomi-Server.jar",
       "binaries/suwayomi-bundle/jre/**/*"
     ]
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM2NEQzNDdFRjlDNUVEN0MKUldSODdjWDVmalJOTml1b0xzMDU3ZE1sNWJLZUhqUDN5cmJUdkdpeFlEVGNoQVN3UjhCc3AxV3QK",
-      "endpoints": [
-        "https://github.com/moku-project/Moku/releases/latest/download/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
-    }
   }
 }

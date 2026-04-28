@@ -149,43 +149,27 @@ EOF
 
           bumpScript = pkgs.writeShellApplication {
             name = "moku-bump";
-            runtimeInputs = with pkgs; [ gnused coreutils git rustToolchain ];
+            runtimeInputs = with pkgs; [ gnused coreutils git rustToolchain
+                                         nodejs_22 pnpm
+                                         (python3.withPackages (ps: [ ps.aiohttp ps.tomlkit ])) ];
             text = ''
               [[ $# -lt 1 ]] && { echo "Usage: nix run .#bump -- <version>"; exit 1; }
               VERSION="$1"
               REPO="$(git rev-parse --show-toplevel)"
+
+              echo "── Bumping version fields to $VERSION ──"
               sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" \
                 "$REPO/src-tauri/tauri.conf.json"
               sed -i "0,/^version = \"[^\"]*\"/s//version = \"$VERSION\"/" \
                 "$REPO/src-tauri/Cargo.toml"
               sed -i "s/version = \"[^\"]*\";/version = \"$VERSION\";/g" \
                 "$REPO/flake.nix"
+              sed -i "s/^pkgver=.*/pkgver=$VERSION/" "$REPO/PKGBUILD"
+              sed -i "s/^pkgrel=.*/pkgrel=1/"        "$REPO/PKGBUILD"
+              echo "Done"
+
+              echo "── Regenerating Cargo.lock ──"
               (cd "$REPO/src-tauri" && cargo generate-lockfile)
-              echo "Bumped to $VERSION"
-            '';
-          };
-
-          flatpakScript = pkgs.writeShellApplication {
-            name = "moku-flatpak";
-            runtimeInputs = with pkgs; [
-              gnused coreutils git
-              nodejs_22 pnpm
-              appstream flatpak-builder flatpak
-              (python3.withPackages (ps: [ ps.aiohttp ps.tomlkit ]))
-            ];
-            text = ''
-              [[ $# -lt 1 ]] && { echo "Usage: nix run .#flatpak -- <version>"; exit 1; }
-              VERSION="$1"
-              REPO="$(git rev-parse --show-toplevel)"
-              MANIFEST="$REPO/io.github.moku_project.Moku.yml"
-
-              echo "── Bumping versions ──"
-              sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" \
-                "$REPO/src-tauri/tauri.conf.json"
-              sed -i "0,/^version = \"[^\"]*\"/s//version = \"$VERSION\"/" \
-                "$REPO/src-tauri/Cargo.toml"
-              sed -i "s/version = \"[^\"]*\";/version = \"$VERSION\";/g" \
-                "$REPO/flake.nix"
               echo "Done"
 
               echo "── Building frontend ──"
@@ -199,7 +183,15 @@ EOF
               FRONTEND_SHA=$(sha256sum "$REPO/packaging/frontend-dist.tar.gz" | awk '{print $1}')
               echo "sha256: $FRONTEND_SHA"
 
-              echo "── Patching manifest sha256 ──"
+              echo "── Regenerating cargo-sources.json ──"
+              python3 "$REPO/packaging/flatpak-cargo-generator.py" \
+                "$REPO/src-tauri/Cargo.lock" \
+                -o "$REPO/packaging/cargo-sources.json"
+              echo "Done"
+
+              echo "── Patching flatpak manifest (version + frontend sha256) ──"
+              MANIFEST="$REPO/io.github.moku_project.Moku.yml"
+              sed -i "s/tag: v[^[:space:]]*/tag: v$VERSION/" "$MANIFEST"
               python3 - "$MANIFEST" "$FRONTEND_SHA" <<'PYEOF'
               import re, sys
               path, sha = sys.argv[1], sys.argv[2]
@@ -213,13 +205,59 @@ EOF
               PYEOF
               echo "Done"
 
-              echo "── Regenerating cargo-sources.json ──"
-              python3 "$REPO/packaging/flatpak-cargo-generator.py" \
-                "$REPO/src-tauri/Cargo.lock" \
-                -o "$REPO/packaging/cargo-sources.json"
+              echo ""
+              echo "Bumped to v$VERSION"
+              echo ""
+              echo "Commit field in the flatpak manifest still points to the old tag."
+              echo "After pushing the tag, run:"
+              echo "  nix run .#post-tag-bump -- $VERSION"
+            '';
+          };
+
+          postTagBumpScript = pkgs.writeShellApplication {
+            name = "moku-post-tag-bump";
+            runtimeInputs = with pkgs; [ gnused coreutils git curl ];
+            text = ''
+              [[ $# -lt 1 ]] && { echo "Usage: nix run .#post-tag-bump -- <version>"; exit 1; }
+              VERSION="$1"
+              REPO="$(git rev-parse --show-toplevel)"
+              MANIFEST="$REPO/io.github.moku_project.Moku.yml"
+              PKGBUILD="$REPO/PKGBUILD"
+
+              echo "── Resolving commit for v$VERSION ──"
+              COMMIT=$(git ls-remote https://github.com/moku-project/Moku.git "refs/tags/v$VERSION" \
+                | awk '{print $1}')
+              [[ -z "$COMMIT" ]] && { echo "ERROR: tag v$VERSION not found on remote"; exit 1; }
+              echo "commit: $COMMIT"
+              sed -i "s/commit: [0-9a-f]\{40\}/commit: $COMMIT/" "$MANIFEST"
               echo "Done"
 
-              echo "── Building flatpak ──"
+              echo "── Fetching PKGBUILD tarball sha256 ──"
+              TARBALL_URL="https://github.com/moku-project/Moku/archive/refs/tags/v$VERSION.tar.gz"
+              TARBALL_SHA=$(curl -fsSL "$TARBALL_URL" | sha256sum | awk '{print $1}')
+              sed -i "s/\(sha256sums=('\)[0-9a-f]\{64\}/\1$TARBALL_SHA/" "$PKGBUILD"
+              grep -q "$TARBALL_SHA" "$PKGBUILD" \
+                || { echo "ERROR: PKGBUILD sha256 replacement failed"; exit 1; }
+              echo "Done"
+
+              echo ""
+              echo "post-tag-bump complete for v$VERSION"
+            '';
+          };
+
+          flatpakScript = pkgs.writeShellApplication {
+            name = "moku-flatpak";
+            runtimeInputs = with pkgs; [
+              gnused coreutils git
+              appstream flatpak-builder flatpak
+            ];
+            text = ''
+              [[ $# -lt 1 ]] && { echo "Usage: nix run .#flatpak -- <version>"; exit 1; }
+              VERSION="$1"
+              REPO="$(git rev-parse --show-toplevel)"
+              MANIFEST="$REPO/io.github.moku_project.Moku.yml"
+
+              echo "── Building flatpak for v$VERSION ──"
               rm -rf "$REPO/build-dir" "$REPO/repo"
               flatpak-builder \
                 --repo="$REPO/repo" \
@@ -228,14 +266,9 @@ EOF
                 "$MANIFEST"
               flatpak build-bundle "$REPO/repo" "$REPO/moku.flatpak" io.github.moku_project.Moku
               rm -rf "$REPO/build-dir" "$REPO/repo"
-              echo "moku.flatpak created"
 
               echo ""
-              echo "Done — v$VERSION"
-              echo "  -> $REPO/moku.flatpak"
-              echo ""
-              echo "After pushing the tag, run:"
-              echo "  nix run .#pkgbuild-bump -- $VERSION"
+              echo "moku.flatpak created — v$VERSION"
             '';
           };
 
@@ -279,6 +312,7 @@ EOF
             default       = { type = "app"; program = "${moku}/bin/moku"; };
             moku          = { type = "app"; program = "${moku}/bin/moku"; };
             bump          = { type = "app"; program = "${bumpScript}/bin/moku-bump"; };
+            post-tag-bump = { type = "app"; program = "${postTagBumpScript}/bin/moku-post-tag-bump"; };
             flatpak       = { type = "app"; program = "${flatpakScript}/bin/moku-flatpak"; };
             pkgbuild-bump = { type = "app"; program = "${pkgbuildBumpScript}/bin/moku-pkgbuild-bump"; };
             tunnel        = { type = "app"; program = "${tunnelScript}/bin/moku-tunnel"; };
@@ -309,10 +343,11 @@ EOF
 
               echo "Moku dev shell — pnpm install && pnpm tauri:dev"
               echo ""
-              echo "Release:"
-              echo "  nix run .#bump          -- <ver>   bump versions only"
-              echo "  nix run .#flatpak       -- <ver>   full flatpak build"
-              echo "  nix run .#pkgbuild-bump -- <ver>   patch PKGBUILD (after tag push)"
+              echo "Release workflow:"
+              echo "  nix run .#bump          -- <ver>   bump all versions + rebuild artifacts"
+              echo "  git commit && git tag && git push"
+              echo "  nix run .#post-tag-bump -- <ver>   patch manifest commit + PKGBUILD sha"
+              echo "  nix run .#flatpak       -- <ver>   build moku.flatpak"
               echo "  nix run .#tunnel        -- [port]  cloudflare tunnel (default 4567)"
             '';
           };
