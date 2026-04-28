@@ -51,6 +51,7 @@ export interface MangaPrefs {
   refreshInterval: "global" | "daily" | "weekly" | "manual";
   preferredScanlator: string; scanlatorFilter: string[];
   autoDownloadScanlators: string[];
+  coverUrl?: string;
 }
 
 export const DEFAULT_MANGA_PREFS: MangaPrefs = {
@@ -117,6 +118,7 @@ export interface Settings {
   trackerSyncBackThreshold: number | null;
   trackerRespectScanlatorFilter: boolean;
   pinchZoom?: boolean;
+  autoLinkOnOpen: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -153,4 +155,5 @@ export const DEFAULT_SETTINGS: Settings = {
   trackerSyncBackThreshold: 20,
   trackerRespectScanlatorFilter: true,
   pinchZoom: false,
+  autoLinkOnOpen: false,
 };

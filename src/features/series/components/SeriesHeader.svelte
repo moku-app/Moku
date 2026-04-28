@@ -2,9 +2,10 @@
   import {
     ArrowLeft, BookmarkSimple, ArrowSquareOut, Play, CaretDown,
     Eye, ArrowsClockwise, LinkSimpleHorizontalBreak, ChartLineUp,
-    MapPin, Gear, Trash, X,
+    MapPin, Gear, Trash, Image,
   } from "phosphor-svelte";
   import Thumbnail   from "@shared/manga/Thumbnail.svelte";
+  import { resolvedCover } from "@features/series/lib/coverResolver";
   import type { Manga, Chapter, Category } from "@types";
   import type { MangaPrefs } from "@store/state.svelte";
   import { store, setActiveManga, setGenreFilter, setNavPage, setPreviewManga, linkManga, unlinkManga } from "@store/state.svelte";
@@ -38,6 +39,7 @@
     onAutoOpen:       () => void;
     onMarkersToggle:  () => void;
     onLinkPickerOpen: () => void;
+    onCoverPickerOpen: () => void;
     togglingLibrary:  boolean;
   }
 
@@ -48,7 +50,7 @@
     mangaCategories,
     onRead, onToggleLibrary, onDeleteAll, onMigrateOpen,
     onTrackingOpen, onAutoOpen, onMarkersToggle, onLinkPickerOpen,
-    togglingLibrary,
+    onCoverPickerOpen, togglingLibrary,
   }: Props = $props();
 
   let manageOpen:     boolean = $state(false);
@@ -62,6 +64,10 @@
     store.activeManga ? store.getMarkersForManga(store.activeManga.id).length : 0
   );
 
+  const hasCoverOverride = $derived(
+    !!store.settings.mangaPrefs?.[store.activeManga!.id]?.coverUrl
+  );
+
   function focusOnMount(node: HTMLElement) { node.focus(); }
 </script>
 
@@ -71,7 +77,7 @@
   </button>
 
   <div class="cover-wrap">
-    <Thumbnail src={store.activeManga!.thumbnailUrl} alt={store.activeManga!.title} class="cover" />
+    <Thumbnail src={resolvedCover(store.activeManga!.id, store.activeManga!.thumbnailUrl)} alt={store.activeManga!.title} class="cover" />
   </div>
 
   {#if loadingManga}
@@ -156,6 +162,9 @@
             <button class="detail-action-btn" class:detail-action-active={linkedIds.length > 0} onclick={onLinkPickerOpen}>
               <LinkSimpleHorizontalBreak size={12} weight={linkedIds.length > 0 ? "fill" : "light"} />
               Series Link{linkedIds.length > 0 ? ` (${linkedIds.length})` : ""}
+            </button>
+            <button class="detail-action-btn" class:detail-action-active={hasCoverOverride} onclick={onCoverPickerOpen}>
+              <Image size={12} weight={hasCoverOverride ? "fill" : "light"} /> Cover Image
             </button>
             <button class="detail-action-btn" onclick={onTrackingOpen}>
               <ChartLineUp size={12} weight="light" /> Tracking

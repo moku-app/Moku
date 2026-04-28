@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Folder, Trash, CheckSquare, Robot } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
+  import { resolvedCover } from "@features/series/lib/coverResolver";
   import type { Manga, Category } from "@types";
 
   interface Props {
@@ -128,7 +129,7 @@
           onpointerleave={onCardPointerLeave}
         >
           <div class="cover-wrap" class:completed={isCompleted}>
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" style="object-fit:{cropCovers ? 'cover' : 'contain'}" draggable="false" />
+            <Thumbnail src={resolvedCover(m.id, m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{cropCovers ? 'cover' : 'contain'}" draggable="false" />
             <div class="card-info-overlay" class:anim={anims} class:instant={!anims} class:always={statsAlways}>
               <div class="overlay-badges">
                 {#if isCompleted}

@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import {
     X, BookmarkSimple, ArrowSquareOut, Play, CircleNotch,
-    Books, CaretDown, FolderSimplePlus, Folder, LinkSimpleHorizontalBreak,
+    Books, CaretDown, FolderSimplePlus, Folder, LinkSimpleHorizontalBreak, Image,
   } from "phosphor-svelte";
   import { gql }       from "@api/client";
   import Thumbnail     from "@shared/manga/Thumbnail.svelte";
@@ -10,10 +10,14 @@
   import { FETCH_MANGA, FETCH_CHAPTERS, UPDATE_MANGA, CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES, ENQUEUE_CHAPTERS_DOWNLOAD } from "@api/mutations";
   import { cache, CACHE_KEYS }                                                    from "@core/cache";
   import {
-    store, openReader, addToast, linkManga, unlinkManga,
+    store, openReader, addToast,
     setPreviewManga, setActiveManga, setNavPage, setGenreFilter,
     checkAndMarkCompleted as storeCheckAndMarkCompleted, addBookmark,
   } from "@store/state.svelte";
+  import { resolvedCover } from "@features/series/lib/coverResolver";
+  import CoverPickerPanel  from "@features/series/panels/CoverPickerPanel.svelte";
+  import SeriesLinkPanel   from "@features/series/panels/SeriesLinkPanel.svelte";
+  import { autoLinkLibrary } from "@features/series/lib/autoLink";
   import type { Manga, Chapter, Category } from "@types/index";
 
 
@@ -33,25 +37,18 @@
   let fetchError: string | null   = $state(null);
   let folderRef: HTMLDivElement   = $state() as HTMLDivElement;
 
-
   let linkPickerOpen           = $state(false);
-  let linkSearch               = $state("");
   let allMangaForLink: Manga[] = $state([]);
   let loadingLinkList          = $state(false);
+  let coverPickerOpen          = $state(false);
 
   const linkedIds = $derived(
     store.previewManga ? (store.settings.mangaLinks?.[store.previewManga.id] ?? []) : [],
   );
 
-  const linkPickerResults = $derived.by(() => {
-    const others   = allMangaForLink.filter((m) => m.id !== store.previewManga?.id);
-    const q        = linkSearch.trim().toLowerCase();
-    const filtered = q ? others.filter((m) => m.title.toLowerCase().includes(q)) : others;
-    const linked   = filtered.filter((m) => linkedIds.includes(m.id));
-    const rest     = filtered.filter((m) => !linkedIds.includes(m.id)).slice(0, 30);
-    return [...linked, ...rest];
-  });
-
+  const hasCoverOverride = $derived(
+    !!store.settings.mangaPrefs?.[store.previewManga?.id ?? -1]?.coverUrl
+  );
 
   const displayManga    = $derived(manga ?? store.previewManga);
   const totalCount      = $derived(chapters.length);
@@ -128,7 +125,21 @@
   }
 
   async function openLinkPicker() {
-    linkPickerOpen = true; linkSearch = "";
+    linkPickerOpen = true;
+    if (allMangaForLink.length) return;
+    loadingLinkList = true;
+    gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA)
+      .then((d) => {
+        allMangaForLink = d.mangas.nodes;
+      })
+      .catch(console.error)
+      .finally(() => { loadingLinkList = false; });
+  }
+
+  function closeLinkPicker() { linkPickerOpen = false; }
+
+  async function openCoverPicker() {
+    coverPickerOpen = true;
     if (allMangaForLink.length) return;
     loadingLinkList = true;
     gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA)
@@ -137,18 +148,28 @@
       .finally(() => { loadingLinkList = false; });
   }
 
-  function closeLinkPicker() { linkPickerOpen = false; linkSearch = ""; }
-
-  function handleLink(other: Manga) {
-    if (!store.previewManga) return;
-    if (linkedIds.includes(other.id)) unlinkManga(store.previewManga.id, other.id);
-    else linkManga(store.previewManga.id, other.id);
-  }
-
   $effect(() => {
-    if (store.previewManga) {
-      load(store.previewManga.id);
-      loadCategories(store.previewManga.id);
+    const shouldAutoLink = store.settings.autoLinkOnOpen;
+    const focal = store.previewManga;
+    if (focal) {
+      load(focal.id);
+      loadCategories(focal.id);
+      if (shouldAutoLink) {
+        if (allMangaForLink.length) {
+          autoLinkLibrary(focal, allMangaForLink)
+            .then(n => { if (n > 0) addToast({ kind: "success", title: "Series linked", body: `${n} new link${n === 1 ? "" : "s"} found` }); });
+        } else {
+          loadingLinkList = true;
+          gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA)
+            .then((d) => {
+              allMangaForLink = d.mangas.nodes;
+              return autoLinkLibrary(focal, d.mangas.nodes);
+            })
+            .then(n => { if (n > 0) addToast({ kind: "success", title: "Series linked", body: `${n} new link${n === 1 ? "" : "s"} found` }); })
+            .catch(console.error)
+            .finally(() => { loadingLinkList = false; });
+        }
+      }
     }
   });
 
@@ -343,7 +364,7 @@
 
     <div class="cover-col">
       <div class="cover-wrap">
-        <Thumbnail src={store.previewManga.thumbnailUrl} alt={displayManga?.title} class="cover" />
+        <Thumbnail src={resolvedCover(store.previewManga.id, store.previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" />
         {#if loadingDetail}
           <div class="cover-spinner">
             <CircleNotch size={18} weight="light" class="anim-spin" />
@@ -434,6 +455,17 @@
           <span class="action-label">
             {linkedIds.length > 0 ? `Series Link (${linkedIds.length})` : "Series Link"}
           </span>
+        </button>
+
+        <button
+          class="action-btn"
+          class:active={hasCoverOverride}
+          onclick={openCoverPicker}
+        >
+          <span class="action-icon">
+            <Image size={13} weight={hasCoverOverride ? "fill" : "light"} />
+          </span>
+          <span class="action-label">Cover Image</span>
         </button>
       </div>
     </div>
@@ -632,53 +664,20 @@
 {/if}
 
 
-{#if linkPickerOpen}
-  <div
-    class="link-backdrop"
-    role="presentation"
-    onclick={(e) => { if (e.target === e.currentTarget) closeLinkPicker(); }}
-    onkeydown={(e) => e.key === "Escape" && closeLinkPicker()}
-  >
-    <div class="link-modal">
-      <div class="link-header">
-        <span class="link-title">Link as same series</span>
-        <button class="close-btn" onclick={closeLinkPicker}><X size={14} weight="light" /></button>
-      </div>
-      <p class="link-hint">
-        Mark two manga as the same series so duplicates are merged in search.
-        Click a linked entry again to unlink.
-      </p>
-      <div class="link-search-wrap">
-        <input
-          class="link-search"
-          placeholder="Search your library…"
-          bind:value={linkSearch}
-          use:focusAction
-        />
-      </div>
-      <div class="link-list">
-        {#if loadingLinkList}
-          <p class="link-empty">Loading…</p>
-        {:else if linkPickerResults.length === 0}
-          <p class="link-empty">No results</p>
-        {:else}
-          {#each linkPickerResults as m (m.id)}
-            {@const isLinked = linkedIds.includes(m.id)}
-            <button class="link-row" class:link-row-linked={isLinked} onclick={() => handleLink(m)}>
-              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="link-thumb" />
-              <div class="link-info">
-                <span class="link-manga-title">{m.title}</span>
-                {#if m.source?.displayName}
-                  <span class="link-source">{m.source.displayName}</span>
-                {/if}
-              </div>
-              <span class="link-status">{isLinked ? "✓ Linked" : "Link"}</span>
-            </button>
-          {/each}
-        {/if}
-      </div>
-    </div>
-  </div>
+{#if linkPickerOpen && store.previewManga}
+  <SeriesLinkPanel
+    manga={displayManga ?? store.previewManga}
+    allManga={allMangaForLink}
+    onClose={closeLinkPicker}
+  />
+{/if}
+
+{#if coverPickerOpen && store.previewManga}
+  <CoverPickerPanel
+    manga={displayManga ?? store.previewManga}
+    allManga={allMangaForLink}
+    onClose={() => { coverPickerOpen = false; }}
+  />
 {/if}
 
 <script module>
@@ -910,54 +909,6 @@
   .meta-val   { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta-link  { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); color: var(--accent-fg); text-decoration: none; transition: opacity var(--t-base); }
   .meta-link:hover { opacity: 0.75; }
-
-  .link-backdrop {
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.65);
-    z-index: calc(var(--z-settings) + 1);
-    display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-    animation: fadeIn 0.1s ease both;
-  }
-  .link-modal {
-    width: min(460px, calc(100vw - 48px)); max-height: 70vh;
-    display: flex; flex-direction: column;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-base); border-radius: var(--radius-xl);
-    overflow: hidden;
-    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
-    animation: scaleIn 0.14s ease both;
-  }
-  .link-header      { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
-  .link-title       { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); }
-  .link-hint        { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); line-height: var(--leading-snug); padding: var(--sp-3) var(--sp-5) 0; flex-shrink: 0; }
-  .link-search-wrap { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
-  .link-search {
-    width: 100%;
-    background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md);
-    padding: 6px 10px; color: var(--text-primary); font-size: var(--text-sm);
-    outline: none;
-    transition: border-color var(--t-base);
-  }
-  .link-search:focus { border-color: var(--border-strong); }
-  .link-list  { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-2); scrollbar-width: none; }
-  .link-list::-webkit-scrollbar { display: none; }
-  .link-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); padding: var(--sp-4) var(--sp-3); text-align: center; letter-spacing: var(--tracking-wide); }
-  .link-row {
-    display: flex; align-items: center; gap: var(--sp-3);
-    width: 100%; padding: 8px var(--sp-3);
-    border-radius: var(--radius-md); border: none; background: none;
-    text-align: left; cursor: pointer;
-    transition: background var(--t-fast);
-  }
-  .link-row:hover               { background: var(--bg-raised); }
-  .link-row-linked              { background: var(--accent-muted) !important; }
-  :global(.link-thumb)          { width: 34px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; border: 1px solid var(--border-dim); }
-  .link-info                    { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
-  .link-manga-title             { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .link-source                  { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .link-status                  { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); flex-shrink: 0; padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); }
-  .link-row-linked .link-status { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
   :global(.anim-spin) { animation: anim-spin 0.8s linear infinite; }
   @keyframes anim-spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }

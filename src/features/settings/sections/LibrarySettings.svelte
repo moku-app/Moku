@@ -63,7 +63,16 @@
   </div>
 
   <div class="s-section">
-    <p class="s-section-title">History</p>
+    <p class="s-section-title">Series</p>
+    <div class="s-section-body">
+      <label class="s-row">
+        <div class="s-row-info"><span class="s-label">Auto-link on open</span><span class="s-desc">When opening a manga, automatically link it to similarly-titled entries and notify you of new matches</span></div>
+        <button role="switch" aria-checked={store.settings.autoLinkOnOpen ?? false} aria-label="Auto-link on open" class="s-toggle" class:on={store.settings.autoLinkOnOpen ?? false} onclick={() => updateSettings({ autoLinkOnOpen: !(store.settings.autoLinkOnOpen ?? false) })}><span class="s-toggle-thumb"></span></button>
+      </label>
+    </div>
+  </div>
+
+  <div class="s-section">
     <div class="s-section-body">
       <div class="s-row">
         <div class="s-row-info"><span class="s-label">Reading history</span><span class="s-desc">{store.history.length} entries</span></div>
