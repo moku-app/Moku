@@ -196,7 +196,7 @@
   .card.anims .cover-wrap { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color var(--t-base), box-shadow 0.18s cubic-bezier(0.16,1,0.3,1); }
   .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
   .card.anims .cover { transition: filter var(--t-base); }
-  .card-info-overlay { position: absolute; bottom: -4px; left: 0; right: 0; padding: 32px 6px 10px; background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 50%, transparent 100%); opacity: 0; pointer-events: none; }
+  .card-info-overlay { position: absolute; bottom: 0px; left: 0; right: 0; padding: 32px 6px 10px; background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 50%, transparent 100%); opacity: 0; pointer-events: none; }
   .card-info-overlay.anim { transition: opacity 0.18s ease; }
   .card-info-overlay.instant { transition: none; }
   .card-info-overlay.always { opacity: 1; }

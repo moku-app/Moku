@@ -276,7 +276,6 @@
 </script>
 
 <style>
-  
   .keywordBar    { padding: var(--sp-3) var(--sp-4) var(--sp-2); flex-shrink: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .searchBar     { display: flex; align-items: center; gap: var(--sp-2); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-lg); padding: var(--sp-2) var(--sp-3); transition: border-color var(--t-base); }
   .searchBar:focus-within { border-color: var(--border-strong); }
@@ -285,7 +284,7 @@
   .searchInput::placeholder { color: var(--text-faint); }
   .clearBtn      { color: var(--text-faint); font-size: 16px; line-height: 1; background: none; border: none; cursor: pointer; padding: 2px; transition: color var(--t-base); }
   .clearBtn:hover { color: var(--text-muted); }
-  
+
   .advancedBtn   { display: flex; align-items: center; padding: 4px; border-radius: var(--radius-sm); border: 1px solid transparent; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
   .advancedBtn:hover { color: var(--text-muted); background: var(--bg-overlay); }
   .advancedBtnActive { color: var(--accent-fg); background: var(--accent-muted); border-color: var(--accent-dim); }
@@ -301,30 +300,30 @@
   .langChipActive { color: var(--accent-fg); background: var(--accent-muted); border-color: var(--accent-dim); }
   .advancedDivider { height: 1px; background: var(--border-dim); }
   .advancedFooter { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); }
-  
+
   .searchHeader  { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4) var(--sp-1); flex-shrink: 0; }
   .searchLabel   { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
   .searchGrid    { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 11vw, 130px), 1fr)); gap: var(--sp-2); padding: var(--sp-2) var(--sp-4) var(--sp-6); overflow-y: auto; flex: 1; align-content: start; will-change: scroll-position; }
-  
+
   .srchCard      { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
   .srchCard:hover .srchCoverWrap { filter: brightness(1.08) saturate(1.05); }
-  .srchCoverWrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); transition: filter var(--t-base); contain: layout style; }
-  .srchGradient  { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 50%, transparent 72%); pointer-events: none; }
-  .srchFooter    { position: absolute; bottom: 0; left: 0; right: 0; padding: var(--sp-2); pointer-events: none; }
+  .srchCoverWrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); transform: translateZ(0); transition: filter var(--t-base); }
+  .srchGradient  { position: absolute; inset: 0; z-index: 1; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 50%, transparent 72%); pointer-events: none; }
+  .srchFooter    { position: absolute; bottom: 0; left: 0; right: 0; z-index: 2; padding: var(--sp-2); pointer-events: none; }
   .srchTitle     { font-size: var(--text-xs); font-weight: var(--weight-medium); color: rgba(255,255,255,0.92); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
   .srchSource    { font-family: var(--font-ui); font-size: 9px; color: rgba(255,255,255,0.45); letter-spacing: var(--tracking-wide); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .inLibBadge    { position: absolute; top: var(--sp-2); left: var(--sp-2); font-family: var(--font-ui); font-size: 9px; letter-spacing: var(--tracking-wide); background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 1px 5px; }
-  
+  .inLibBadge    { position: absolute; top: var(--sp-2); left: var(--sp-2); z-index: 2; font-family: var(--font-ui); font-size: 9px; letter-spacing: var(--tracking-wide); background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); padding: 1px 5px; }
+
   .skCard        { display: flex; flex-direction: column; gap: var(--sp-2); flex-shrink: 0; width: 100%; }
   @keyframes shimmer { from { background-position: -200% 0 } to { background-position: 200% 0 } }
   .skeleton      { border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--bg-raised) 25%, var(--bg-overlay, color-mix(in srgb, var(--bg-raised) 80%, var(--text-primary) 6%)) 50%, var(--bg-raised) 75%); background-size: 200% 100%; animation: shimmer 1.6s ease-in-out infinite; }
   .skCover       { aspect-ratio: 2 / 3; width: 100%; border-radius: var(--radius-md); }
-  
+
   .empty         { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2); padding: var(--sp-8); }
   .emptyIcon     { color: var(--text-faint); opacity: 0.5; }
   .emptyText     { font-size: var(--text-sm); color: var(--text-muted); font-weight: var(--weight-medium); margin: 0; }
   .emptyHint     { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); margin: 0; }
-  
+
   @keyframes anim-spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
   .anim-spin     { animation: anim-spin 0.8s linear infinite; }
 </style>

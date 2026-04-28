@@ -16,7 +16,7 @@ export type LibrarySortDir = "asc" | "desc";
 export type LibraryStatusFilter  = "ALL" | "ONGOING" | "COMPLETED" | "CANCELLED" | "HIATUS" | "UNKNOWN";
 export type LibraryContentFilter = "unread" | "started" | "downloaded" | "bookmarked" | "marked";
 
-export type BuiltinTheme = "original" | "dark" | "light" | "light-contrast" | "midnight" | "warm" | "starry";
+export type BuiltinTheme = "original" | "dark" | "light" | "light-contrast" | "midnight" | "warm";
 export type Theme        = BuiltinTheme | string;
 
 export interface ThemeTokens {
@@ -110,6 +110,7 @@ export interface Settings {
   maxPageWidth?: number; uiScale?: number;
   extraScanDirs: string[]; serverDownloadsPath: string; serverLocalSourcePath: string;
   qolAnimations: boolean;
+  libraryStatsAlways: boolean;
   pinnedSourceIds: string[];
   readerPresets: ReaderPreset[];
   mangaReaderSettings: Record<number, ReaderSettings>;
@@ -148,6 +149,7 @@ export const DEFAULT_SETTINGS: Settings = {
   libraryTabSort: {}, libraryTabStatus: {}, libraryTabFilters: {},
   extraScanDirs: [], serverDownloadsPath: "", serverLocalSourcePath: "",
   qolAnimations: true,
+  libraryStatsAlways: false,
   pinnedSourceIds: [],
   readerPresets: [],
   mangaReaderSettings: {},

@@ -32,6 +32,4 @@
 
   --dot-active:   var(--accent);
   --dot-inactive: var(--text-faint);
-
-  --bg-image: none;
 }
