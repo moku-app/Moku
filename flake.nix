@@ -149,9 +149,11 @@ EOF
 
           bumpScript = pkgs.writeShellApplication {
             name = "moku-bump";
-            runtimeInputs = with pkgs; [ gnused coreutils git rustToolchain
-                                         nodejs_22 pnpm
-                                         (python3.withPackages (ps: [ ps.aiohttp ps.tomlkit ])) ];
+            runtimeInputs = with pkgs; [
+              gnused coreutils git rustToolchain
+              nodejs_22 pnpm
+              (python3.withPackages (ps: [ ps.aiohttp ps.tomlkit ]))
+            ];
             text = ''
               [[ $# -lt 1 ]] && { echo "Usage: nix run .#bump -- <version>"; exit 1; }
               VERSION="$1"
@@ -189,7 +191,7 @@ EOF
                 -o "$REPO/packaging/cargo-sources.json"
               echo "Done"
 
-              echo "── Patching flatpak manifest (version + frontend sha256) ──"
+              echo "── Patching flatpak manifest ──"
               MANIFEST="$REPO/io.github.moku_project.Moku.yml"
               sed -i "s/tag: v[^[:space:]]*/tag: v$VERSION/" "$MANIFEST"
               python3 - "$MANIFEST" "$FRONTEND_SHA" <<'PYEOF'
@@ -206,11 +208,7 @@ EOF
               echo "Done"
 
               echo ""
-              echo "Bumped to v$VERSION"
-              echo ""
-              echo "Commit field in the flatpak manifest still points to the old tag."
-              echo "After pushing the tag, run:"
-              echo "  nix run .#post-tag-bump -- $VERSION"
+              echo "Bumped to v$VERSION — commit, tag, push, then: nix run .#post-tag-bump -- $VERSION"
             '';
           };
 
@@ -235,7 +233,7 @@ EOF
               echo "── Fetching PKGBUILD tarball sha256 ──"
               TARBALL_URL="https://github.com/moku-project/Moku/archive/refs/tags/v$VERSION.tar.gz"
               TARBALL_SHA=$(curl -fsSL "$TARBALL_URL" | sha256sum | awk '{print $1}')
-              sed -i "s/\(sha256sums=('\)[0-9a-f]\{64\}/\1$TARBALL_SHA/" "$PKGBUILD"
+              sed -i "/sha256sums=/,/)/{ 0,/'/s/'[^']*'/'$TARBALL_SHA'/ }" "$PKGBUILD"
               grep -q "$TARBALL_SHA" "$PKGBUILD" \
                 || { echo "ERROR: PKGBUILD sha256 replacement failed"; exit 1; }
               echo "Done"
@@ -247,17 +245,12 @@ EOF
 
           flatpakScript = pkgs.writeShellApplication {
             name = "moku-flatpak";
-            runtimeInputs = with pkgs; [
-              gnused coreutils git
-              appstream flatpak-builder flatpak
-            ];
+            runtimeInputs = with pkgs; [ coreutils git appstream flatpak-builder flatpak ];
             text = ''
               [[ $# -lt 1 ]] && { echo "Usage: nix run .#flatpak -- <version>"; exit 1; }
-              VERSION="$1"
               REPO="$(git rev-parse --show-toplevel)"
               MANIFEST="$REPO/io.github.moku_project.Moku.yml"
 
-              echo "── Building flatpak for v$VERSION ──"
               rm -rf "$REPO/build-dir" "$REPO/repo"
               flatpak-builder \
                 --repo="$REPO/repo" \
@@ -267,33 +260,7 @@ EOF
               flatpak build-bundle "$REPO/repo" "$REPO/moku.flatpak" io.github.moku_project.Moku
               rm -rf "$REPO/build-dir" "$REPO/repo"
 
-              echo ""
-              echo "moku.flatpak created — v$VERSION"
-            '';
-          };
-
-          pkgbuildBumpScript = pkgs.writeShellApplication {
-            name = "moku-pkgbuild-bump";
-            runtimeInputs = with pkgs; [ gnused curl coreutils git ];
-            text = ''
-              [[ $# -lt 1 ]] && { echo "Usage: nix run .#pkgbuild-bump -- <version>"; exit 1; }
-              VERSION="$1"
-              REPO="$(git rev-parse --show-toplevel)"
-              PKGBUILD="$REPO/PKGBUILD"
-              [[ -f "$PKGBUILD" ]] || { echo "PKGBUILD not found"; exit 1; }
-
-              TARBALL_URL="https://github.com/moku-project/Moku/archive/refs/tags/v$VERSION.tar.gz"
-              echo "Fetching tarball sha256..."
-              TARBALL_SHA=$(curl -fsSL "$TARBALL_URL" | sha256sum | awk '{print $1}')
-
-              sed -i "s/^pkgver=.*/pkgver=$VERSION/"   "$PKGBUILD"
-              sed -i "s/^pkgrel=.*/pkgrel=1/"          "$PKGBUILD"
-              sed -i "s/\(sha256sums=('\)[0-9a-f]\{64\}/\1$TARBALL_SHA/" "$PKGBUILD"
-
-              grep -q "$TARBALL_SHA" "$PKGBUILD" \
-                || { echo "ERROR: sha256 replacement failed"; exit 1; }
-
-              echo "PKGBUILD -> $VERSION ($TARBALL_SHA)"
+              echo "moku.flatpak created"
             '';
           };
 
@@ -314,7 +281,6 @@ EOF
             bump          = { type = "app"; program = "${bumpScript}/bin/moku-bump"; };
             post-tag-bump = { type = "app"; program = "${postTagBumpScript}/bin/moku-post-tag-bump"; };
             flatpak       = { type = "app"; program = "${flatpakScript}/bin/moku-flatpak"; };
-            pkgbuild-bump = { type = "app"; program = "${pkgbuildBumpScript}/bin/moku-pkgbuild-bump"; };
             tunnel        = { type = "app"; program = "${tunnelScript}/bin/moku-tunnel"; };
           };
 
@@ -343,12 +309,11 @@ EOF
 
               echo "Moku dev shell — pnpm install && pnpm tauri:dev"
               echo ""
-              echo "Release workflow:"
-              echo "  nix run .#bump          -- <ver>   bump all versions + rebuild artifacts"
+              echo "  nix run .#bump          -- <ver>"
               echo "  git commit && git tag && git push"
-              echo "  nix run .#post-tag-bump -- <ver>   patch manifest commit + PKGBUILD sha"
-              echo "  nix run .#flatpak       -- <ver>   build moku.flatpak"
-              echo "  nix run .#tunnel        -- [port]  cloudflare tunnel (default 4567)"
+              echo "  nix run .#post-tag-bump -- <ver>"
+              echo "  nix run .#flatpak       -- <ver>"
+              echo "  nix run .#tunnel        -- [port]"
             '';
           };
 

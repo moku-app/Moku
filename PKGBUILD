@@ -22,7 +22,7 @@ source=(
     "Suwayomi-Server-v2.1.1867.jar::https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867.jar"
 )
 sha256sums=(
-    'SKIP'
+    '4d0fbed929d5660ddcb591ff33f808910e13df1e8e7bfc8df83f367fd7bcd881'
     '51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af'
 )
 
