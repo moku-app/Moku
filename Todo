@@ -7,10 +7,7 @@ Major Revisions:
 
 Minor Revisions:
  - Investigate feasibility of Multi-Page Screenshot (Reader)
- - Add Hover Info on Library (Make sure doesn't conflict with additional clicks)
  - Revise Migration (https://github.com/Suwayomi/Suwayomi-WebUI/pull/1073)
- - Look at how Manga are Organized in WebUI and Implement into Series-Detail (Chapter Display is Off)
-
 
 Priority Bugs:
  - Fix Library-Refresh System (TESTING)
@@ -24,6 +21,10 @@ Pending/On-Hold:
  - Working on 3D Display Cards
  - Add Flathub Support (Pending Video)
 
+ - Change Auto-Link Threshold
+   - Fix Auto-Link De-dupe for Images
+   - Optimize Auto-Link Latency (IP)
+
 In-Progress:
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
@@ -31,14 +32,19 @@ In-Progress:
 - Tracking
    - Fix SeriesDetail Tracking Window (Maybe Link to TrackingPanel)
 
- - Refactor Content-Filters, Change Source-Enabling (More Intuitive)
-
  - Integrate Tauri JSON for Settings
    - Create Migration Logic for Local Storage
  - Integrate Tauri SQLITE for Caching
    - Document Caching (What is being Loaded)
    - Create Proper Cache-Clearing & Tie into Suwayomi Methods
 
+ - Fix Tap-Hold to Context-Menu Instead of Select
+  - Cap Context-Menu Folders (Sub-In Move-Custom for Additionals)
+
+ - Add Multi-Select for SeriesDetail GridView
+
 Notes from last time:
- - Fixed Search Issue
-   - Create Z-Index for Library Statistics
+ - Storage has been configured, now just need protocols
+  - Export/Import
+  - Migration
+  - Data-Clean

@@ -48,6 +48,7 @@ function mergeSettings(saved: any): Settings {
     pinnedSourceIds:      saved?.settings?.pinnedSourceIds      ?? [],
     readerPresets:        saved?.settings?.readerPresets        ?? [],
     mangaReaderSettings:  saved?.settings?.mangaReaderSettings  ?? {},
+    categoryFrecency:     saved?.settings?.categoryFrecency     ?? {},
   };
 }
 
@@ -317,6 +318,11 @@ class Store {
     this.settings = { ...this.settings, mangaReaderSettings: next };
   }
 
+  bumpCategoryFrecency(catId: number) {
+    const prev = this.settings.categoryFrecency ?? {};
+    this.settings = { ...this.settings, categoryFrecency: { ...prev, [catId]: (prev[catId] ?? 0) + 1 } };
+  }
+
   setCategories(cats: Category[])       { this.categories       = cats; }
   setActiveManga(next: Manga | null)    { this.activeManga      = next; }
   setPreviewManga(next: Manga | null)   { this.previewManga     = next; }
@@ -355,6 +361,7 @@ export function updateReaderPreset(id: string, patch: Partial<Pick<ReaderPreset,
 export function deleteReaderPreset(id: string)                                             { store.deleteReaderPreset(id); }
 export function setMangaReaderSettings(mangaId: number, settings: ReaderSettings)         { store.setMangaReaderSettings(mangaId, settings); }
 export function clearMangaReaderSettings(mangaId: number)                                  { store.clearMangaReaderSettings(mangaId); }
+export function bumpCategoryFrecency(catId: number)                                        { store.bumpCategoryFrecency(catId); }
 export function updateSettings(patch: Partial<Settings>)                                   { store.updateSettings(patch); }
 export function resetKeybinds()                                                            { store.resetKeybinds(); }
 export function clearSearchCache()                                                         { store.clearSearchCache(); }

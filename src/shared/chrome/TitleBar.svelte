@@ -60,7 +60,7 @@
 {/if}
 
 <style>
-  .bar { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 6px 0 var(--sp-4); background: transparent; flex-shrink: 0; user-select: none; -webkit-app-region: drag; }
+  .bar { display: flex; align-items: center; justify-content: space-between; height: var(--titlebar-height); padding: 0 6px 0 var(--sp-4); background: transparent; flex-shrink: 0; user-select: none; -webkit-app-region: drag; }
   .mac-spacer { width: 70px; flex-shrink: 0; -webkit-app-region: drag; }
   .title { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; opacity: 0.5; -webkit-app-region: drag; }
   .controls { display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }

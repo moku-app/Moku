@@ -19,7 +19,7 @@
   } from "../store/libraryState.svelte";
   import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter, LibraryContentFilter, LibraryUpdateEntry } from "@store/state.svelte";
   import type { Manga, Category, Chapter } from "@types";
-  import { checkAndMarkCompleted as storeCheckAndMarkCompleted } from "@store/state.svelte";
+  import { checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings } from "@store/state.svelte";
 
   import LibraryToolbar       from "./LibraryToolbar.svelte";
   import LibraryGrid          from "./LibraryGrid.svelte";
@@ -32,6 +32,7 @@
   const CARD_MIN_W     = 130;
   const CARD_GAP       = 16;
   const COMPLETED_NAME = "Completed";
+  const CTX_FOLDER_CAP = 4;
 
   const paginator = createPaginator<Manga>(store.settings.renderLimit ?? 48);
 
@@ -68,11 +69,10 @@
   let dragTabId:        number | null = $state(null);
   let dragOverTabId:    number | null = $state(null);
 
-
   const DT_TAB = "application/x-moku-tab";
   const anims  = $derived(store.settings.qolAnimations ?? true);
 
-  const tab        = $derived(store.libraryFilter);
+  const tab         = $derived(store.libraryFilter);
   const tabSortMode = $derived(store.settings.libraryTabSort[tab]?.mode ?? "az" as LibrarySortMode);
   const tabSortDir  = $derived(store.settings.libraryTabSort[tab]?.dir  ?? "asc" as LibrarySortDir);
   const tabStatus   = $derived(store.settings.libraryTabStatus[tab]     ?? "ALL" as LibraryStatusFilter);
@@ -198,14 +198,33 @@
   function loadMore()                   { renderVisible = paginator.nextVisible(renderVisible); }
 
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let longPressFired = false;
+  let emptyLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function onRootPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, .card")) return;
+    emptyLongPressTimer = setTimeout(() => {
+      emptyLongPressTimer = null;
+      emptyCtx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H };
+    }, 500);
+  }
+  function onRootPointerUp()    { if (emptyLongPressTimer) { clearTimeout(emptyLongPressTimer); emptyLongPressTimer = null; } }
+  function onRootPointerLeave() { if (emptyLongPressTimer) { clearTimeout(emptyLongPressTimer); emptyLongPressTimer = null; } }
   function onCardPointerDown(e: PointerEvent, m: Manga) {
     if (e.button !== 0) return;
-    longPressTimer = setTimeout(() => { longPressTimer = null; enterSelectMode(m.id); }, 500);
+    longPressFired = false;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      longPressFired = true;
+      ctx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H, manga: m };
+    }, 500);
   }
   function onCardPointerUp()    { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }
   function onCardPointerLeave() { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }
 
   function onCardClick(e: MouseEvent, m: Manga) {
+    if (longPressFired) { longPressFired = false; return; }
     if (selectMode) { toggleSelect(m.id); return; }
     if (e.metaKey || e.ctrlKey || e.shiftKey) { e.preventDefault(); enterSelectMode(m.id); return; }
     store.activeManga = m;
@@ -271,6 +290,11 @@
     } catch (e) { console.error(e); }
   }
 
+  function bumpCategoryFrecency(catId: number) {
+    const prev = (store.settings as any).categoryFrecency ?? {};
+    updateSettings({ categoryFrecency: { ...prev, [catId]: (prev[catId] ?? 0) + 1 } } as any);
+  }
+
   async function toggleMangaCategory(manga: Manga, cat: Category) {
     const inCat = (categoryMangaMap.get(cat.id) ?? []).some(m => m.id === manga.id);
     setCategories(store.categories.map(c => {
@@ -278,6 +302,7 @@
       const nodes = inCat ? c.mangas.nodes.filter(m => m.id !== manga.id) : [...c.mangas.nodes, manga];
       return { ...c, mangas: { nodes } };
     }));
+    if (!inCat) bumpCategoryFrecency(cat.id);
     try {
       await gql(UPDATE_MANGA_CATEGORIES, { mangaId: manga.id, addTo: inCat ? [] : [cat.id], removeFrom: inCat ? [cat.id] : [] });
       if (!inCat && !manga.inLibrary) {
@@ -296,6 +321,7 @@
       const res = await gql<{ createCategory: { category: Category } }>(CREATE_CATEGORY, { name: name.trim() });
       const cat = res.createCategory.category;
       await gql(UPDATE_MANGA_CATEGORIES, { mangaId: manga.id, addTo: [cat.id], removeFrom: [] });
+      bumpCategoryFrecency(cat.id);
       if (!manga.inLibrary) {
         await gql(UPDATE_MANGA, { id: manga.id, inLibrary: true });
         allManga = allManga.map(m => m.id === manga.id ? { ...m, inLibrary: true } : m);
@@ -342,24 +368,37 @@
     catch (e: any) { addToast({ kind: "error", title: "Could not open folder", body: e?.toString?.() ?? path }); }
   }
 
+  const SIDEBAR_W  = 52;
+  const TITLEBAR_H = 36;
+
   function openCtx(e: MouseEvent, m: Manga) {
     if (selectMode) { toggleSelect(m.id); return; }
     e.preventDefault();
-    ctx = { x: e.clientX, y: e.clientY, manga: m };
+    ctx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H, manga: m };
   }
 
   function buildCtxItems(m: Manga): MenuEntry[] {
-    const catEntries: MenuEntry[] = visibleCategories.map(cat => {
+    const frecency: Record<number, number> = (store.settings as any).categoryFrecency ?? {};
+    const sorted = [...visibleCategories].sort((a, b) => (frecency[b.id] ?? 0) - (frecency[a.id] ?? 0));
+    const pinned   = sorted.slice(0, CTX_FOLDER_CAP);
+    const overflow = sorted.slice(CTX_FOLDER_CAP);
+
+    const makeCatEntry = (cat: Category): MenuEntry => {
       const inCat = (categoryMangaMap.get(cat.id) ?? []).some(x => x.id === m.id);
-      return { label: inCat ? `Remove from ${cat.name}` : `Add to ${cat.name}`, icon: Folder, onClick: () => toggleMangaCategory(m, cat) };
-    });
+      return { label: inCat ? `Remove from ${cat.name}` : cat.name, icon: Folder, onClick: () => toggleMangaCategory(m, cat) };
+    };
+
+    const pinnedEntries = pinned.map(makeCatEntry);
+    const overflowChildren: MenuEntry[] = overflow.map(makeCatEntry);
+
     return [
       { label: m.inLibrary ? "Remove from library" : "Add to library", icon: Books, onClick: () => m.inLibrary ? removeFromLibrary(m) : gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).then(() => { allManga = allManga.map(x => x.id === m.id ? { ...x, inLibrary: true } : x); cache.clear(CACHE_KEYS.LIBRARY); }).catch(console.error) },
       { label: "Open in file manager", icon: ArrowSquareOut, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => openMangaFolder(m) },
       { label: "Delete all downloads",  icon: Trash, danger: true, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => deleteAllDownloads(m) },
       { separator: true },
-      { label: "Select this manga", icon: CheckSquare, onClick: () => enterSelectMode(m.id) },
-      ...(catEntries.length ? [{ separator: true } as MenuEntry, ...catEntries] : []),
+      { label: "Select", icon: CheckSquare, onClick: () => enterSelectMode(m.id) },
+      ...(pinnedEntries.length ? [{ separator: true } as MenuEntry, ...pinnedEntries] : []),
+      ...(overflowChildren.length ? [{ label: `More folders (${overflowChildren.length})`, icon: FolderSimple, onClick: () => {}, children: overflowChildren } as MenuEntry] : []),
       { separator: true },
       { label: "New folder", icon: FolderSimplePlus, onClick: () => createAndAssign(m) },
     ];
@@ -393,12 +432,9 @@
     refreshProgress = { finished: 0, total: 0 };
 
     cancelUpdate = startLibraryUpdate({
-      onProgress(p) {
-        refreshProgress = p;
-      },
+      onProgress(p) { refreshProgress = p; },
       async onDone({ entries, totalUpdated, newChapters }) {
-        refreshing = false;
-        cancelUpdate = null;
+        refreshing = false; cancelUpdate = null;
         setLibraryUpdates(entries);
         cache.clearGroup(CACHE_GROUPS.LIBRARY);
         await loadData();
@@ -407,10 +443,7 @@
         refreshDoneTimer = setTimeout(() => { refreshDone = false; }, 2500);
         showToast(newChapters, totalUpdated);
       },
-      onError() {
-        refreshing = false;
-        cancelUpdate = null;
-      },
+      onError() { refreshing = false; cancelUpdate = null; },
     });
   }
 
@@ -493,8 +526,11 @@
   oncontextmenu={(e) => {
     if ((e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
-    emptyCtx = { x: e.clientX, y: e.clientY };
+    emptyCtx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H };
   }}
+  onpointerdown={onRootPointerDown}
+  onpointerup={onRootPointerUp}
+  onpointerleave={onRootPointerLeave}
 >
   {#if store.settings.libraryBranches ?? true}
     <svg class="branches" viewBox="0 0 400 600" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
