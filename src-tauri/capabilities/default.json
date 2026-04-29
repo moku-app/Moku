@@ -30,6 +30,7 @@
     "process:allow-restart",
     "http:default",
     "http:allow-fetch",
+    "store:default",
     "discord-rpc:default",
     "discord-rpc:allow-connect",
     "discord-rpc:allow-disconnect",

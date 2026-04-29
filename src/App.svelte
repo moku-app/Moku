@@ -6,7 +6,7 @@
   import { platform }          from "@tauri-apps/plugin-os";
   import { store, setActiveDownloads } from "@store/state.svelte";
   import { downloadStore } from "@features/downloads/store/downloadState.svelte";
-  import { boot, startProbe, stopProbe, retryBoot, bypassBoot } from "@store/boot.svelte";
+  import { boot, initStore, startProbe, stopProbe, retryBoot, bypassBoot } from "@store/boot.svelte";
   import { initRpc, setIdle, clearReading, destroyRpc } from "@store/discord";
   import { applyTheme }        from "@core/theme";
   import { applyZoom, mountZoomKey, mountIdleDetection } from "@core/ui";
@@ -100,6 +100,7 @@
       });
     }
 
+    await initStore();
     startProbe();
 
     const unlistenDownload = await listen<{ chapterId: number; mangaId: number; progress: number }[]>(

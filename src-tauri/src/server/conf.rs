@@ -31,14 +31,18 @@ pub fn seed_server_conf(data_dir: &PathBuf) {
         return;
     }
 
-    let Ok(contents) = std::fs::read_to_string(&conf_path) else { return };
+    let Ok(contents) = std::fs::read_to_string(&conf_path) else {
+        return;
+    };
 
     let patched = patch_conf_key(
         patch_conf_key(
             patch_conf_key(contents, "server.webUIEnabled", "false"),
-            "server.initialOpenInBrowserEnabled", "false",
+            "server.initialOpenInBrowserEnabled",
+            "false",
         ),
-        "server.systemTrayEnabled", "false",
+        "server.systemTrayEnabled",
+        "false",
     );
 
     let _ = std::fs::write(&conf_path, patched);
@@ -60,7 +64,9 @@ fn patch_conf_key(text: String, key: &str, value: &str) -> String {
     }
 
     let mut out = text;
-    if !out.ends_with('\n') { out.push('\n'); }
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
     out.push_str(&replacement);
     out.push('\n');
     out

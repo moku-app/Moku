@@ -39,11 +39,15 @@ pub fn kill_tachidesk(app: &tauri::AppHandle) {
                 .map(|o| String::from_utf8_lossy(&o.stdout).contains("java.exe"))
                 .unwrap_or(false);
 
-            if !still_running { break; }
+            if !still_running {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
 
     #[cfg(not(target_os = "windows"))]
-    let _ = std::process::Command::new("pkill").args(["-f", "tachidesk"]).status();
+    let _ = std::process::Command::new("pkill")
+        .args(["-f", "tachidesk"])
+        .status();
 }

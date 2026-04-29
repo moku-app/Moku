@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 fn backup_dir(app: &tauri::AppHandle) -> PathBuf {
-    app.path().app_data_dir()
+    app.path()
+        .app_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("backups")
 }
@@ -20,7 +21,8 @@ pub async fn export_app_data(app: tauri::AppHandle, json: String) -> Result<Stri
 
     let filename = format!("moku-backup-{}.json", unix_now());
 
-    let path = app.dialog()
+    let path = app
+        .dialog()
         .file()
         .set_title("Save Moku app data backup")
         .set_file_name(&filename)
@@ -37,7 +39,8 @@ pub async fn export_app_data(app: tauri::AppHandle, json: String) -> Result<Stri
 pub async fn import_app_data(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    let path = app.dialog()
+    let path = app
+        .dialog()
         .file()
         .set_title("Open Moku app data backup")
         .blocking_pick_file()
@@ -57,7 +60,11 @@ pub fn auto_backup_app_data(app: tauri::AppHandle, json: String) -> Result<(), S
     let mut entries: Vec<_> = std::fs::read_dir(&dir)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().starts_with("auto-moku-backup-"))
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("auto-moku-backup-")
+        })
         .collect();
 
     entries.sort_by_key(|e| e.file_name());

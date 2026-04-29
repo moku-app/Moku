@@ -1,6 +1,6 @@
-use tauri::Manager;
 #[cfg(target_os = "windows")]
 use crate::server::resolve::strip_unc;
+use tauri::Manager;
 
 #[tauri::command]
 pub fn get_platform_ui_scale(window: tauri::Window) -> f64 {

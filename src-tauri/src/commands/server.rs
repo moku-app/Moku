@@ -1,6 +1,6 @@
-use tauri::Manager;
 use crate::server::{self, resolve::suwayomi_data_dir, SpawnError};
 use crate::ServerState;
+use tauri::Manager;
 
 #[tauri::command]
 pub fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnError> {
@@ -14,16 +14,24 @@ pub fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnEr
     let data_dir = suwayomi_data_dir();
     let log_path = data_dir.join("moku-spawn.log");
     let _ = std::fs::create_dir_all(&data_dir);
-    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).ok();
+    let mut log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok();
 
-    server::do_log(&mut log, &format!("[spawn_server] binary={:?} data_dir={:?}", binary, data_dir));
+    server::do_log(
+        &mut log,
+        &format!("[spawn_server] binary={:?} data_dir={:?}", binary, data_dir),
+    );
 
     server::conf::seed_server_conf(&data_dir);
 
-    let mut invocation = server::resolve::resolve_server_binary(&binary, &app, &mut log).map_err(|e| {
-        server::do_log(&mut log, &format!("[spawn_server] resolve failed: {:?}", e));
-        e
-    })?;
+    let mut invocation =
+        server::resolve::resolve_server_binary(&binary, &app, &mut log).map_err(|e| {
+            server::do_log(&mut log, &format!("[spawn_server] resolve failed: {:?}", e));
+            e
+        })?;
 
     if invocation.bin.ends_with("java") || invocation.bin.ends_with("java.exe") {
         let rootdir_flag = format!(
@@ -33,12 +41,21 @@ pub fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), SpawnEr
         invocation.args.insert(0, rootdir_flag);
     }
 
-    let working_dir = invocation.working_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let working_dir = invocation
+        .working_dir
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
-    server::do_log(&mut log, &format!("[spawn_server] bin={:?} args={:?} cwd={:?}", invocation.bin, invocation.args, working_dir));
+    server::do_log(
+        &mut log,
+        &format!(
+            "[spawn_server] bin={:?} args={:?} cwd={:?}",
+            invocation.bin, invocation.args, working_dir
+        ),
+    );
 
     use tauri_plugin_shell::ShellExt;
-    let cmd = app.shell()
+    let cmd = app
+        .shell()
         .command(&invocation.bin)
         .env("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true")
         .args(&invocation.args)

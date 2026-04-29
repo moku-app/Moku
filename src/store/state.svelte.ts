@@ -8,6 +8,8 @@ import { DEFAULT_SETTINGS }                                           from "../t
 import { DEFAULT_READING_STATS }                                      from "../types/history";
 import { notifications }                                              from "./notifications.svelte";
 import { app }                                                        from "./app.svelte";
+import { persistSettings, persistLibrary, persistUpdates }           from "../core/persistence/persist";
+import type { PersistedData }                                         from "../core/persistence/persist";
 
 export type { NavPage }               from "./app.svelte";
 export type { Toast, ActiveDownload } from "./notifications.svelte";
@@ -26,29 +28,6 @@ export type { HistoryEntry, BookmarkEntry, MarkerEntry, MarkerColor,
 const STORE_VERSION       = 3;
 const AVG_MIN_PER_CHAPTER = 5;
 const RESET_ON_UPGRADE: (keyof Settings)[] = ["serverBinary", "readerZoom", "uiZoom"];
-
-function loadPersisted(): any {
-  try { const raw = localStorage.getItem("moku-store"); return raw ? JSON.parse(raw) : null; }
-  catch { return null; }
-}
-
-function persist(patch: Record<string, unknown>) {
-  try { localStorage.setItem("moku-store", JSON.stringify({ ...loadPersisted() ?? {}, ...patch })); }
-  catch {}
-}
-
-const saved = (() => {
-  const data = loadPersisted();
-  if (!data) return null;
-  if ((data.storeVersion ?? 1) < STORE_VERSION) {
-    const resetPatch: Partial<Settings> = {};
-    for (const key of RESET_ON_UPGRADE) (resetPatch as any)[key] = (DEFAULT_SETTINGS as any)[key];
-    const migrated = { ...data, storeVersion: STORE_VERSION, settings: { ...data.settings, ...resetPatch } };
-    try { localStorage.setItem("moku-store", JSON.stringify(migrated)); } catch {}
-    return migrated;
-  }
-  return data;
-})();
 
 function mergeSettings(saved: any): Settings {
   return {
@@ -73,7 +52,7 @@ function mergeSettings(saved: any): Settings {
 }
 
 class Store {
-  settings:            Settings       = $state(mergeSettings(saved));
+  settings:            Settings       = $state(mergeSettings(null));
   activeManga:         Manga | null   = $state(null);
   previewManga:        Manga | null   = $state(null);
   activeChapter:       Chapter | null = $state(null);
@@ -84,19 +63,22 @@ class Store {
   categories:          Category[]     = $state([]);
   activeSource:        Source | null  = $state(null);
   libraryTagFilter:    string[]       = $state([]);
-  history:             HistoryEntry[] = $state(saved?.history      ?? []);
-  bookmarks:           BookmarkEntry[]= $state(saved?.bookmarks    ?? []);
-  markers:             MarkerEntry[]  = $state(saved?.markers      ?? []);
-  readLog:             ReadLogEntry[] = $state(saved?.readLog      ?? []);
-  readingStats:        ReadingStats   = $state(saved?.readingStats ?? { ...DEFAULT_READING_STATS });
-  dailyReadCounts:     Record<string, number> = $state(saved?.dailyReadCounts ?? {});
+  history:             HistoryEntry[] = $state([]);
+  bookmarks:           BookmarkEntry[]= $state([]);
+  markers:             MarkerEntry[]  = $state([]);
+  readLog:             ReadLogEntry[] = $state([]);
+  readingStats:        ReadingStats   = $state({ ...DEFAULT_READING_STATS });
+  dailyReadCounts:     Record<string, number> = $state({});
   searchCache:         Map<string, any> = $state(new Map());
   searchLibraryIds:    Set<number>    = $state(new Set());
   searchSrcOffset:     number         = $state(0);
   readerSessionId:     number         = $state(0);
-  libraryUpdates:      LibraryUpdateEntry[] = $state(saved?.libraryUpdates    ?? []);
-  lastLibraryRefresh:  number         = $state(saved?.lastLibraryRefresh      ?? 0);
-  acknowledgedUpdates: Set<number>    = $state(new Set(saved?.acknowledgedUpdateIds ?? []));
+  libraryUpdates:      LibraryUpdateEntry[] = $state([]);
+  lastLibraryRefresh:  number         = $state(0);
+  acknowledgedUpdates: Set<number>    = $state(new Set());
+  isFullscreen:        boolean         = $state(false);
+
+  #ready = false;
 
   get toasts()          { return notifications.toasts; }
   get activeDownloads() { return notifications.activeDownloads; }
@@ -109,19 +91,51 @@ class Store {
   get genreFilter()     { return app.genreFilter; }
   set genreFilter(v)    { app.setGenreFilter(v); }
 
-  constructor() {
+  hydrate(saved: PersistedData) {
+    if (this.#ready) return;
+
+    if ((saved.storeVersion ?? 1) < STORE_VERSION && saved.settings) {
+      for (const key of RESET_ON_UPGRADE)
+        (saved.settings as any)[key] = (DEFAULT_SETTINGS as any)[key];
+    }
+
+    this.settings            = mergeSettings(saved);
+    this.history             = saved.history             ?? [];
+    this.bookmarks           = saved.bookmarks           ?? [];
+    this.markers             = saved.markers             ?? [];
+    this.readLog             = saved.readLog             ?? [];
+    this.readingStats        = saved.readingStats        ?? { ...DEFAULT_READING_STATS };
+    this.dailyReadCounts     = saved.dailyReadCounts     ?? {};
+    this.libraryUpdates      = saved.libraryUpdates      ?? [];
+    this.lastLibraryRefresh  = saved.lastLibraryRefresh  ?? 0;
+    this.acknowledgedUpdates = new Set(saved.acknowledgedUpdateIds ?? []);
+
+    this.#ready = true;
+
     $effect.root(() => {
       $effect(() => {
-        persist({
-          settings: this.settings, history: this.history,
-          bookmarks: this.bookmarks, markers: this.markers,
-          readLog: this.readLog, readingStats: this.readingStats,
-          dailyReadCounts: this.dailyReadCounts,
-          libraryUpdates: this.libraryUpdates,
-          lastLibraryRefresh: this.lastLibraryRefresh,
-          acknowledgedUpdateIds: [...this.acknowledgedUpdates],
-          storeVersion: STORE_VERSION,
-        });
+        const s = this.settings;
+        if (!this.#ready) return;
+        persistSettings({ settings: s, storeVersion: STORE_VERSION });
+      });
+
+      $effect(() => {
+        const h  = this.history;
+        const bk = this.bookmarks;
+        const mk = this.markers;
+        const rl = this.readLog;
+        const rs = this.readingStats;
+        const dc = this.dailyReadCounts;
+        if (!this.#ready) return;
+        persistLibrary({ history: h, bookmarks: bk, markers: mk, readLog: rl, readingStats: rs, dailyReadCounts: dc });
+      });
+
+      $effect(() => {
+        const lu  = this.libraryUpdates;
+        const llr = this.lastLibraryRefresh;
+        const au  = this.acknowledgedUpdates;
+        if (!this.#ready) return;
+        persistUpdates({ libraryUpdates: lu, lastLibraryRefresh: llr, acknowledgedUpdateIds: [...au] });
       });
     });
   }

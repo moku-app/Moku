@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use serde::Serialize;
+use std::path::PathBuf;
 use sysinfo::Disks;
 use tauri::Emitter;
 use walkdir::WalkDir;
@@ -10,8 +10,8 @@ use crate::server::resolve::suwayomi_data_dir;
 pub struct StorageInfo {
     pub manga_bytes: u64,
     pub total_bytes: u64,
-    pub free_bytes:  u64,
-    pub path:        String,
+    pub free_bytes: u64,
+    pub path: String,
 }
 
 fn resolve_downloads_path(downloads_path: &str) -> PathBuf {
@@ -53,8 +53,8 @@ pub fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
     Ok(StorageInfo {
         manga_bytes,
         total_bytes: disk.total_space(),
-        free_bytes:  disk.available_space(),
-        path:        path.to_string_lossy().into_owned(),
+        free_bytes: disk.available_space(),
+        path: path.to_string_lossy().into_owned(),
     })
 }
 
@@ -74,7 +74,11 @@ pub fn create_directory(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn migrate_downloads(app: tauri::AppHandle, src: String, dst: String) -> Result<(), String> {
+pub async fn migrate_downloads(
+    app: tauri::AppHandle,
+    src: String,
+    dst: String,
+) -> Result<(), String> {
     use std::fs;
 
     let src_path = PathBuf::from(src.trim());
@@ -90,12 +94,18 @@ pub async fn migrate_downloads(app: tauri::AppHandle, src: String, dst: String) 
         .filter(|e| e.file_type().is_file())
         .count() as u64;
 
-    let _ = app.emit("migrate_progress", serde_json::json!({ "done": 0u64, "total": total, "current": "" }));
+    let _ = app.emit(
+        "migrate_progress",
+        serde_json::json!({ "done": 0u64, "total": total, "current": "" }),
+    );
 
     let mut done: u64 = 0;
 
     for entry in WalkDir::new(&src_path).into_iter().filter_map(|e| e.ok()) {
-        let rel    = entry.path().strip_prefix(&src_path).map_err(|e| e.to_string())?;
+        let rel = entry
+            .path()
+            .strip_prefix(&src_path)
+            .map_err(|e| e.to_string())?;
         let target = dst_path.join(rel);
 
         if entry.file_type().is_dir() {
@@ -106,9 +116,12 @@ pub async fn migrate_downloads(app: tauri::AppHandle, src: String, dst: String) 
             }
             fs::copy(entry.path(), &target).map_err(|e| e.to_string())?;
             done += 1;
-            let _ = app.emit("migrate_progress", serde_json::json!({
-                "done": done, "total": total, "current": rel.to_string_lossy()
-            }));
+            let _ = app.emit(
+                "migrate_progress",
+                serde_json::json!({
+                    "done": done, "total": total, "current": rel.to_string_lossy()
+                }),
+            );
         }
     }
 

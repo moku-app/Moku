@@ -1,6 +1,7 @@
-import { store } from "@store/state.svelte";
-import { probeServer, loginBasic } from "@core/auth";
-import { trackingState } from "@features/tracking/store/trackingState.svelte";
+import { store }                        from "@store/state.svelte";
+import { probeServer, loginBasic }      from "@core/auth";
+import { trackingState }               from "@features/tracking/store/trackingState.svelte";
+import { loadAllStores }               from "@core/persistence/persist";
 
 const MAX_ATTEMPTS = 40;
 
@@ -17,6 +18,11 @@ export const boot = $state({
 });
 
 let probeGeneration = 0;
+
+export async function initStore() {
+  const saved = await loadAllStores();
+  store.hydrate(saved);
+}
 
 export function startProbe() {
   const gen = ++probeGeneration;
