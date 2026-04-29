@@ -2,12 +2,11 @@
   import { CircleNotch, X, MagnifyingGlass, ArrowSquareOut, Lock, LockOpen, ArrowsClockwise, ArrowLineDown } from "phosphor-svelte";
   import { gql }        from "@api/client";
   import Thumbnail      from "@shared/manga/Thumbnail.svelte";
-  import { GET_TRACKERS, SEARCH_TRACKER } from "@api/queries/tracking";
-  import { BIND_TRACK, UPDATE_TRACK, UNBIND_TRACK } from "@api/mutations/tracking";
+  import { GET_TRACKERS, GET_MANGA_TRACK_RECORDS, SEARCH_TRACKER } from "@api/queries/tracking";
+  import { BIND_TRACK, UPDATE_TRACK, UNBIND_TRACK, FETCH_TRACK } from "@api/mutations/tracking";
   import { GET_CHAPTERS } from "@api/queries/chapters";
-  import { addToast, store }             from "@store/state.svelte";
-  import { trackingState }               from "@features/tracking/store/trackingState.svelte";
-  import { syncBackFromTracker }         from "@features/tracking/lib/trackingSync";
+  import { addToast, store } from "@store/state.svelte";
+  import { syncBackFromTracker } from "@features/tracking/lib/trackingSync";
   import type { Tracker, TrackRecord, TrackSearch } from "@types";
   import type { Chapter } from "@types/index";
 
@@ -20,7 +19,8 @@
   type TabId = "records" | number;
 
   let trackers:    Tracker[]     = $state([]);
-  let loadingTrackers: boolean   = $state(true);
+  let records:     TrackRecord[] = $state([]);
+  let loading:     boolean       = $state(true);
   let activeTab:   TabId         = $state("records");
 
   let searchQuery:   string        = $state("");
@@ -35,20 +35,27 @@
   let chapterDraft:   number        = $state(0);
   let applyingRecord: number | null = $state(null);
 
-  const records        = $derived(trackingState.records);
-  const loading        = $derived(trackingState.loading || loadingTrackers);
   const loggedInTrackers = $derived(trackers.filter(t => t.isLoggedIn));
 
   function autoFocus(node: HTMLElement) { setTimeout(() => node.focus(), 50); }
 
-  $effect(() => {
-    loadingTrackers = true;
-    gql<{ trackers: { nodes: Tracker[] } }>(GET_TRACKERS)
-      .then(r => { trackers = r.trackers.nodes; })
-      .catch(e => addToast({ kind: "error", title: "Failed to load trackers", body: e?.message }))
-      .finally(() => { loadingTrackers = false; });
-    trackingState.loadForManga(mangaId);
-  });
+  async function load() {
+    loading = true;
+    try {
+      const [tRes, rRes] = await Promise.all([
+        gql<{ trackers: { nodes: Tracker[] } }>(GET_TRACKERS),
+        gql<{ manga: { trackRecords: { nodes: TrackRecord[] } } }>(GET_MANGA_TRACK_RECORDS, { mangaId }),
+      ]);
+      trackers = tRes.trackers.nodes;
+      records  = rRes.manga.trackRecords.nodes;
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Failed to load tracking", body: e?.message });
+    } finally {
+      loading = false;
+    }
+  }
+
+  $effect(() => { load(); });
 
   $effect(() => {
     const tab = activeTab;
@@ -94,7 +101,7 @@
       const res = await gql<{ bindTrack: { trackRecord: TrackRecord } }>(
         BIND_TRACK, { mangaId, trackerId: activeTab, remoteId: result.remoteId }
       );
-      trackingState.patchRecord(res.bindTrack.trackRecord);
+      records   = [...records.filter(r => r.trackerId !== activeTab), res.bindTrack.trackRecord];
       activeTab = "records";
       addToast({ kind: "success", title: "Now tracking", body: result.title });
     } catch (e: any) {
@@ -108,7 +115,7 @@
     updatingRecord = record.id;
     try {
       await gql(UNBIND_TRACK, { recordId: record.id });
-      trackingState.removeRecord(record.id);
+      records = records.filter(r => r.id !== record.id);
       addToast({ kind: "info", title: "Unlinked from " + trackerFor(record.trackerId)?.name });
     } catch (e: any) {
       addToast({ kind: "error", title: "Failed to unlink", body: e?.message });
@@ -117,11 +124,15 @@
     }
   }
 
+  function patchRecord(updated: Partial<TrackRecord> & { id: number }) {
+    records = records.map(r => r.id === updated.id ? { ...r, ...updated } : r);
+  }
+
   async function updateStatus(record: TrackRecord, status: number) {
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, status });
-      trackingState.patchRecord(res.updateTrack.trackRecord);
+      patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
@@ -133,7 +144,7 @@
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, scoreString });
-      trackingState.patchRecord(res.updateTrack.trackRecord);
+      patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
@@ -145,7 +156,7 @@
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, private: !record.private });
-      trackingState.patchRecord(res.updateTrack.trackRecord);
+      patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
@@ -156,8 +167,9 @@
   async function syncRecord(record: TrackRecord) {
     syncing = record.id;
     try {
-      const fresh = await trackingState.syncRecordFromRemote(record.id);
-      if (fresh) addToast({ kind: "success", title: "Synced from tracker" });
+      const res = await gql<{ fetchTrack: { trackRecord: TrackRecord } }>(FETCH_TRACK, { recordId: record.id });
+      patchRecord(res.fetchTrack.trackRecord);
+      addToast({ kind: "success", title: "Synced from tracker" });
     } catch (e: any) {
       addToast({ kind: "error", title: "Sync failed", body: e?.message });
     } finally {
@@ -206,7 +218,7 @@
     updatingRecord = record.id;
     try {
       const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, lastChapterRead: val });
-      trackingState.patchRecord(res.updateTrack.trackRecord);
+      patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
     } finally {
