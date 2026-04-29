@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Folder, Trash, CheckSquare, Robot } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
-  import { resolvedCover } from "@features/series/lib/coverResolver";
+  import { resolvedCover } from "@core/cover/coverResolver";
   import type { Manga, Category } from "@types";
 
   interface Props {

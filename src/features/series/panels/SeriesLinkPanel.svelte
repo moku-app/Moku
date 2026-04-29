@@ -33,7 +33,7 @@
     return others
       .filter(m => !linkedIds.includes(m.id))
       .map(m => ({ manga: m, score: titleSimilarity(manga.title, m.title) }))
-      .filter(r => r.score >= 0.4)
+      .filter(r => r.score >= 0.65)
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
   });

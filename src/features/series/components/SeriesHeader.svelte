@@ -5,7 +5,7 @@
     MapPin, Gear, Trash, Image,
   } from "phosphor-svelte";
   import Thumbnail   from "@shared/manga/Thumbnail.svelte";
-  import { resolvedCover } from "@features/series/lib/coverResolver";
+  import { resolvedCover } from "@core/cover/coverResolver";
   import type { Manga, Chapter, Category } from "@types";
   import type { MangaPrefs } from "@store/state.svelte";
   import { store, setActiveManga, setGenreFilter, setNavPage, setPreviewManga, linkManga, unlinkManga } from "@store/state.svelte";

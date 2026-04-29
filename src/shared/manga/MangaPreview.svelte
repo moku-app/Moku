@@ -14,10 +14,10 @@
     setPreviewManga, setActiveManga, setNavPage, setGenreFilter,
     checkAndMarkCompleted as storeCheckAndMarkCompleted, addBookmark,
   } from "@store/state.svelte";
-  import { resolvedCover } from "@features/series/lib/coverResolver";
+  import { resolvedCover } from "@core/cover/coverResolver";
   import CoverPickerPanel  from "@features/series/panels/CoverPickerPanel.svelte";
   import SeriesLinkPanel   from "@features/series/panels/SeriesLinkPanel.svelte";
-  import { autoLinkLibrary } from "@features/series/lib/autoLink";
+  import { autoLinkLibrary } from "@core/cover/autoLink";
   import type { Manga, Chapter, Category } from "@types/index";
 
 

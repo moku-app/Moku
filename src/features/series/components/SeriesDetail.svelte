@@ -35,7 +35,7 @@
   import ChapterList     from "./ChapterList.svelte";
   import { buildChapterList, chaptersAscending } from "../lib/chapterList";
   import { getPref, setPref } from "../lib/mangaPrefs";
-  import { autoLinkLibrary } from "@features/series/lib/autoLink";
+  import { autoLinkLibrary } from "@core/cover/autoLink";
 
   const CHAPTERS_PER_PAGE = 25;
   const MANGA_TTL_MS      = 5 * 60 * 1000;

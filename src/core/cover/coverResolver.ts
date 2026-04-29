@@ -1,6 +1,6 @@
 import { store }                    from "@store/state.svelte";
 import { searchWithScore }          from "@core/algorithms/search";
-import { getHash, areDuplicates }   from "@features/series/lib/coverHash";
+import { getHash, areDuplicates }   from "@core/cover/coverHash";
 
 type CoverManga = { id: number; thumbnailUrl: string; source?: { displayName: string } | null };
 
@@ -11,7 +11,7 @@ export type CoverCandidate = {
   isActive: boolean;
 };
 
-const FUZZY_SCORE_THRESHOLD = 0.5;
+const FUZZY_SCORE_THRESHOLD = 0.65;
 
 function normalizeUrl(url: string): string {
   try {
@@ -76,19 +76,20 @@ export function coverCandidatesSync(
 export async function dedupeByImage(candidates: CoverCandidate[]): Promise<CoverCandidate[]> {
   const hashes = await Promise.all(candidates.map(c => getHash(c.url)));
 
-  const keptIndices: number[] = [];
+  const groups: number[][] = [];
 
   for (let i = 0; i < candidates.length; i++) {
     const hi = hashes[i];
-    if (!hi) { keptIndices.push(i); continue; }
-
-    const isDupe = keptIndices.some(j => {
-      const hj = hashes[j];
-      return hj ? areDuplicates(hi, hj) : false;
-    });
-
-    if (!isDupe) keptIndices.push(i);
+    const existing = hi
+      ? groups.find(g => { const hj = hashes[g[0]]; return hj ? areDuplicates(hi, hj) : false; })
+      : undefined;
+    if (existing) existing.push(i);
+    else groups.push([i]);
   }
 
-  return keptIndices.map(i => candidates[i]);
+  return groups.map(group => {
+    const active = group.find(i => candidates[i].isActive) ?? group[0];
+    const labels = [...new Set(group.map(i => candidates[i].label))];
+    return { ...candidates[active], label: labels.join(" · ") };
+  });
 }

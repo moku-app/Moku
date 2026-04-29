@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { X, CaretLeft, CaretRight } from "phosphor-svelte";
+  import { X, CaretLeft, CaretRight, CircleNotch } from "phosphor-svelte";
   import { setPref }                  from "@features/series/lib/mangaPrefs";
-  import { coverCandidatesSync, dedupeByImage } from "@features/series/lib/coverResolver";
+  import { coverCandidatesSync, dedupeByImage } from "@core/cover/coverResolver";
   import Thumbnail                    from "@shared/manga/Thumbnail.svelte";
   import type { Manga }               from "@types";
 
@@ -21,22 +21,19 @@
     coverCandidatesSync(manga.id, manga.title, manga.thumbnailUrl, mangaById)
   );
 
-  let candidates  = $state(syncCandidates);
+  let candidates  = $state<typeof syncCandidates>([]);
   let hashingDone = $state(false);
   let index       = $state(0);
 
   $effect(() => {
     const snap = syncCandidates;
-    candidates  = snap;
+    candidates  = [];
     hashingDone = false;
-    index       = Math.max(0, snap.findIndex(c => c.isActive));
+    index       = 0;
 
-    dedupeByImage(snap).then(deduped => {
-      const activeInDeduped = deduped.some(c => c.isActive);
-      candidates = activeInDeduped
-        ? deduped
-        : (() => { const a = snap.find(c => c.isActive); return a ? [a, ...deduped.filter(c => !c.isActive)] : deduped; })();
-      index       = Math.max(0, candidates.findIndex(c => c.isActive));
+    dedupeByImage(snap).then(merged => {
+      candidates  = merged;
+      index       = Math.max(0, merged.findIndex(c => c.isActive));
       hashingDone = true;
     });
   });
@@ -70,41 +67,44 @@
   <div class="modal" role="dialog" aria-label="Choose cover image" onkeydown={onKeydown}>
     <div class="header">
       <span class="title">Cover Image</span>
-      {#if !hashingDone}
-        <span class="comparing">Comparing…</span>
+<button class="close-btn" onclick={onClose}><X size={14} weight="light" /></button>
+    </div>
+
+    {#if !hashingDone}
+      <div class="loading">
+        <CircleNotch size={24} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+      </div>
+    {:else}
+      <div class="stage">
+        <button class="arrow" onclick={prev} disabled={candidates.length <= 1} aria-label="Previous">
+          <CaretLeft size={18} weight="bold" />
+        </button>
+
+        <div class="cover-wrap">
+          {#if current}
+            <Thumbnail src={current.url} alt="" class="cover-img" />
+          {/if}
+        </div>
+
+        <button class="arrow" onclick={next} disabled={candidates.length <= 1} aria-label="Next">
+          <CaretRight size={18} weight="bold" />
+        </button>
+      </div>
+
+      {#if candidates.length > 1}
+        <div class="filmstrip">
+          {#each candidates as c, i (c.url)}
+            <button
+              class="film-thumb"
+              class:film-active={i === index}
+              onclick={() => index = i}
+              aria-label="Cover {i + 1}"
+            >
+              <Thumbnail src={c.url} alt="" class="film-img" />
+            </button>
+          {/each}
+        </div>
       {/if}
-      <button class="close-btn" onclick={onClose}><X size={14} weight="light" /></button>
-    </div>
-
-    <div class="stage">
-      <button class="arrow" onclick={prev} disabled={candidates.length <= 1} aria-label="Previous">
-        <CaretLeft size={18} weight="bold" />
-      </button>
-
-      <div class="cover-wrap">
-        {#if current}
-          <Thumbnail src={current.url} alt="" class="cover-img" />
-        {/if}
-      </div>
-
-      <button class="arrow" onclick={next} disabled={candidates.length <= 1} aria-label="Next">
-        <CaretRight size={18} weight="bold" />
-      </button>
-    </div>
-
-    {#if candidates.length > 1}
-      <div class="filmstrip">
-        {#each candidates as c, i (c.url)}
-          <button
-            class="film-thumb"
-            class:film-active={i === index}
-            onclick={() => index = i}
-            aria-label="Cover {i + 1}"
-          >
-            <Thumbnail src={c.url} alt="" class="film-img" />
-          </button>
-        {/each}
-      </div>
     {/if}
 
     <div class="footer">
@@ -209,6 +209,7 @@
     transition: opacity var(--t-base);
   }
   .confirm-btn:hover { opacity: 0.88; }
+  .loading { display: flex; align-items: center; justify-content: center; padding: var(--sp-10) 0; }
   @keyframes fadeIn  { from { opacity: 0 }                         to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
   @keyframes pulse   { 0%, 100% { opacity: 0.4 }                  50% { opacity: 1 } }

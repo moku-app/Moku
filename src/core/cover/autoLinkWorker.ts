@@ -22,7 +22,7 @@ self.onmessage = (e: MessageEvent<WorkerMsg>) => {
   for (const m of allManga) {
     if (m.id === focalId) continue;
     if (linkedIds.includes(m.id)) continue;
-    if (titleSimilarity(focalTitle, m.title) >= 0.4) matches.push(m.id);
+    if (titleSimilarity(focalTitle, m.title) >= 0.65) matches.push(m.id);
   }
 
   self.postMessage(matches);
