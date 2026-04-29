@@ -1,7 +1,5 @@
 import type { Manga, Source } from "@types";
-import type { Settings } from "@types";
-
-// ── Class utility ─────────────────────────────────────────────────────────────
+import type { Settings }      from "@types";
 
 export { clsx as cn } from "clsx";
 
@@ -33,85 +31,98 @@ export function formatReadTime(m: number): string {
   return r === 0 ? `${h}h` : `${h}h ${r}m`;
 }
 
-// ── NSFW filtering ────────────────────────────────────────────────────────────
+// ── Content filtering ─────────────────────────────────────────────────────────
 
-/**
- * Default genre substrings used when no user-configured list is available.
- * Stored as settings.nsfwFilteredTags; editable in Settings > Content.
- */
-export const DEFAULT_NSFW_TAGS = [
-  "adult",
-  "mature",
-  "hentai",
-  "ecchi",
-  "erotic",       // catches "erotica", "erotic content", "erotic manga"
-  "pornograph",   // catches "pornographic", "pornography"
-  "18+",
-  "smut",
-  "lemon",
-  "explicit",
-  "sexual violence",
+const STRICT_TAGS: string[] = [
+  "adult", "mature", "hentai", "ecchi", "erotic", "pornograph",
+  "18+", "smut", "lemon", "explicit", "sexual violence",
+  "gore", "guro", "graphic violence", "torture", "body horror",
 ];
 
-/**
- * Returns true if the manga's genre list contains any of the given substrings.
- * Falls back to DEFAULT_NSFW_TAGS if no tag list is provided.
- */
-export function isNsfwManga(
-  manga: { genre?: string[] | null },
-  tags: string[] = DEFAULT_NSFW_TAGS,
-): boolean {
-  return (manga.genre ?? []).some(g =>
-    tags.some(sub => g.toLowerCase().trim().includes(sub))
-  );
+const MODERATE_TAGS: string[] = [
+  "adult", "mature", "hentai", "ecchi", "erotic", "pornograph",
+  "18+", "smut", "lemon", "explicit", "sexual violence",
+];
+
+type ContentFilterSettings = Pick<
+  Settings,
+  "contentLevel" | "sourceOverridesEnabled" | "nsfwAllowedSourceIds" | "nsfwBlockedSourceIds"
+>;
+
+function blockedTagsForSettings(settings: ContentFilterSettings): string[] {
+  if (settings.contentLevel === "strict")       return STRICT_TAGS;
+  if (settings.contentLevel === "moderate")     return MODERATE_TAGS;
+  return [];
+}
+
+function genreMatchesBlocklist(genre: string[], blockedTags: string[]): boolean {
+  if (!blockedTags.length) return false;
+  return genre.some(g => blockedTags.some(tag => g.toLowerCase().trim().includes(tag)));
 }
 
 /**
- * Single authoritative NSFW gate used by all views.
- * Returns true when the manga should be HIDDEN. Priority order:
- *   1. Source in blockedSourceIds → always hidden, even when showNsfw is on.
- *   2. showNsfw globally enabled → only blocked sources are hidden.
- *   3. Source in allowedSourceIds → skip isNsfw flag, but genre tags still apply.
- *   4. source.isNsfw flag → hidden.
- *   5. Genre tag match → hidden.
- *
- * Usage: items.filter(m => !shouldHideNsfw(m, settings))
+ * Returns true when the manga should be hidden.
+ * Called by all views — library, search cache, discover.
  */
 export function shouldHideNsfw(
   manga: Pick<Manga, "genre" | "source">,
-  settings: Pick<Settings, "showNsfw" | "nsfwFilteredTags" | "nsfwAllowedSourceIds" | "nsfwBlockedSourceIds">,
+  settings: ContentFilterSettings,
 ): boolean {
+  if (settings.contentLevel === "unrestricted") return false;
+
   const srcId = manga.source?.id;
+  const blocked = settings.sourceOverridesEnabled ? (settings.nsfwBlockedSourceIds ?? []) : [];
+  const allowed = settings.sourceOverridesEnabled ? (settings.nsfwAllowedSourceIds ?? []) : [];
 
-  if (srcId && settings.nsfwBlockedSourceIds.includes(srcId)) return true;
-  if (settings.showNsfw) return false;
+  if (srcId && blocked.includes(srcId)) return true;
 
-  const sourceAllowed = !!(srcId && settings.nsfwAllowedSourceIds.includes(srcId));
-  if (!sourceAllowed && manga.source?.isNsfw) return true;
+  const sourceAllowed = !!(srcId && allowed.includes(srcId));
+  const blockedTags   = blockedTagsForSettings(settings);
 
-  return isNsfwManga(manga, settings.nsfwFilteredTags);
+  if (!sourceAllowed && manga.source?.isNsfw && settings.contentLevel === "strict") return true;
+  return genreMatchesBlocklist(manga.genre ?? [], blockedTags);
 }
 
 /**
- * Gate for Source objects — parallel to shouldHideNsfw for manga.
- * Usage: sources.filter(s => !shouldHideSource(s, settings))
+ * Returns true when the source should be hidden.
+ * Used in extension lists and source fan-out.
  */
 export function shouldHideSource(
   source: Pick<Source, "id" | "isNsfw">,
-  settings: Pick<Settings, "showNsfw" | "nsfwAllowedSourceIds" | "nsfwBlockedSourceIds">,
+  settings: ContentFilterSettings,
 ): boolean {
-  if (settings.nsfwBlockedSourceIds.includes(source.id)) return true;
-  if (settings.nsfwAllowedSourceIds.includes(source.id)) return false;
-  return !settings.showNsfw && source.isNsfw;
+  if (settings.contentLevel === "unrestricted") return false;
+
+  if (settings.sourceOverridesEnabled) {
+    if ((settings.nsfwBlockedSourceIds ?? []).includes(source.id)) return true;
+    if ((settings.nsfwAllowedSourceIds ?? []).includes(source.id)) return settings.contentLevel === "strict";
+  }
+
+  return source.isNsfw && settings.contentLevel === "strict";
 }
 
 // ── Source deduplication ──────────────────────────────────────────────────────
 
-/**
- * Deduplicates sources by name. When multiple sources share a name,
- * the preferred language wins; otherwise falls back to alphabetical by lang.
- * The local source (id "0") is always excluded.
- */
+export function dedupeSourcesByLang(
+  sources:       Source[],
+  preferredLang: string,
+  settings:      ContentFilterSettings,
+  applyHide      = false,
+): Source[] {
+  const map = new Map<string, Source>();
+  for (const s of sources) {
+    if (s.id === "0") continue;
+    if (applyHide && shouldHideSource(s, settings)) continue;
+    const existing = map.get(s.name);
+    if (!existing) { map.set(s.name, s); continue; }
+    const existingPref = existing.lang === preferredLang;
+    const newPref      = s.lang === preferredLang;
+    if (newPref && !existingPref) map.set(s.name, s);
+    else if (!existingPref && !newPref && s.lang < existing.lang) map.set(s.name, s);
+  }
+  return Array.from(map.values());
+}
+
 export function dedupeSources(sources: Source[], preferredLang: string): Source[] {
   const byName = new Map<string, Source[]>();
   for (const src of sources) {
@@ -129,7 +140,6 @@ export function dedupeSources(sources: Source[], preferredLang: string): Source[
 
 // ── Manga deduplication ───────────────────────────────────────────────────────
 
-/** Strips punctuation, articles, and source suffixes for fuzzy title matching. */
 export function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
@@ -140,39 +150,21 @@ export function normalizeTitle(title: string): string {
     .trim();
 }
 
-/** Strips all non-alphanumeric chars and collapses whitespace. */
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/**
- * First 200 normalized chars of a description — reliable cross-source fingerprint.
- * Returns null if too short (< 60 chars) to be a trustworthy signal.
- */
 function descFingerprint(desc: string | null | undefined): string | null {
   if (!desc) return null;
   const n = norm(desc);
   return n.length >= 60 ? n.slice(0, 200) : null;
 }
 
-/**
- * Normalized author + artist concatenation for tie-breaking.
- * Returns null if no author info available.
- */
 function authorFingerprint(author?: string | null, artist?: string | null): string | null {
   const parts = [author, artist].filter(Boolean).map(s => norm(s!));
   return parts.length ? parts.sort().join("|") : null;
 }
 
-/**
- * Deduplicates manga across sources using title, description, and author signals,
- * plus explicit user-defined links (settings.mangaLinks).
- *
- * When two entries match, the better one is kept:
- *   - Library membership wins over non-library.
- *   - Otherwise higher downloadCount wins.
- *   - Otherwise first occurrence wins.
- */
 export function dedupeMangaByTitle<T extends {
   id:             number;
   title:          string;
@@ -228,9 +220,6 @@ export function dedupeMangaByTitle<T extends {
   return out;
 }
 
-/**
- * Lossless deduplication by ID only. Preserves first occurrence.
- */
 export function dedupeMangaById<T extends { id: number }>(items: T[]): T[] {
   const seen = new Set<number>();
   const out: T[] = [];

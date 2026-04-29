@@ -6,6 +6,7 @@ export type LibraryFilter    = "all" | "library" | "downloaded" | string;
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
 export type ChapterSortMode  = "source" | "chapterNumber" | "uploadDate";
+export type ContentLevel     = "strict" | "moderate" | "unrestricted";
 
 export type LibrarySortMode =
   | "az" | "unreadCount" | "totalChapters"
@@ -84,7 +85,9 @@ export interface Settings {
   offsetDoubleSpreads: boolean; preloadPages: number;
   autoMarkRead: boolean; autoNextChapter: boolean;
   libraryCropCovers: boolean; libraryPageSize: number;
-  showNsfw: boolean; discordRpc: boolean;
+  contentLevel: ContentLevel; sourceOverridesEnabled: boolean;
+  nsfwAllowedSourceIds: string[]; nsfwBlockedSourceIds: string[];
+  discordRpc: boolean;
   chapterSortDir: ChapterSortDir; chapterSortMode: ChapterSortMode; chapterPageSize: number;
   uiZoom: number; compactSidebar: boolean; gpuAcceleration: boolean;
   serverUrl: string; serverBinary: string; autoStartServer: boolean;
@@ -103,7 +106,6 @@ export interface Settings {
   appLockEnabled: boolean; appLockPin: string;
   customThemes: CustomTheme[]; hiddenCategoryIds: number[];
   defaultLibraryCategoryId: number | null; savedIsDefaultCategory: boolean;
-  nsfwFilteredTags: string[]; nsfwAllowedSourceIds: string[]; nsfwBlockedSourceIds: string[];
   libraryTabSort: Record<string, { mode: LibrarySortMode; dir: LibrarySortDir }>;
   libraryTabStatus: Record<string, LibraryStatusFilter>;
   libraryTabFilters: Record<string, Partial<Record<LibraryContentFilter, boolean>>>;
@@ -126,7 +128,10 @@ export const DEFAULT_SETTINGS: Settings = {
   pageStyle: "longstrip", readingDirection: "ltr", fitMode: "width",
   readerZoom: 1.0, pageGap: true, optimizeContrast: false, offsetDoubleSpreads: false,
   preloadPages: 3, autoMarkRead: true, autoNextChapter: true,
-  libraryCropCovers: true, libraryPageSize: 48, showNsfw: false, discordRpc: false,
+  libraryCropCovers: true, libraryPageSize: 48,
+  contentLevel: "strict", sourceOverridesEnabled: false,
+  nsfwAllowedSourceIds: [], nsfwBlockedSourceIds: [],
+  discordRpc: false,
   chapterSortDir: "desc", chapterSortMode: "source", chapterPageSize: 25,
   uiZoom: 1.0, compactSidebar: false, gpuAcceleration: true,
   serverUrl: "http://localhost:4567", serverBinary: "", autoStartServer: true,
@@ -144,8 +149,6 @@ export const DEFAULT_SETTINGS: Settings = {
   appLockEnabled: false, appLockPin: "",
   customThemes: [], hiddenCategoryIds: [], defaultLibraryCategoryId: null,
   savedIsDefaultCategory: false,
-  nsfwFilteredTags: ["adult", "mature", "hentai", "ecchi", "erotic", "pornograph", "18+", "smut", "lemon", "explicit", "sexual violence"],
-  nsfwAllowedSourceIds: [], nsfwBlockedSourceIds: [],
   libraryTabSort: {}, libraryTabStatus: {}, libraryTabFilters: {},
   extraScanDirs: [], serverDownloadsPath: "", serverLocalSourcePath: "",
   qolAnimations: true,

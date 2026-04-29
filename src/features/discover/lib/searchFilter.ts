@@ -49,7 +49,6 @@ export interface CachedManga {
   genreEnriched: boolean;
 }
 
-
 export const COMMON_GENRES = [
   "Action", "Adventure", "Comedy", "Drama", "Fantasy", "Romance",
   "Sci-Fi", "Slice of Life", "Horror", "Mystery", "Thriller", "Sports",
@@ -65,7 +64,6 @@ export const MANGA_STATUSES: { value: string; label: string }[] = [
   { value: "ABANDONED", label: "Abandoned" },
   { value: "UNKNOWN",   label: "Unknown"   },
 ];
-
 
 export function buildTagFilter(
   tags:     string[],
@@ -90,13 +88,12 @@ export function buildTagFilter(
   return { and: [genrePart, statusPart] };
 }
 
-
 export function filterSourceCache(
   sourceCache: Map<number, CachedManga>,
   tags:        string[],
   mode:        TagMode,
   statuses:    string[],
-  settings:    Pick<Settings, "showNsfw" | "nsfwFilteredTags" | "nsfwAllowedSourceIds" | "nsfwBlockedSourceIds">,
+  settings:    Pick<Settings, "contentLevel" | "sourceOverridesEnabled" | "nsfwAllowedSourceIds" | "nsfwBlockedSourceIds">,
 ): CachedManga[] {
   return [...sourceCache.values()].filter((m) => {
     if (shouldHideNsfw(m as any, settings)) return false;
@@ -117,7 +114,6 @@ export function filterSourceCache(
     return statusMatch && genreMatch;
   });
 }
-
 
 export function toCachedManga(
   m:      { id: number; title: string; thumbnailUrl: string; inLibrary: boolean; genre?: string[]; status?: string },
