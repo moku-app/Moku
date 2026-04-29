@@ -48,6 +48,9 @@
       ]);
       trackers = tRes.trackers.nodes;
       records  = rRes.manga.trackRecords.nodes;
+      if (store.settings.trackerSyncBack && records.length > 0) {
+        await Promise.all(records.map(r => applyToLibrary(r)));
+      }
     } catch (e: any) {
       addToast({ kind: "error", title: "Failed to load tracking", body: e?.message });
     } finally {
@@ -98,12 +101,21 @@
     if (typeof activeTab !== "number") return;
     binding = true;
     try {
+      const existing = recordFor(activeTab);
+      if (existing) {
+        await gql(UNBIND_TRACK, { recordId: existing.id });
+        records = records.filter(r => r.id !== existing.id);
+      }
       const res = await gql<{ bindTrack: { trackRecord: TrackRecord } }>(
         BIND_TRACK, { mangaId, trackerId: activeTab, remoteId: result.remoteId }
       );
-      records   = [...records.filter(r => r.trackerId !== activeTab), res.bindTrack.trackRecord];
+      const newRecord = res.bindTrack.trackRecord;
+      records   = [...records, newRecord];
       activeTab = "records";
       addToast({ kind: "success", title: "Now tracking", body: result.title });
+      if (store.settings.trackerSyncBack) {
+        await applyToLibrary(newRecord);
+      }
     } catch (e: any) {
       addToast({ kind: "error", title: "Failed to bind", body: e?.message });
     } finally {
