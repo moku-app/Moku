@@ -2,6 +2,7 @@
   import { Download, CheckCircle, Circle, CircleNotch, Trash } from "phosphor-svelte";
   import ContextMenu from "@shared/ui/ContextMenu.svelte";
   import type { MenuEntry } from "@shared/ui/ContextMenu.svelte";
+  import { longPress } from "@core/ui/touchscreen";
   import type { Chapter } from "@types";
 
   interface Props {
@@ -32,6 +33,13 @@
 
   const hasSelection = $derived(selectedIds.size > 0);
 
+  function chapterLongPress(node: HTMLElement, param: [Chapter, number]) {
+    const [ch, idx] = param;
+    return longPress(node, {
+      onLongPress(e) { ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx }; },
+    });
+  }
+
   function formatDate(ts: string | null | undefined): string {
     if (!ts) return "";
     const n = Number(ts);
@@ -58,9 +66,11 @@
       {@const inProgress     = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
       {@const isGridSelected = selectedIds.has(ch.id)}
       <button class="grid-cell" class:read={ch.isRead} class:in-progress={inProgress} class:grid-selected={isGridSelected}
+        use:chapterLongPress={[ch, i]}
         onclick={(e) => hasSelection ? onToggleSelect(ch.id, e) : onOpen(ch, inProgress)}
         oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: i }; }}
-        title={ch.name}>
+        title={ch.name}
+        >{#if isGridSelected}<span class="grid-cell-check">✓</span>{/if}
         <span class="grid-cell-num">{ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber}</span>
         {#if ch.isDownloaded}<span class="grid-cell-dl" title="Downloaded"></span>{/if}
         {#if ch.isRead}<span class="grid-cell-dot"></span>{/if}
@@ -74,6 +84,7 @@
       {@const isSelected   = selectedIds.has(ch.id)}
       {@const chInProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0}
       <div role="button" tabindex="0" class="ch-row" class:read={ch.isRead} class:ch-selected={isSelected}
+        use:chapterLongPress={[ch, idxInSorted]}
         onclick={(e) => hasSelection ? onToggleSelect(ch.id, e) : onOpen(ch, chInProgress)}
         onkeydown={(e) => e.key === "Enter" && (hasSelection ? onToggleSelect(ch.id, e) : onOpen(ch, chInProgress))}
         oncontextmenu={(e) => { e.preventDefault(); ctx = { x: e.clientX, y: e.clientY, chapter: ch, idx: idxInSorted }; }}>
@@ -164,6 +175,7 @@
   .grid-cell-spinner { position: absolute; top: 2px; right: 2px; }
   .grid-cell-skeleton { aspect-ratio: 1; border-radius: var(--radius-sm); }
   .grid-selected { background: var(--accent-muted) !important; border-color: var(--accent-dim) !important; }
+  .grid-cell-check { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--accent-fg); pointer-events: none; }
 
   .pagination-bottom { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); padding: var(--sp-3); border-top: 1px solid var(--border-dim); flex-shrink: 0; }
   .page-btn { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); color: var(--text-faint); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base); }

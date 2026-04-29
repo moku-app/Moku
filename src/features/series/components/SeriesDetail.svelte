@@ -4,7 +4,7 @@
   import Thumbnail       from "@shared/manga/Thumbnail.svelte";
   import {
     CheckCircle, Circle, ArrowFatLinesUp, ArrowFatLinesDown,
-    ArrowFatLineUp, ArrowFatLineDown, Download, Trash, DownloadSimple,
+    ArrowFatLineUp, ArrowFatLineDown, Download, Trash, DownloadSimple, CheckSquare,
   } from "phosphor-svelte";
   import { GET_MANGA, GET_ALL_MANGA, GET_CATEGORIES } from "@api/queries/manga";
   import { GET_CHAPTERS } from "@api/queries/chapters";
@@ -452,6 +452,7 @@
     const above = sortedChapters.slice(0, idx + 1), below = sortedChapters.slice(idx), last = sortedChapters.length - 1;
     return [
       { label: ch.isRead ? "Mark as unread" : "Mark as read", icon: ch.isRead ? Circle : CheckCircle, onClick: () => markRead(ch.id, !ch.isRead) },
+      { label: "Select", icon: CheckSquare, onClick: () => { const next = new Set(selectedIds); next.add(ch.id); selectedIds = next; } },
       { separator: true },
       { label: "Mark above as read",   icon: ArrowFatLinesUp,   onClick: () => markAboveRead(idx),   disabled: above.filter(c => !c.isRead).length === 0 },
       { label: "Mark above as unread", icon: ArrowFatLineUp,    onClick: () => markAboveUnread(idx), disabled: above.filter(c => c.isRead).length === 0 },

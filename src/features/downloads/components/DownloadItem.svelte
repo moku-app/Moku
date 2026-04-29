@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CircleNotch, ArrowClockwise, X } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
+  import { longPress } from "@core/ui/touchscreen";
   import type { DownloadQueueItem } from "@types/index";
   import { pageProgress } from "../lib/downloadQueue";
 
@@ -24,6 +25,12 @@
   const prog    = $derived(pageProgress(item.progress, pages));
   const isError = $derived(item.state === "ERROR");
   const pct     = $derived(Math.round(item.progress * 100));
+
+  function rowLongPress(node: HTMLElement) {
+    return longPress(node, {
+      onLongPress() { onSelect(item.chapter.id, { shiftKey: false, ctrlKey: true, metaKey: false } as MouseEvent); },
+    });
+  }
 </script>
 
 <div
@@ -32,6 +39,7 @@
   class:row-error={isError}
   class:row-selected={isSelected}
   class:row-removing={isRemoving}
+  use:rowLongPress
   onclick={(e) => { e.stopPropagation(); onSelect(item.chapter.id, e); }}
 >
   {#if manga?.thumbnailUrl}

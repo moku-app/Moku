@@ -13,6 +13,7 @@
   import { sortLibrary }    from "../lib/librarySort";
   import { startLibraryUpdate } from "../lib/libraryUpdater";
   import { createPaginator } from "@core/algorithms/paginate";
+  import { longPress }       from "@core/ui/touchscreen";
   import {
     store, setCategories, setLibraryUpdates, addToast,
     setTabSort, toggleTabSortDir, setTabStatus, toggleTabFilter, clearTabFilters,
@@ -197,34 +198,28 @@
   function selectAll()                  { selectedIds = new Set(visibleManga.map(m => m.id)); }
   function loadMore()                   { renderVisible = paginator.nextVisible(renderVisible); }
 
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  let longPressFired = false;
-  let emptyLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let cardLongPressFired = false;
 
-  function onRootPointerDown(e: PointerEvent) {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("button, .card")) return;
-    emptyLongPressTimer = setTimeout(() => {
-      emptyLongPressTimer = null;
-      emptyCtx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H };
-    }, 500);
+  function rootLongPressAction(node: HTMLElement) {
+    return longPress(node, {
+      onLongPress(e) {
+        if ((e.target as HTMLElement).closest("button, .card")) return;
+        emptyCtx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H };
+      },
+    });
   }
-  function onRootPointerUp()    { if (emptyLongPressTimer) { clearTimeout(emptyLongPressTimer); emptyLongPressTimer = null; } }
-  function onRootPointerLeave() { if (emptyLongPressTimer) { clearTimeout(emptyLongPressTimer); emptyLongPressTimer = null; } }
-  function onCardPointerDown(e: PointerEvent, m: Manga) {
-    if (e.button !== 0) return;
-    longPressFired = false;
-    longPressTimer = setTimeout(() => {
-      longPressTimer = null;
-      longPressFired = true;
-      ctx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H, manga: m };
-    }, 500);
+
+  function cardLongPress(node: HTMLElement, m: Manga) {
+    return longPress(node, {
+      onLongPress(e) {
+        cardLongPressFired = true;
+        ctx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H, manga: m };
+      },
+    });
   }
-  function onCardPointerUp()    { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }
-  function onCardPointerLeave() { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }
 
   function onCardClick(e: MouseEvent, m: Manga) {
-    if (longPressFired) { longPressFired = false; return; }
+    if (cardLongPressFired) { cardLongPressFired = false; return; }
     if (selectMode) { toggleSelect(m.id); return; }
     if (e.metaKey || e.ctrlKey || e.shiftKey) { e.preventDefault(); enterSelectMode(m.id); return; }
     store.activeManga = m;
@@ -523,14 +518,12 @@
   class="root"
   role="presentation"
   bind:this={scrollEl}
+  use:rootLongPressAction
   oncontextmenu={(e) => {
     if ((e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
     emptyCtx = { x: e.clientX - SIDEBAR_W, y: e.clientY - TITLEBAR_H };
   }}
-  onpointerdown={onRootPointerDown}
-  onpointerup={onRootPointerUp}
-  onpointerleave={onRootPointerLeave}
 >
   {#if store.settings.libraryBranches ?? true}
     <svg class="branches" viewBox="0 0 400 600" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
@@ -624,9 +617,7 @@
       libraryFilter={tab}
       onCardClick={onCardClick}
       onCardContextMenu={openCtx}
-      onCardPointerDown={onCardPointerDown}
-      onCardPointerUp={onCardPointerUp}
-      onCardPointerLeave={onCardPointerLeave}
+      onCardLongPress={cardLongPress}
       onLoadMore={loadMore}
       onRetry={() => retryCount++}
       onExitSelectMode={exitSelectMode}

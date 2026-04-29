@@ -34,14 +34,6 @@ In-Progress:
 
  - Integrate Tauri JSON for Settings
    - Create Migration Logic for Local Storage
- - Integrate Tauri SQLITE for Caching
-   - Document Caching (What is being Loaded)
-   - Create Proper Cache-Clearing & Tie into Suwayomi Methods
-
- - Fix Tap-Hold to Context-Menu Instead of Select
-  - Cap Context-Menu Folders (Sub-In Move-Custom for Additionals)
-
- - Add Multi-Select for SeriesDetail GridView
 
 Notes from last time:
  - Storage has been configured, now just need protocols

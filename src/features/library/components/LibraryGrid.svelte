@@ -2,6 +2,7 @@
   import { Folder, Trash, CheckSquare, Robot } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
   import { resolvedCover } from "@core/cover/coverResolver";
+  import { longPress }     from "@core/ui/touchscreen";
   import type { Manga, Category } from "@types";
 
   interface Props {
@@ -22,9 +23,7 @@
     visibleCategories: Category[];
     onCardClick:        (e: MouseEvent, m: Manga) => void;
     onCardContextMenu:  (e: MouseEvent, m: Manga) => void;
-    onCardPointerDown:  (e: PointerEvent, m: Manga) => void;
-    onCardPointerUp:    () => void;
-    onCardPointerLeave: () => void;
+    onCardLongPress:    (node: HTMLElement, m: Manga) => ReturnType<typeof longPress>;
     onLoadMore:         () => void;
     onRetry:            () => void;
     onExitSelectMode:   () => void;
@@ -38,7 +37,7 @@
     visibleManga, filtered, loading, cols, anims, selectMode, selectedIds,
     hasMore, remainingCount, renderLimit, cropCovers, statsAlways, libraryFilter,
     bulkWorking, visibleCategories,
-    onCardClick, onCardContextMenu, onCardPointerDown, onCardPointerUp, onCardPointerLeave,
+    onCardClick, onCardContextMenu, onCardLongPress,
     onLoadMore, onRetry, onExitSelectMode, onSelectAll, onBulkMove, onBulkRemove, onBulkAutomate,
   }: Props = $props();
 
@@ -122,11 +121,9 @@
           class:card-selected={isSelected}
           class:select-mode={selectMode}
           class:anims={anims}
+          use:onCardLongPress={m}
           onclick={(e) => onCardClick(e, m)}
           oncontextmenu={(e) => onCardContextMenu(e, m)}
-          onpointerdown={(e) => onCardPointerDown(e, m)}
-          onpointerup={onCardPointerUp}
-          onpointerleave={onCardPointerLeave}
         >
           <div class="cover-wrap" class:completed={isCompleted}>
             <Thumbnail src={resolvedCover(m.id, m.thumbnailUrl)} alt={m.title} class="cover" style="object-fit:{cropCovers ? 'cover' : 'contain'}" draggable="false" />
