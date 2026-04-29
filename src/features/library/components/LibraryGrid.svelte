@@ -196,7 +196,7 @@
   .card.anims .cover-wrap { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color var(--t-base), box-shadow 0.18s cubic-bezier(0.16,1,0.3,1); }
   .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
   .card.anims .cover { transition: filter var(--t-base); }
-  .card-info-overlay { position: absolute; bottom: 0px; left: 0; right: 0; padding: 32px 6px 10px; background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 50%, transparent 100%); opacity: 0; pointer-events: none; }
+  .card-info-overlay { position: absolute; bottom: -4px; left: 0; right: 0; z-index: 2; padding: 32px 6px 10px; background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 50%, transparent 100%); opacity: 0; pointer-events: none; }
   .card-info-overlay.anim { transition: opacity 0.18s ease; }
   .card-info-overlay.instant { transition: none; }
   .card-info-overlay.always { opacity: 1; }
@@ -206,7 +206,7 @@
   .badge-unread { background: var(--accent); color: #fff; box-shadow: 0 1px 8px rgba(0,0,0,0.5); }
   .badge-done { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.25); }
   .badge-dl { background: rgba(0,0,0,0.55); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.18); margin-left: auto; }
-  .select-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.18); display: flex; align-items: flex-start; justify-content: flex-end; padding: 6px; pointer-events: none; }
+  .select-overlay { position: absolute; inset: 0; z-index: 3; background: rgba(0,0,0,0.18); display: flex; align-items: flex-start; justify-content: flex-end; padding: 6px; pointer-events: none; }
   .select-check { color: var(--text-faint); opacity: 0.7; transition: color var(--t-base), opacity var(--t-base); }
   .select-check.checked { color: var(--accent-fg); opacity: 1; }
   .select-check-empty { width: 20px; height: 20px; border-radius: 4px; border: 2px solid var(--text-faint); background: rgba(0,0,0,0.3); }

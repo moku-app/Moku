@@ -19,21 +19,26 @@ Priority Bugs:
    - Allow User to Wipe Suwayomi (Scratch)
    - If Possible, Component based Wipe (Library, Etc)
 
-
-In-Progress:
- - Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
+Pending/On-Hold:
+- Enable Cloudflare Bypass (Suwayomi Config) (Requires Patching)
  - Working on 3D Display Cards
  - Add Flathub Support (Pending Video)
 
-
+In-Progress:
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
 
 - Tracking
    - Fix SeriesDetail Tracking Window (Maybe Link to TrackingPanel)
 
-- Hide Completed from Library Settting
+ - Refactor Content-Filters, Change Source-Enabling (More Intuitive)
 
+ - Integrate Tauri JSON for Settings
+   - Create Migration Logic for Local Storage
+ - Integrate Tauri SQLITE for Caching
+   - Document Caching (What is being Loaded)
+   - Create Proper Cache-Clearing & Tie into Suwayomi Methods
 
 Notes from last time:
- - Currently working on #42, just need to mount panel and fix button in reader
+ - Fixed Search Issue
+   - Create Z-Index for Library Statistics
