@@ -5,8 +5,10 @@
   import { runConcurrent }      from "@core/async/batchRequests";
   import { shouldHideNsfw, shouldHideSource, dedupeMangaById, dedupeMangaByTitle } from "@core/util";
   import { store }              from "@store/state.svelte";
+  import { preloadBlobUrls }    from "@core/cache/imageCache";
   import Thumbnail              from "@shared/manga/Thumbnail.svelte";
   import type { Manga, Source } from "@types";
+  import type { CachedManga }   from "@features/discover/lib/searchFilter";
 
   interface Props {
     allSources:      Source[];
@@ -16,12 +18,14 @@
     pendingPrefill:  string;
     popularResults:  (Manga & { _priority: number })[];
     popularLoading:  boolean;
+    sourceCache:     Map<number, CachedManga>;
     onPrefillConsumed: () => void;
     onPreview:       (m: Manga) => void;
   }
   let {
     allSources, availableLangs, hasMultipleLangs, loadingSources,
     pendingPrefill, popularResults, popularLoading,
+    sourceCache,
     onPrefillConsumed, onPreview,
   }: Props = $props();
 
@@ -99,6 +103,10 @@
         );
         if (ctrl.signal.aborted) return;
         const mangas = d.fetchSourceManga.mangas.filter((m) => !shouldHideNsfw(m, store.settings));
+        preloadBlobUrls(
+          mangas.map((m) => sourceCache.get(m.id)?.thumbnailUrl ?? m.thumbnailUrl),
+          12,
+        );
         const next = [...kw_results];
         next[idx] = { ...next[idx], mangas, loading: false };
         kw_results = next;

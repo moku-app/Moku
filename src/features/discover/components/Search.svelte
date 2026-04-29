@@ -287,6 +287,7 @@
       {pendingPrefill}
       popularResults={popular_results}
       popularLoading={popular_loading}
+      {sourceCache}
       onPrefillConsumed={() => (pendingPrefill = "")}
       onPreview={setPreviewManga}
     />
