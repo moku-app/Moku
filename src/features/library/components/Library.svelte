@@ -135,9 +135,9 @@
 
     const f = store.settings.libraryTabFilters?.[tab] ?? {};
     if (f.unread)     items = items.filter(m => (m.unreadCount ?? 0) > 0);
-    if (f.started)    items = items.filter(m => (m.unreadCount ?? 0) > 0 && (m.chapterCount ?? 0) > (m.unreadCount ?? 0));
+    if (f.started)    items = items.filter(m => (m.unreadCount ?? 0) > 0 && (m.chapters?.totalCount ?? 0) > (m.unreadCount ?? 0));
     if (f.downloaded) items = items.filter(m => (m.downloadCount ?? 0) > 0);
-    if (f.bookmarked) items = items.filter(m => !!(m as any).hasBookmark);
+    if (f.bookmarked) items = items.filter(m => (m.bookmarkCount ?? 0) > 0);
 
     const recentlyReadMap = new Map<number, number>();
     if (tabSortMode === "recentlyRead") {
@@ -247,7 +247,7 @@
         cache.get(CACHE_KEYS.LIBRARY, () => gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then(d => d.mangas.nodes), DEFAULT_TTL_MS, CACHE_GROUPS.LIBRARY),
         reloadCategories(),
       ]);
-      const mapped = nodes.map((m: any) => ({ ...m, chapterCount: m.chapters?.totalCount ?? m.chapterCount ?? 0 }));
+      const mapped = nodes.map((m: any) => ({ ...m }));
       allManga = dedupeMangaByTitle(dedupeMangaById(mapped), store.settings.mangaLinks);
       error    = null;
       await migrateCategorizedToLibrary();

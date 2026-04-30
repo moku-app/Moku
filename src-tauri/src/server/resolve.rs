@@ -21,20 +21,20 @@ pub fn suwayomi_data_dir() -> PathBuf {
     {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("C:\\ProgramData"))
-            .join("moku\\tachidesk")
+            .join("Tachidesk")
     }
     #[cfg(target_os = "macos")]
     {
         dirs::data_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from("~")))
-            .join("io.github.moku_project.Moku.app/tachidesk")
+            .join("Tachidesk")
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let base = std::env::var("XDG_DATA_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| dirs::data_dir().unwrap_or_else(|| PathBuf::from("/tmp")));
-        base.join("moku/tachidesk")
+        base.join("Tachidesk")
     }
 }
 
@@ -65,6 +65,14 @@ fn find_java_in_bundle(bundle_dir: &PathBuf, log: &mut Option<std::fs::File>) ->
     }
 }
 
+fn data_root_args() -> Vec<String> {
+    vec!["--dataRoot".to_string(), suwayomi_data_dir().to_string_lossy().into_owned()]
+}
+
+fn jar_data_root_flag() -> String {
+    format!("-Dsuwayomi.server.rootDir={}", suwayomi_data_dir().to_string_lossy())
+}
+
 pub fn resolve_server_binary(
     binary: &str,
     app: &tauri::AppHandle,
@@ -81,7 +89,7 @@ pub fn resolve_server_binary(
         if path.exists() {
             return Ok(ServerInvocation {
                 bin: path.to_string_lossy().into_owned(),
-                args: vec![],
+                args: data_root_args(),
                 working_dir: path.parent().map(|p| p.to_path_buf()),
             });
         }
@@ -99,7 +107,7 @@ pub fn resolve_server_binary(
                 if p.exists() {
                     return Ok(ServerInvocation {
                         bin: p.to_string_lossy().into_owned(),
-                        args: vec![],
+                        args: data_root_args(),
                         working_dir: Some(bin_dir.to_path_buf()),
                     });
                 }
@@ -138,7 +146,7 @@ pub fn resolve_server_binary(
                 do_log(log, "[resolve] using bundled JRE");
                 return Ok(ServerInvocation {
                     bin: java.to_string_lossy().into_owned(),
-                    args: vec!["-jar".to_string(), jar.to_string_lossy().into_owned()],
+                    args: vec![jar_data_root_flag(), "-jar".to_string(), jar.to_string_lossy().into_owned()],
                     working_dir: Some(bundle_dir),
                 });
             }
@@ -158,7 +166,7 @@ pub fn resolve_server_binary(
             if p.exists() {
                 return Ok(ServerInvocation {
                     bin: p.to_string_lossy().into_owned(),
-                    args: vec![],
+                    args: data_root_args(),
                     working_dir: Some(resource_dir.clone()),
                 });
             }
@@ -182,7 +190,7 @@ pub fn resolve_server_binary(
                 );
                 return Ok(ServerInvocation {
                     bin: java.to_string_lossy().into_owned(),
-                    args: vec!["-jar".to_string(), jar_path.to_string_lossy().into_owned()],
+                    args: vec![jar_data_root_flag(), "-jar".to_string(), jar_path.to_string_lossy().into_owned()],
                     working_dir: Some(resource_dir),
                 });
             }
@@ -233,7 +241,7 @@ pub fn resolve_server_binary(
                         do_log(log, &format!("[resolve] found native binary: {:?}", p));
                         found_binary = Some(ServerInvocation {
                             bin: p.to_string_lossy().into_owned(),
-                            args: vec![],
+                            args: data_root_args(),
                             working_dir: Some(dir.clone()),
                         });
                         break 'outer;
@@ -288,7 +296,7 @@ pub fn resolve_server_binary(
             let working_dir = jar.parent().map(|p| p.to_path_buf());
             return Ok(ServerInvocation {
                 bin: java.to_string_lossy().into_owned(),
-                args: vec!["-jar".to_string(), jar.to_string_lossy().into_owned()],
+                args: vec![jar_data_root_flag(), "-jar".to_string(), jar.to_string_lossy().into_owned()],
                 working_dir,
             });
         }
@@ -298,21 +306,26 @@ pub fn resolve_server_binary(
 
     for name in &["suwayomi-server", "tachidesk-server"] {
         #[cfg(target_os = "windows")]
-        let found = std::process::Command::new("where")
+        let resolved = std::process::Command::new("where")
             .arg(name)
             .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().next().map(|l| l.trim().to_string()));
         #[cfg(not(target_os = "windows"))]
-        let found = std::process::Command::new("which")
+        let resolved = std::process::Command::new("which")
             .arg(name)
             .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().next().map(|l| l.trim().to_string()));
 
-        if found {
+        if let Some(bin_path) = resolved {
+            do_log(log, &format!("[resolve] found on PATH: {:?}", bin_path));
             return Ok(ServerInvocation {
-                bin: name.to_string(),
+                bin: bin_path,
                 args: vec![],
                 working_dir: None,
             });

@@ -2,7 +2,9 @@ export const GET_TRACKERS = `
   query GetTrackers {
     trackers {
       nodes {
-        id name icon isLoggedIn authUrl supportsPrivateTracking scores
+        id name icon isLoggedIn isTokenExpired authUrl
+        supportsPrivateTracking supportsReadingDates supportsTrackDeletion
+        scores
         statuses { value name }
       }
     }
@@ -15,7 +17,7 @@ export const GET_MANGA_TRACK_RECORDS = `
       trackRecords {
         nodes {
           id trackerId remoteId title status score displayScore
-          lastChapterRead totalChapters remoteUrl startDate finishDate private
+          lastChapterRead totalChapters remoteUrl startDate finishDate private libraryId
         }
       }
     }
@@ -37,12 +39,12 @@ export const GET_ALL_TRACKER_RECORDS = `
   query GetAllTrackerRecords {
     trackers {
       nodes {
-        id name icon isLoggedIn scores
+        id name icon isLoggedIn isTokenExpired scores
         statuses { value name }
         trackRecords {
           nodes {
             id trackerId title status displayScore lastChapterRead
-            totalChapters remoteUrl private
+            totalChapters remoteUrl private libraryId
             manga { id title thumbnailUrl inLibrary }
           }
         }

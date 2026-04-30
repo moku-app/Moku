@@ -20,7 +20,10 @@ export const GET_EXTENSIONS = `
 export const GET_SOURCES = `
   query GetSources {
     sources {
-      nodes { id name lang displayName iconUrl isNsfw }
+      nodes {
+        id name lang displayName iconUrl isNsfw
+        isConfigurable supportsLatest baseUrl
+      }
     }
   }
 `;

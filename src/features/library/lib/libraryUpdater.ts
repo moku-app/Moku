@@ -1,15 +1,17 @@
 import { gql } from "@api/client";
 import { LIBRARY_UPDATE_STATUS } from "@api/queries/manga";
-import { UPDATE_LIBRARY } from "@api/mutations/manga";
-import { GET_RECENTLY_UPDATED } from "@api/queries/chapters";
+import { UPDATE_LIBRARY, FETCH_MANGA } from "@api/mutations/manga";
+import { GET_LIBRARY } from "@api/queries/manga";
 import type { LibraryUpdateEntry } from "@store/state.svelte";
 
-const POLL_INTERVAL_MS = 3000;
-const POLL_INITIAL_MS  = 2000;
+const POLL_INTERVAL_MS = 2000;
+const POLL_INITIAL_MS  = 500;
 
 export interface UpdateProgress {
-  finished: number;
-  total:    number;
+  finished:      number;
+  total:         number;
+  skippedManga:  number;
+  skippedCategories: number;
 }
 
 export interface UpdateResult {
@@ -21,89 +23,138 @@ export interface UpdateResult {
 export interface LibraryUpdaterCallbacks {
   onProgress: (p: UpdateProgress) => void;
   onDone:     (r: UpdateResult)   => void;
-  onError:    ()                  => void;
+  onError:    (e?: unknown)       => void;
+}
+
+export async function refreshLibraryMetadata(
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const data = await gql<{ mangas: { nodes: { id: number }[] } }>(GET_LIBRARY, {});
+  const ids = data.mangas.nodes.map(m => m.id);
+  let done = 0;
+  for (const id of ids) {
+    try {
+      await gql(FETCH_MANGA, { id });
+    } catch {}
+    onProgress?.(++done, ids.length);
+  }
 }
 
 export function startLibraryUpdate(callbacks: LibraryUpdaterCallbacks): () => void {
   let timer:    ReturnType<typeof setTimeout> | null = null;
   let cancelled = false;
-  const startedAt = Math.floor(Date.now() / 1000);
 
   function cancel() {
     cancelled = true;
     if (timer) { clearTimeout(timer); timer = null; }
   }
 
+  function buildEntries(
+    mangaUpdates: { status: string; manga: { id: number; title: string; thumbnailUrl: string; unreadCount: number } }[]
+  ): LibraryUpdateEntry[] {
+    const byManga = new Map<number, LibraryUpdateEntry>();
+    for (const u of mangaUpdates) {
+      if (u.status !== "UPDATED") continue;
+      const existing = byManga.get(u.manga.id);
+      if (existing) {
+        existing.newChapters++;
+      } else {
+        byManga.set(u.manga.id, {
+          mangaId:      u.manga.id,
+          mangaTitle:   u.manga.title,
+          thumbnailUrl: u.manga.thumbnailUrl,
+          newChapters:  1,
+          checkedAt:    Date.now(),
+        });
+      }
+    }
+    return [...byManga.values()];
+  }
+
   async function run() {
-    let seenWork = false;
+    let jobsStarted = false;
 
     try {
       const res = await gql<{
-        updateLibrary: { updateStatus: { jobsInfo: { isRunning: boolean; totalJobs: number } } }
+        updateLibrary: {
+          updateStatus: {
+            jobsInfo: {
+              isRunning:             boolean;
+              totalJobs:             number;
+              finishedJobs:          number;
+              skippedMangasCount:    number;
+              skippedCategoriesCount: number;
+            }
+          }
+        }
       }>(UPDATE_LIBRARY, {});
       if (cancelled) return;
-      seenWork = res.updateLibrary.updateStatus.jobsInfo.totalJobs > 0;
-    } catch {
-      if (!cancelled) callbacks.onError();
+
+      const { jobsInfo } = res.updateLibrary.updateStatus;
+      jobsStarted = jobsInfo.totalJobs > 0;
+
+      callbacks.onProgress({
+        finished:          jobsInfo.finishedJobs,
+        total:             jobsInfo.totalJobs,
+        skippedManga:      jobsInfo.skippedMangasCount,
+        skippedCategories: jobsInfo.skippedCategoriesCount,
+      });
+
+      if (!jobsStarted) {
+        callbacks.onDone({ entries: [], totalUpdated: 0, newChapters: 0 });
+        return;
+      }
+
+      if (jobsStarted && !jobsInfo.isRunning) {
+        callbacks.onDone({ entries: [], totalUpdated: 0, newChapters: 0 });
+        return;
+      }
+    } catch (e) {
+      console.error("[libraryUpdater] failed to start update", e);
+      if (!cancelled) callbacks.onError(e);
       return;
     }
 
     function poll() {
       gql<{
         libraryUpdateStatus: {
-          jobsInfo:     { isRunning: boolean; finishedJobs: number; totalJobs: number };
-          mangaUpdates: { status: string; manga: { id: number } }[];
+          jobsInfo: {
+            isRunning:             boolean;
+            finishedJobs:          number;
+            totalJobs:             number;
+            skippedMangasCount:    number;
+            skippedCategoriesCount: number;
+          };
+          mangaUpdates: {
+            status: string;
+            manga: { id: number; title: string; thumbnailUrl: string; unreadCount: number };
+          }[];
         }
       }>(LIBRARY_UPDATE_STATUS, {})
         .then(async d => {
           if (cancelled) return;
-          const { jobsInfo } = d.libraryUpdateStatus;
+          const { jobsInfo, mangaUpdates } = d.libraryUpdateStatus;
 
-          if (jobsInfo.totalJobs > 0) seenWork = true;
-          callbacks.onProgress({ finished: jobsInfo.finishedJobs, total: jobsInfo.totalJobs });
+          if (jobsInfo.totalJobs > 0) jobsStarted = true;
+          callbacks.onProgress({
+            finished:          jobsInfo.finishedJobs,
+            total:             jobsInfo.totalJobs,
+            skippedManga:      jobsInfo.skippedMangasCount,
+            skippedCategories: jobsInfo.skippedCategoriesCount,
+          });
 
-          if (!jobsInfo.isRunning && seenWork) {
-            const recent = await gql<{
-              chapters: {
-                nodes: {
-                  mangaId:  number;
-                  fetchedAt: string;
-                  manga: { id: number; title: string; thumbnailUrl: string; inLibrary: boolean };
-                }[]
-              }
-            }>(GET_RECENTLY_UPDATED, {}).catch(() => ({ chapters: { nodes: [] } }));
-
-            if (cancelled) return;
-
-            const byManga = new Map<number, LibraryUpdateEntry>();
-            for (const ch of recent.chapters.nodes) {
-              if (!ch.manga.inLibrary) continue;
-              if (Number(ch.fetchedAt) < startedAt) continue;
-              const existing = byManga.get(ch.mangaId);
-              if (existing) {
-                existing.newChapters++;
-              } else {
-                byManga.set(ch.mangaId, {
-                  mangaId:      ch.mangaId,
-                  mangaTitle:   ch.manga.title,
-                  thumbnailUrl: ch.manga.thumbnailUrl,
-                  newChapters:  1,
-                  checkedAt:    Date.now(),
-                });
-              }
-            }
-
-            const entries     = [...byManga.values()];
+          if (!jobsInfo.isRunning && jobsStarted) {
+            const entries     = buildEntries(mangaUpdates);
             const newChapters = entries.reduce((s, e) => s + e.newChapters, 0);
-
             callbacks.onDone({ entries, totalUpdated: entries.length, newChapters });
             return;
           }
 
           timer = setTimeout(poll, POLL_INTERVAL_MS);
         })
-        .catch(() => {
-          if (!cancelled) callbacks.onError();
+        .catch((e) => {
+          console.error("[libraryUpdater] poll error", e);
+          if (!cancelled) callbacks.onError(e);
         });
     }
 

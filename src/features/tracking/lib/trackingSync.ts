@@ -114,6 +114,7 @@ export function removeRecord(
 }
 
 export interface SyncBackOptions {
+  threshold:              number | null;
   respectScanlatorFilter: boolean;
   chapterPrefs:           ChapterDisplayPrefs;
 }
@@ -123,36 +124,30 @@ export async function syncBackFromTracker(
   chapters: Chapter[],
   opts:     SyncBackOptions,
   gqlFn:    (query: string, vars: Record<string, unknown>) => Promise<unknown>,
-): Promise<{ markedRead: number[]; markedUnread: number[] }> {
-  const eligible = buildChapterList(
-    opts.respectScanlatorFilter ? buildChapterList(chapters, opts.chapterPrefs) : chapters,
-    { ...opts.chapterPrefs, sortDir: "asc" },
-  );
+): Promise<number[]> {
+  const base = opts.respectScanlatorFilter
+    ? buildChapterList(chapters, opts.chapterPrefs)
+    : chapters;
+  const eligible = buildChapterList(base, { ...opts.chapterPrefs, sortDir: "asc" });
 
-  const toMarkRead:   number[] = [];
-  const toMarkUnread: number[] = [];
+  const toMarkRead: number[] = [];
 
   for (const record of records) {
     const remote = record.lastChapterRead;
     if (!remote || remote <= 0) continue;
 
-    const position = Math.round(remote);
-    const below    = eligible.slice(0, position);
-    const above    = eligible.slice(position);
-
-    toMarkRead.push(...below.filter(c => !c.isRead).map(c => c.id));
-    toMarkUnread.push(...above.filter(c =>  c.isRead).map(c => c.id));
+    for (const chapter of eligible) {
+      if (chapter.isRead) continue;
+      const diff = Math.abs(chapter.chapterNumber - remote);
+      if (opts.threshold !== null && diff > opts.threshold) continue;
+      if (chapter.chapterNumber <= remote) toMarkRead.push(chapter.id);
+    }
   }
 
-  const readIds   = [...new Set(toMarkRead)];
-  const unreadIds = [...new Set(toMarkUnread)];
-
-  if (readIds.length > 0) {
-    await gqlFn(MARK_CHAPTERS_READ, { ids: readIds,   isRead: true  });
-  }
-  if (unreadIds.length > 0) {
-    await gqlFn(MARK_CHAPTERS_READ, { ids: unreadIds, isRead: false });
+  const ids = [...new Set(toMarkRead)];
+  if (ids.length > 0) {
+    await gqlFn(MARK_CHAPTERS_READ, { ids, isRead: true });
   }
 
-  return { markedRead: readIds, markedUnread: unreadIds };
+  return ids;
 }

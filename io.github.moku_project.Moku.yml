@@ -114,7 +114,7 @@ modules:
         cat > /app/bin/tachidesk-server << 'EOF'
         #!/bin/sh
 
-        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/moku/tachidesk"
+        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Tachidesk"
         mkdir -p "$DATA_DIR"
 
         # Seed conf on first run
@@ -155,8 +155,8 @@ modules:
 
     sources:
       - type: file
-        url: https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/suwayomi-server-v2.1.1867.jar
-        sha256: 51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af
+        url: https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/Suwayomi-Server-v2.1.2087.jar
+        sha256: f589a422674252394c13b289a9c8be691905bf583efb7f4d5f1501ae5e91e6b3
         dest-filename: Suwayomi-Server.jar
 
   - name: moku

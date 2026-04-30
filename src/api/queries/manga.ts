@@ -2,10 +2,15 @@ export const GET_LIBRARY = `
   query GetLibrary {
     mangas(condition: { inLibrary: true }) {
       nodes {
-        id title thumbnailUrl inLibrary downloadCount unreadCount
+        id title thumbnailUrl inLibrary downloadCount unreadCount bookmarkCount
         description status author artist genre
+        inLibraryAt lastFetchedAt chaptersLastFetchedAt thumbnailUrlLastFetched
         source { id name displayName }
         chapters { totalCount }
+        latestFetchedChapter { id uploadDate }
+        latestUploadedChapter { id uploadDate }
+        lastReadChapter { id chapterNumber }
+        firstUnreadChapter { id chapterNumber }
       }
     }
   }
@@ -23,7 +28,11 @@ export const GET_MANGA = `
   query GetManga($id: Int!) {
     manga(id: $id) {
       id title description thumbnailUrl status author artist genre inLibrary realUrl
+      inLibraryAt lastFetchedAt thumbnailUrlLastFetched updateStrategy
       source { id name displayName }
+      lastReadChapter { id chapterNumber lastPageRead }
+      firstUnreadChapter { id chapterNumber }
+      highestNumberedChapter { id chapterNumber }
     }
   }
 `;
@@ -58,7 +67,9 @@ export const GET_DOWNLOADS_PATH = `
 export const LIBRARY_UPDATE_STATUS = `
   query LibraryUpdateStatus {
     libraryUpdateStatus {
-      jobsInfo { isRunning finishedJobs totalJobs skippedMangasCount }
+      jobsInfo {
+        isRunning finishedJobs totalJobs skippedMangasCount skippedCategoriesCount
+      }
       mangaUpdates {
         status
         manga { id title thumbnailUrl unreadCount }

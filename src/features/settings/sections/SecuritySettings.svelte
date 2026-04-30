@@ -38,7 +38,7 @@
   let flareTimeout  = $state(store.settings.flareSolverrTimeout ?? 60);
   let flareSession  = $state(store.settings.flareSolverrSessionName ?? "moku");
   let flareTtl      = $state(store.settings.flareSolverrSessionTtl ?? 15);
-  let flareFallback = $state(store.settings.flareSolverrFallback ?? false);
+  let flareFallback = $state(store.settings.flareSolverrAsResponseFallback ?? false);
 
   function showSaved(key: string) {
     secSaved = key; secError = null;
@@ -74,7 +74,7 @@
         socksProxyVersion: socksVersion, socksProxyUsername: socksUsername,
         flareSolverrEnabled: flareEnabled, flareSolverrUrl: flareUrl,
         flareSolverrTimeout: flareTimeout, flareSolverrSessionName: flareSession,
-        flareSolverrSessionTtl: flareTtl, flareSolverrFallback: flareFallback,
+        flareSolverrSessionTtl: flareTtl, flareSolverrAsResponseFallback: flareFallback,
       });
     } catch {}
   }
@@ -144,7 +144,7 @@
       updateSettings({
         flareSolverrEnabled: flareEnabled, flareSolverrUrl: flareUrl,
         flareSolverrTimeout: flareTimeout, flareSolverrSessionName: flareSession,
-        flareSolverrSessionTtl: flareTtl, flareSolverrFallback: flareFallback,
+        flareSolverrSessionTtl: flareTtl, flareSolverrAsResponseFallback: flareFallback,
       });
       showSaved("flare");
     } catch (e: any) {

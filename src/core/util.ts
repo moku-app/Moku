@@ -3,8 +3,6 @@ import type { Settings }      from "@types";
 
 export { clsx as cn } from "clsx";
 
-// ── Time / formatting ─────────────────────────────────────────────────────────
-
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts, m = Math.floor(diff / 60000);
   if (m < 1)  return "Just now";
@@ -31,8 +29,6 @@ export function formatReadTime(m: number): string {
   return r === 0 ? `${h}h` : `${h}h ${r}m`;
 }
 
-// ── Content filtering ─────────────────────────────────────────────────────────
-
 const STRICT_TAGS: string[] = [
   "adult", "mature", "hentai", "ecchi", "erotic", "pornograph",
   "18+", "smut", "lemon", "explicit", "sexual violence",
@@ -50,8 +46,8 @@ type ContentFilterSettings = Pick<
 >;
 
 function blockedTagsForSettings(settings: ContentFilterSettings): string[] {
-  if (settings.contentLevel === "strict")       return STRICT_TAGS;
-  if (settings.contentLevel === "moderate")     return MODERATE_TAGS;
+  if (settings.contentLevel === "strict")   return STRICT_TAGS;
+  if (settings.contentLevel === "moderate") return MODERATE_TAGS;
   return [];
 }
 
@@ -60,17 +56,13 @@ function genreMatchesBlocklist(genre: string[], blockedTags: string[]): boolean 
   return genre.some(g => blockedTags.some(tag => g.toLowerCase().trim().includes(tag)));
 }
 
-/**
- * Returns true when the manga should be hidden.
- * Called by all views — library, search cache, discover.
- */
 export function shouldHideNsfw(
   manga: Pick<Manga, "genre" | "source">,
   settings: ContentFilterSettings,
 ): boolean {
   if (settings.contentLevel === "unrestricted") return false;
 
-  const srcId = manga.source?.id;
+  const srcId   = manga.source?.id;
   const blocked = settings.sourceOverridesEnabled ? (settings.nsfwBlockedSourceIds ?? []) : [];
   const allowed = settings.sourceOverridesEnabled ? (settings.nsfwAllowedSourceIds ?? []) : [];
 
@@ -83,10 +75,6 @@ export function shouldHideNsfw(
   return genreMatchesBlocklist(manga.genre ?? [], blockedTags);
 }
 
-/**
- * Returns true when the source should be hidden.
- * Used in extension lists and source fan-out.
- */
 export function shouldHideSource(
   source: Pick<Source, "id" | "isNsfw">,
   settings: ContentFilterSettings,
@@ -100,8 +88,6 @@ export function shouldHideSource(
 
   return source.isNsfw && settings.contentLevel === "strict";
 }
-
-// ── Source deduplication ──────────────────────────────────────────────────────
 
 export function dedupeSourcesByLang(
   sources:       Source[],
@@ -137,8 +123,6 @@ export function dedupeSources(sources: Source[], preferredLang: string): Source[
   }
   return picked;
 }
-
-// ── Manga deduplication ───────────────────────────────────────────────────────
 
 export function normalizeTitle(title: string): string {
   return title

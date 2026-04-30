@@ -17,10 +17,94 @@ export const UPDATE_EXTENSION = `
   }
 `;
 
+export const UPDATE_EXTENSIONS = `
+  mutation UpdateExtensions($ids: [String!]!, $install: Boolean, $uninstall: Boolean, $update: Boolean) {
+    updateExtensions(input: { ids: $ids, patch: { install: $install, uninstall: $uninstall, update: $update } }) {
+      extensions { apkName pkgName name isInstalled hasUpdate }
+    }
+  }
+`;
+
 export const INSTALL_EXTERNAL_EXTENSION = `
   mutation InstallExternalExtension($url: String!) {
     installExternalExtension(input: { extensionUrl: $url }) {
       extension { apkName pkgName name isInstalled }
+    }
+  }
+`;
+
+export const UPDATE_SOURCE_PREFERENCE = `
+  mutation UpdateSourcePreference($source: LongString!, $change: SourcePreferenceChangeInput!) {
+    updateSourcePreference(input: { source: $source, change: $change }) {
+      source { id displayName }
+    }
+  }
+`;
+
+export const SET_SOURCE_META = `
+  mutation SetSourceMeta($sourceId: LongString!, $key: String!, $value: String!) {
+    setSourceMeta(input: { meta: { sourceId: $sourceId, key: $key, value: $value } }) {
+      meta { key value }
+    }
+  }
+`;
+
+export const DELETE_SOURCE_META = `
+  mutation DeleteSourceMeta($sourceId: LongString!, $key: String!) {
+    deleteSourceMeta(input: { sourceId: $sourceId, key: $key }) {
+      meta { key value }
+    }
+  }
+`;
+
+export const SET_CATEGORY_META = `
+  mutation SetCategoryMeta($categoryId: Int!, $key: String!, $value: String!) {
+    setCategoryMeta(input: { meta: { categoryId: $categoryId, key: $key, value: $value } }) {
+      meta { key value }
+    }
+  }
+`;
+
+export const DELETE_CATEGORY_META = `
+  mutation DeleteCategoryMeta($categoryId: Int!, $key: String!) {
+    deleteCategoryMeta(input: { categoryId: $categoryId, key: $key }) {
+      meta { key value }
+    }
+  }
+`;
+
+export const SET_GLOBAL_META = `
+  mutation SetGlobalMeta($key: String!, $value: String!) {
+    setGlobalMeta(input: { meta: { key: $key, value: $value } }) {
+      meta { key value }
+    }
+  }
+`;
+
+export const DELETE_GLOBAL_META = `
+  mutation DeleteGlobalMeta($key: String!) {
+    deleteGlobalMeta(input: { key: $key }) {
+      meta { key value }
+    }
+  }
+`;
+
+export const CLEAR_CACHED_IMAGES = `
+  mutation ClearCachedImages($cachedPages: Boolean, $cachedThumbnails: Boolean, $downloadedThumbnails: Boolean) {
+    clearCachedImages(input: {
+      cachedPages: $cachedPages
+      cachedThumbnails: $cachedThumbnails
+      downloadedThumbnails: $downloadedThumbnails
+    }) {
+      cachedPages cachedThumbnails downloadedThumbnails
+    }
+  }
+`;
+
+export const RESET_SETTINGS = `
+  mutation ResetSettings {
+    resetSettings(input: {}) {
+      settings { extensionRepos }
     }
   }
 `;

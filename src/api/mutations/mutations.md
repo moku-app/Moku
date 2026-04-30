@@ -2,449 +2,129 @@
 
 ## Manga (`mutations/manga.ts`)
 
-### `FETCH_MANGA`
-Fetches and refreshes manga metadata from its source.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Int!` | Manga ID |
-
----
-
-### `UPDATE_MANGA`
-Updates a single manga's library membership.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Int!` | Manga ID |
-| `inLibrary` | `Boolean` | Add/remove from library |
-
----
-
-### `UPDATE_MANGAS`
-Bulk-updates library membership for multiple manga.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `ids` | `[Int!]!` | Manga IDs |
-| `inLibrary` | `Boolean` | Add/remove from library |
-
----
-
-### `UPDATE_MANGA_CATEGORIES`
-Adds or removes a manga from categories.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `mangaId` | `Int!` | Manga ID |
-| `addTo` | `[Int!]!` | Category IDs to add to |
-| `removeFrom` | `[Int!]!` | Category IDs to remove from |
-
----
-
-### `CREATE_CATEGORY`
-Creates a new manga category.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `name` | `String!` | Category name |
-
----
-
-### `UPDATE_CATEGORY`
-Updates a category's name.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Int!` | Category ID |
-| `name` | `String` | New name |
-
----
-
-### `DELETE_CATEGORY`
-Deletes a category by ID.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Int!` | Category ID |
-
----
-
-### `UPDATE_CATEGORY_ORDER`
-Moves a category to a new position.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Int!` | Category ID |
-| `position` | `Int!` | New position index |
-
----
-
-### `UPDATE_LIBRARY`
-Triggers a library-wide metadata refresh and returns job status.
-
-**Variables:** none
-
----
-
-### `CREATE_BACKUP`
-Creates a backup and returns its download URL.
-
-**Variables:** none
-
----
-
-### `RESTORE_BACKUP`
-Restores a backup from an uploaded file and returns restore job status.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `backup` | `Upload!` | Backup file |
+| Mutation | Variables | Description |
+|----------|-----------|-------------|
+| `FETCH_MANGA` | `id: Int!` | Fetch and refresh manga metadata from its source |
+| `UPDATE_MANGA` | `id: Int!`, `inLibrary: Boolean` | Update a single manga's library membership |
+| `UPDATE_MANGAS` | `ids: [Int!]!`, `inLibrary: Boolean` | Bulk-update library membership for multiple manga |
+| `UPDATE_MANGA_CATEGORIES` | `mangaId: Int!`, `addTo: [Int!]!`, `removeFrom: [Int!]!` | Add or remove a single manga from categories |
+| `UPDATE_MANGAS_CATEGORIES` | `ids: [Int!]!`, `addTo: [Int!]!`, `removeFrom: [Int!]!` | Bulk add/remove multiple manga from categories |
+| `CREATE_CATEGORY` | `name: String!` | Create a new category |
+| `UPDATE_CATEGORY` | `id: Int!`, `name: String` | Update a category's name |
+| `UPDATE_CATEGORIES` | `ids: [Int!]!`, `patch: UpdateCategoryPatchInput!` | Bulk-update multiple categories |
+| `DELETE_CATEGORY` | `id: Int!` | Delete a category |
+| `UPDATE_CATEGORY_ORDER` | `id: Int!`, `position: Int!` | Move a category to a new position |
+| `UPDATE_CATEGORY_MANGA` | `categoryId: Int!` | Trigger a metadata update for all manga in a category |
+| `UPDATE_LIBRARY` | — | Trigger a full library metadata refresh |
+| `UPDATE_LIBRARY_MANGA` | `mangaId: Int!` | Trigger a metadata update for a single manga |
+| `UPDATE_STOP` | — | Stop the currently running library update job |
+| `CREATE_BACKUP` | — | Create a backup and return its download URL |
+| `RESTORE_BACKUP` | `backup: Upload!` | Restore a backup file and return the restore job status |
+| `SET_MANGA_META` | `mangaId: Int!`, `key: String!`, `value: String!` | Set a key/value meta entry on a manga |
+| `DELETE_MANGA_META` | `mangaId: Int!`, `key: String!` | Delete a key/value meta entry from a manga |
 
 ---
 
 ## Chapters (`mutations/chapters.ts`)
 
-### `FETCH_CHAPTERS`
-Fetches/refreshes the chapter list for a manga from its source.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `mangaId` | `Int!` | Manga ID |
-
----
-
-### `FETCH_CHAPTER_PAGES`
-Fetches the page URLs for a specific chapter.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `chapterId` | `Int!` | Chapter ID |
-
----
-
-### `MARK_CHAPTER_READ`
-Marks a single chapter as read or unread.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `Int!` | Chapter ID |
-| `isRead` | `Boolean!` | Read state |
-
----
-
-### `MARK_CHAPTERS_READ`
-Bulk-marks multiple chapters as read or unread.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `ids` | `[Int!]!` | Chapter IDs |
-| `isRead` | `Boolean!` | Read state |
-
----
-
-### `UPDATE_CHAPTERS_PROGRESS`
-Bulk-updates read state, bookmark state, and last page read for multiple chapters.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `ids` | `[Int!]!` | Chapter IDs |
-| `isRead` | `Boolean` | Read state |
-| `isBookmarked` | `Boolean` | Bookmark state |
-| `lastPageRead` | `Int` | Last page index read |
-
----
-
-### `DELETE_DOWNLOADED_CHAPTERS`
-Deletes downloaded chapter files for the given chapter IDs.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `ids` | `[Int!]!` | Chapter IDs |
+| Mutation | Variables | Description |
+|----------|-----------|-------------|
+| `FETCH_CHAPTERS` | `mangaId: Int!` | Fetch/refresh the chapter list for a manga from its source |
+| `FETCH_CHAPTER_PAGES` | `chapterId: Int!` | Fetch the page URLs for a specific chapter |
+| `MARK_CHAPTER_READ` | `id: Int!`, `isRead: Boolean!` | Mark a single chapter read or unread |
+| `MARK_CHAPTERS_READ` | `ids: [Int!]!`, `isRead: Boolean!` | Bulk mark chapters read or unread |
+| `UPDATE_CHAPTERS_PROGRESS` | `ids: [Int!]!`, `isRead: Boolean`, `isBookmarked: Boolean`, `lastPageRead: Int` | Bulk update read state, bookmark state, and last page read |
+| `DELETE_DOWNLOADED_CHAPTERS` | `ids: [Int!]!` | Delete downloaded chapter files |
+| `SET_CHAPTER_META` | `chapterId: Int!`, `key: String!`, `value: String!` | Set a key/value meta entry on a chapter |
+| `DELETE_CHAPTER_META` | `chapterId: Int!`, `key: String!` | Delete a key/value meta entry from a chapter |
 
 ---
 
 ## Downloads (`mutations/downloads.ts`)
 
-### `ENQUEUE_DOWNLOAD`
-Adds a single chapter to the download queue.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `chapterId` | `Int!` | Chapter ID |
-
----
-
-### `ENQUEUE_CHAPTERS_DOWNLOAD`
-Adds multiple chapters to the download queue.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `chapterIds` | `[Int!]!` | Chapter IDs |
-
----
-
-### `DEQUEUE_DOWNLOAD`
-Removes a chapter from the download queue.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `chapterId` | `Int!` | Chapter ID |
-
----
-
-### `START_DOWNLOADER`
-Starts the downloader and returns the current queue state.
-
-**Variables:** none
-
----
-
-### `STOP_DOWNLOADER`
-Stops the downloader and returns the current queue state.
-
-**Variables:** none
-
----
-
-### `CLEAR_DOWNLOADER`
-Clears all items from the download queue.
-
-**Variables:** none
-
----
-
-### `FETCH_SOURCE_MANGA`
-Fetches manga from a source (browse/search), with pagination and optional filters.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `source` | `LongString!` | Source ID |
-| `type` | `FetchSourceMangaType!` | Browse type (e.g. popular, latest, search) |
-| `page` | `Int!` | Page number |
-| `query` | `String` | Search query |
-| `filters` | `[FilterChangeInput!]` | Source-specific filters |
-
----
-
-### `SET_DOWNLOADS_PATH`
-Sets the downloads directory path in settings.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `path` | `String!` | Filesystem path |
-
----
-
-### `SET_LOCAL_SOURCE_PATH`
-Sets the local source directory path in settings.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `path` | `String!` | Filesystem path |
+| Mutation | Variables | Description |
+|----------|-----------|-------------|
+| `ENQUEUE_DOWNLOAD` | `chapterId: Int!` | Add a single chapter to the download queue |
+| `ENQUEUE_CHAPTERS_DOWNLOAD` | `chapterIds: [Int!]!` | Add multiple chapters to the download queue |
+| `DEQUEUE_DOWNLOAD` | `chapterId: Int!` | Remove a single chapter from the download queue |
+| `DEQUEUE_CHAPTERS_DOWNLOAD` | `chapterIds: [Int!]!` | Remove multiple chapters from the download queue |
+| `REORDER_DOWNLOAD` | `chapterId: Int!`, `to: Int!` | Move a queued chapter to a new position |
+| `START_DOWNLOADER` | — | Start the downloader |
+| `STOP_DOWNLOADER` | — | Stop the downloader |
+| `CLEAR_DOWNLOADER` | — | Clear all items from the download queue |
+| `FETCH_SOURCE_MANGA` | `source: LongString!`, `type: FetchSourceMangaType!`, `page: Int!`, `query: String`, `filters: [FilterChangeInput!]` | Fetch manga from a source (browse/search) with pagination |
+| `SET_DOWNLOADS_PATH` | `path: String!` | Set the downloads directory path |
+| `SET_LOCAL_SOURCE_PATH` | `path: String!` | Set the local source directory path |
 
 ---
 
 ## Extensions (`mutations/extensions.ts`)
 
-### `FETCH_EXTENSIONS`
-Fetches the latest extension list from configured repos.
-
-**Variables:** none
-
----
-
-### `UPDATE_EXTENSION`
-Installs, uninstalls, or updates an extension.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `id` | `String!` | Extension package name |
-| `install` | `Boolean` | Install the extension |
-| `uninstall` | `Boolean` | Uninstall the extension |
-| `update` | `Boolean` | Update the extension |
-
----
-
-### `INSTALL_EXTERNAL_EXTENSION`
-Installs an extension from an external APK URL.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `url` | `String!` | APK download URL |
-
----
-
-### `SET_EXTENSION_REPOS`
-Sets the list of extension repository URLs.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `repos` | `[String!]!` | Repository URLs |
-
----
-
-### `SET_SERVER_AUTH`
-Configures server authentication mode and credentials.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `authMode` | `AuthMode!` | Auth mode |
-| `authUsername` | `String!` | Username |
-| `authPassword` | `String!` | Password |
-
----
-
-### `SET_SOCKS_PROXY`
-Configures SOCKS proxy settings.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `socksProxyEnabled` | `Boolean!` | Enable/disable proxy |
-| `socksProxyHost` | `String!` | Proxy host |
-| `socksProxyPort` | `String!` | Proxy port |
-| `socksProxyVersion` | `Int!` | SOCKS version (4 or 5) |
-| `socksProxyUsername` | `String!` | Proxy username |
-| `socksProxyPassword` | `String!` | Proxy password |
-
----
-
-### `SET_FLARESOLVERR`
-Configures FlareSolverr integration settings.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `flareSolverrEnabled` | `Boolean!` | Enable/disable FlareSolverr |
-| `flareSolverrUrl` | `String!` | FlareSolverr URL |
-| `flareSolverrTimeout` | `Int!` | Request timeout (ms) |
-| `flareSolverrSessionName` | `String!` | Session name |
-| `flareSolverrSessionTtl` | `Int!` | Session TTL (seconds) |
-| `flareSolverrAsResponseFallback` | `Boolean!` | Use as fallback only |
+| Mutation | Variables | Description |
+|----------|-----------|-------------|
+| `FETCH_EXTENSIONS` | — | Fetch the latest extension list from configured repos |
+| `UPDATE_EXTENSION` | `id: String!`, `install: Boolean`, `uninstall: Boolean`, `update: Boolean` | Install, uninstall, or update a single extension |
+| `UPDATE_EXTENSIONS` | `ids: [String!]!`, `install: Boolean`, `uninstall: Boolean`, `update: Boolean` | Bulk install, uninstall, or update multiple extensions |
+| `INSTALL_EXTERNAL_EXTENSION` | `url: String!` | Install an extension from an external APK URL |
+| `UPDATE_SOURCE_PREFERENCE` | `source: LongString!`, `change: SourcePreferenceChangeInput!` | Update a source-specific preference value |
+| `SET_SOURCE_META` | `sourceId: LongString!`, `key: String!`, `value: String!` | Set a key/value meta entry on a source |
+| `DELETE_SOURCE_META` | `sourceId: LongString!`, `key: String!` | Delete a key/value meta entry from a source |
+| `SET_CATEGORY_META` | `categoryId: Int!`, `key: String!`, `value: String!` | Set a key/value meta entry on a category |
+| `DELETE_CATEGORY_META` | `categoryId: Int!`, `key: String!` | Delete a key/value meta entry from a category |
+| `SET_GLOBAL_META` | `key: String!`, `value: String!` | Set a global key/value meta entry |
+| `DELETE_GLOBAL_META` | `key: String!` | Delete a global key/value meta entry |
+| `CLEAR_CACHED_IMAGES` | `cachedPages: Boolean`, `cachedThumbnails: Boolean`, `downloadedThumbnails: Boolean` | Selectively clear cached page images, cached thumbnails, or downloaded thumbnails |
+| `RESET_SETTINGS` | — | Reset all server settings to defaults |
+| `UPDATE_WEBUI` | — | Trigger a WebUI update and return live status |
+| `RESET_WEBUI_UPDATE_STATUS` | — | Reset the WebUI update status back to idle |
+| `SET_EXTENSION_REPOS` | `repos: [String!]!` | Set the list of extension repository URLs |
+| `SET_SERVER_AUTH` | `authMode: AuthMode!`, `authUsername: String!`, `authPassword: String!` | Configure server auth mode and credentials |
+| `SET_SOCKS_PROXY` | `socksProxyEnabled: Boolean!`, `socksProxyHost: String!`, `socksProxyPort: String!`, `socksProxyVersion: Int!`, `socksProxyUsername: String!`, `socksProxyPassword: String!` | Configure SOCKS proxy settings |
+| `SET_FLARESOLVERR` | `flareSolverrEnabled: Boolean!`, `flareSolverrUrl: String!`, `flareSolverrTimeout: Int!`, `flareSolverrSessionName: String!`, `flareSolverrSessionTtl: Int!`, `flareSolverrAsResponseFallback: Boolean!` | Configure FlareSolverr integration |
 
 ---
 
 ## Tracking (`mutations/tracking.ts`)
 
-### `BIND_TRACK`
-Binds a manga to a remote tracker entry.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `mangaId` | `Int!` | Manga ID |
-| `trackerId` | `Int!` | Tracker ID |
-| `remoteId` | `LongString!` | Remote entry ID on the tracker |
-
----
-
-### `UPDATE_TRACK`
-Updates tracking progress, status, score, and dates for a track record.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `recordId` | `Int!` | Track record ID |
-| `status` | `Int` | Reading status |
-| `lastChapterRead` | `Float` | Last chapter read |
-| `scoreString` | `String` | Score in tracker's format |
-| `startDate` | `LongString` | Start date |
-| `finishDate` | `LongString` | Finish date |
-| `private` | `Boolean` | Mark as private |
+| Mutation | Variables | Description |
+|----------|-----------|-------------|
+| `BIND_TRACK` | `mangaId: Int!`, `trackerId: Int!`, `remoteId: LongString!` | Bind a manga to a remote tracker entry |
+| `UPDATE_TRACK` | `recordId: Int!`, `status: Int`, `lastChapterRead: Float`, `scoreString: String`, `startDate: LongString`, `finishDate: LongString`, `private: Boolean` | Update tracking progress, status, score, and dates |
+| `UNBIND_TRACK` | `recordId: Int!` | Unbind a manga from a tracker record |
+| `FETCH_TRACK` | `recordId: Int!` | Refresh a track record from the remote tracker |
+| `TRACK_PROGRESS` | `mangaId: Int!` | Sync current reading progress to all bound trackers for a manga |
+| `LOGIN_TRACKER_OAUTH` | `trackerId: Int!`, `callbackUrl: String!` | Initiate OAuth login for a tracker |
+| `LOGIN_TRACKER_CREDENTIALS` | `trackerId: Int!`, `username: String!`, `password: String!` | Log into a tracker with username and password |
+| `LOGOUT_TRACKER` | `trackerId: Int!` | Log out of a tracker |
+| `CONNECT_KOSYNC` | `username: String!`, `password: String!`, `serverAddress: String!` | Connect a KOReader sync account |
+| `LOGOUT_KOSYNC` | — | Disconnect the KOReader sync account |
+| `PULL_KOSYNC_PROGRESS` | `chapterId: Int!` | Pull reading progress from KOReader sync for a chapter |
+| `PUSH_KOSYNC_PROGRESS` | `chapterId: Int!` | Push reading progress to KOReader sync for a chapter |
+| `LOGIN_USER` | `username: String!`, `password: String!` | Authenticate and return access + refresh tokens |
+| `REFRESH_TOKEN` | — | Refresh the current access token |
 
 ---
 
-### `UNBIND_TRACK`
-Unbinds a manga from a tracker record.
+## New in Preview
 
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `recordId` | `Int!` | Track record ID |
+Mutations now available and not yet wired to any feature in Moku:
 
----
-
-### `FETCH_TRACK`
-Refreshes a track record from the remote tracker.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `recordId` | `Int!` | Track record ID |
-
----
-
-### `LOGIN_TRACKER_OAUTH`
-Initiates OAuth login for a tracker using a callback URL.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `trackerId` | `Int!` | Tracker ID |
-| `callbackUrl` | `String!` | OAuth callback URL |
-
----
-
-### `LOGIN_TRACKER_CREDENTIALS`
-Logs into a tracker using username and password.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `trackerId` | `Int!` | Tracker ID |
-| `username` | `String!` | Username |
-| `password` | `String!` | Password |
-
----
-
-### `LOGOUT_TRACKER`
-Logs out of a tracker.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `trackerId` | `Int!` | Tracker ID |
-
----
-
-### `LOGIN_USER`
-Authenticates a user and returns access and refresh tokens.
-
-**Variables:**
-| Name | Type | Description |
-|------|------|-------------|
-| `username` | `String!` | Username |
-| `password` | `String!` | Password |
-
----
-
-### `REFRESH_TOKEN`
-Refreshes the current access token.
-
-**Variables:** none
+| Mutation | Potential Feature |
+|----------|-------------------|
+| `UPDATE_MANGAS_CATEGORIES` | Bulk category editor — move/assign multiple manga at once |
+| `UPDATE_CATEGORIES` | Bulk category settings — toggle update/download flags for multiple categories at once |
+| `UPDATE_CATEGORY_MANGA` | Per-category refresh button — update only one category's manga |
+| `UPDATE_LIBRARY_MANGA` | Single manga refresh — trigger from series detail without a full library update |
+| `UPDATE_STOP` | Cancel button for library update jobs |
+| `UPDATE_EXTENSIONS` | Bulk extension updater — "update all" button in extensions page |
+| `UPDATE_SOURCE_PREFERENCE` | Source settings page — persist source-specific preferences |
+| `SET_SOURCE_META` / `DELETE_SOURCE_META` | Per-source client state — store browse position, last filter, etc. |
+| `SET_CATEGORY_META` / `DELETE_CATEGORY_META` | Per-category client state — store sort/filter preferences per category |
+| `SET_CHAPTER_META` / `DELETE_CHAPTER_META` | Per-chapter client state — annotations, custom notes |
+| `SET_GLOBAL_META` / `DELETE_GLOBAL_META` | Server-synced app state — replace local persistence for settings that should roam |
+| `CLEAR_CACHED_IMAGES` | Storage settings — granular cache clearing (pages, thumbnails, downloaded) |
+| `RESET_SETTINGS` | Settings page — factory reset button |
+| `UPDATE_WEBUI` / `RESET_WEBUI_UPDATE_STATUS` | WebUI update flow in settings — trigger and monitor update progress |
+| `TRACK_PROGRESS` | One-tap sync — push current reading position to all trackers without opening tracking panel |
+| `CONNECT_KOSYNC` / `LOGOUT_KOSYNC` | KOReader sync settings section — connect/disconnect account |
+| `PULL_KOSYNC_PROGRESS` / `PUSH_KOSYNC_PROGRESS` | KOReader sync — manual pull/push per chapter, or auto-sync on chapter open/close |

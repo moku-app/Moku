@@ -32,11 +32,20 @@ In-Progress:
 - Tracking
    - Fix SeriesDetail Tracking Window (Maybe Link to TrackingPanel)
 
- - Integrate Tauri JSON for Settings
-   - Create Migration Logic for Local Storage
+ - Apply Syer's Fix for Library on Backup Load (Manga Metadata)
+   - Note User's have to always install extensions manually
+      - Create "Missing Source" for Manga
+
+ - Wire Series-Detail Refresh to Fix Manga-Metadata (MAJOR)
 
 Notes from last time:
  - Storage has been configured, now just need protocols
   - Export/Import
   - Migration
   - Data-Clean
+
+- MAJOR Migration
+   - Completed GQL Migration
+   - Completed Types Migration (May need Refactor)
+   - Completed Shared Migration
+   - Completed Features Migration

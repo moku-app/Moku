@@ -33,6 +33,14 @@ export const UPDATE_MANGA_CATEGORIES = `
   }
 `;
 
+export const UPDATE_MANGAS_CATEGORIES = `
+  mutation UpdateMangasCategories($ids: [Int!]!, $addTo: [Int!]!, $removeFrom: [Int!]!) {
+    updateMangasCategories(input: { ids: $ids, patch: { addToCategories: $addTo, removeFromCategories: $removeFrom } }) {
+      mangas { id }
+    }
+  }
+`;
+
 export const CREATE_CATEGORY = `
   mutation CreateCategory($name: String!) {
     createCategory(input: { name: $name }) {
@@ -45,6 +53,14 @@ export const UPDATE_CATEGORY = `
   mutation UpdateCategory($id: Int!, $name: String) {
     updateCategory(input: { id: $id, patch: { name: $name } }) {
       category { id name order }
+    }
+  }
+`;
+
+export const UPDATE_CATEGORIES = `
+  mutation UpdateCategories($ids: [Int!]!, $patch: UpdateCategoryPatchInput!) {
+    updateCategories(input: { ids: $ids, patch: $patch }) {
+      categories { id name order default includeInUpdate includeInDownload }
     }
   }
 `;
@@ -65,9 +81,39 @@ export const UPDATE_CATEGORY_ORDER = `
   }
 `;
 
+export const UPDATE_CATEGORY_MANGA = `
+  mutation UpdateCategoryManga($categoryId: Int!) {
+    updateCategoryManga(input: { categoryId: $categoryId }) {
+      updateStatus {
+        jobsInfo { isRunning finishedJobs totalJobs }
+      }
+    }
+  }
+`;
+
 export const UPDATE_LIBRARY = `
   mutation UpdateLibrary {
     updateLibrary(input: {}) {
+      updateStatus {
+        jobsInfo { isRunning finishedJobs totalJobs }
+      }
+    }
+  }
+`;
+
+export const UPDATE_LIBRARY_MANGA = `
+  mutation UpdateLibraryManga($mangaId: Int!) {
+    updateLibraryManga(input: { mangaId: $mangaId }) {
+      updateStatus {
+        jobsInfo { isRunning finishedJobs totalJobs }
+      }
+    }
+  }
+`;
+
+export const UPDATE_STOP = `
+  mutation UpdateStop {
+    updateStop(input: {}) {
       updateStatus {
         jobsInfo { isRunning finishedJobs totalJobs }
       }
@@ -86,6 +132,22 @@ export const RESTORE_BACKUP = `
     restoreBackup(input: { backup: $backup }) {
       id
       status { mangaProgress state totalManga }
+    }
+  }
+`;
+
+export const SET_MANGA_META = `
+  mutation SetMangaMeta($mangaId: Int!, $key: String!, $value: String!) {
+    setMangaMeta(input: { meta: { mangaId: $mangaId, key: $key, value: $value } }) {
+      meta { key value }
+    }
+  }
+`;
+
+export const DELETE_MANGA_META = `
+  mutation DeleteMangaMeta($mangaId: Int!, $key: String!) {
+    deleteMangaMeta(input: { mangaId: $mangaId, key: $key }) {
+      meta { key value }
     }
   }
 `;

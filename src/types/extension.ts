@@ -5,6 +5,9 @@ export interface Source {
   displayName: string;
   iconUrl: string;
   isNsfw: boolean;
+  isConfigurable: boolean;
+  supportsLatest: boolean;
+  baseUrl?: string | null;
 }
 
 export interface Extension {

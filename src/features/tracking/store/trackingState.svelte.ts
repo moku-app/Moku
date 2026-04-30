@@ -2,7 +2,6 @@ import { gql }                    from "@api/client";
 import { GET_MANGA_TRACK_RECORDS, GET_ALL_TRACKER_RECORDS } from "@api/queries/tracking";
 import { GET_CHAPTERS }                                     from "@api/queries/chapters";
 import { UPDATE_TRACK, FETCH_TRACK, UNBIND_TRACK }          from "@api/mutations/tracking";
-import { MARK_CHAPTERS_READ }                               from "@api/mutations/chapters";
 import { buildChapterList, type ChapterDisplayPrefs }       from "@features/series/lib/chapterList";
 import { syncBackFromTracker }                              from "@features/tracking/lib/trackingSync";
 import { store }                                            from "@store/state.svelte";
@@ -82,7 +81,7 @@ class TrackingState {
       for (const tracker of res.trackers.nodes.filter(t => t.isLoggedIn)) {
         for (const record of tracker.trackRecords.nodes) {
           if (!record.manga?.id) continue;
-          const mangaId = record.manga.id;
+          const mangaId  = record.manga.id;
           const existing = this.byManga.get(mangaId) ?? [];
           const merged   = [...existing.filter(r => r.id !== record.id), record];
           this.setFor(mangaId, merged);
@@ -140,21 +139,22 @@ class TrackingState {
     const fresh = res.fetchTrack.trackRecord;
     this.patchFor(mangaId, fresh);
 
-    const { markedRead } = await this._applyRemoteProgress(fresh, chapters, prefs);
-    return { fresh, markedIds: markedRead };
+    const markedIds = await this._applyRemoteProgress(fresh, chapters, prefs);
+    return { fresh, markedIds };
   }
 
   private async _applyRemoteProgress(
     record:   TrackRecord,
     chapters: Chapter[],
     prefs:    ChapterDisplayPrefs,
-  ): Promise<{ markedRead: number[]; markedUnread: number[] }> {
-    if (!store.settings.trackerSyncBack) return { markedRead: [], markedUnread: [] };
+  ): Promise<number[]> {
+    if (!store.settings.trackerSyncBack) return [];
 
     return syncBackFromTracker(
       [record],
       chapters,
       {
+        threshold:              store.settings.trackerSyncBackThreshold ?? null,
         respectScanlatorFilter: store.settings.trackerRespectScanlatorFilter ?? true,
         chapterPrefs:           prefs,
       },
@@ -290,6 +290,7 @@ class TrackingState {
           freshRecords,
           chapters,
           {
+            threshold:              store.settings.trackerSyncBackThreshold ?? null,
             respectScanlatorFilter: store.settings.trackerRespectScanlatorFilter ?? true,
             chapterPrefs:           prefs,
           },

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Moku — Suwayomi launcher for Linux AppImage/deb.
+#  — Suwayomi launcher for Linux AppImage/deb.
 # Tauri resolves this via resolve_server_binary() in lib.rs, which looks for
 # "suwayomi-launcher" or "suwayomi-launcher.sh" in the resource directory.
 set -e
@@ -53,7 +53,7 @@ if [ ! -f "$JAR" ]; then
 fi
 
 # ── Data directory ─────────────────────────────────────────────────────────────
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/moku/tachidesk"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Tachidesk"
 mkdir -p "$DATA_DIR"
 
 # ── Seed server.conf on first run ──────────────────────────────────────────────

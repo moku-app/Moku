@@ -51,6 +51,7 @@ export interface MangaPrefs {
   deleteDelayHours: number; maxKeepChapters: number; pauseUpdates: boolean;
   refreshInterval: "global" | "daily" | "weekly" | "manual";
   preferredScanlator: string; scanlatorFilter: string[];
+  scanlatorBlacklist: string[]; scanlatorForce: boolean;
   autoDownloadScanlators: string[];
   coverUrl?: string;
 }
@@ -59,6 +60,7 @@ export const DEFAULT_MANGA_PREFS: MangaPrefs = {
   autoDownload: false, downloadAhead: 0, deleteOnRead: false,
   deleteDelayHours: 0, maxKeepChapters: 0, pauseUpdates: false,
   refreshInterval: "global", preferredScanlator: "", scanlatorFilter: [],
+  scanlatorBlacklist: [], scanlatorForce: false,
   autoDownloadScanlators: [],
 };
 
@@ -102,7 +104,7 @@ export interface Settings {
   socksProxyEnabled: boolean; socksProxyHost: string; socksProxyPort: string;
   socksProxyVersion: number; socksProxyUsername: string; socksProxyPassword: string;
   flareSolverrEnabled: boolean; flareSolverrUrl: string; flareSolverrTimeout: number;
-  flareSolverrSessionName: string; flareSolverrSessionTtl: number; flareSolverrFallback: boolean;
+  flareSolverrSessionName: string; flareSolverrSessionTtl: number; flareSolverrAsResponseFallback: boolean;
   appLockEnabled: boolean; appLockPin: string;
   customThemes: CustomTheme[]; hiddenCategoryIds: number[];
   defaultLibraryCategoryId: number | null; savedIsDefaultCategory: boolean;
@@ -145,7 +147,7 @@ export const DEFAULT_SETTINGS: Settings = {
   socksProxyVersion: 5, socksProxyUsername: "", socksProxyPassword: "",
   flareSolverrEnabled: false, flareSolverrUrl: "http://localhost:8191",
   flareSolverrTimeout: 60, flareSolverrSessionName: "moku",
-  flareSolverrSessionTtl: 15, flareSolverrFallback: false,
+  flareSolverrSessionTtl: 15, flareSolverrAsResponseFallback: false,
   appLockEnabled: false, appLockPin: "",
   customThemes: [], hiddenCategoryIds: [], defaultLibraryCategoryId: null,
   savedIsDefaultCategory: false,

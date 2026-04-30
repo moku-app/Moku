@@ -88,10 +88,10 @@ jobs:
       - name: Download Suwayomi (Linux x64)
         run: |
           curl -fsSL \
-            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-linux-x64.tar.gz" \
+            "https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/Suwayomi-Server-v2.1.2087-linux-x64.tar.gz" \
             -o suwayomi-linux.tar.gz
 
-          echo "b2344bd73c4e26bede63cdb4b44b1b4168d8a8500b3b2b1a0219519a3ef708fe  suwayomi-linux.tar.gz" | sha256sum -c -
+          echo "888bee202649ce7e3e3468a729c4084fb465f024b4033cab3f8ab98b0c66fe76  suwayomi-linux.tar.gz" | sha256sum -c -
 
           mkdir -p suwayomi-extracted
           tar -xzf suwayomi-linux.tar.gz -C suwayomi-extracted --strip-components=1

@@ -115,7 +115,7 @@
     <div class="grid" style="--cols:{cols}">
       {#each visibleManga as m (m.id)}
         {@const isSelected  = selectedIds.has(m.id)}
-        {@const isCompleted = !m.unreadCount && (m.chapterCount ?? 0) > 0}
+        {@const isCompleted = !m.unreadCount && (m.chapters?.totalCount ?? 0) > 0}
         <button
           class="card"
           class:card-selected={isSelected}

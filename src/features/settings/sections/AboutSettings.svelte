@@ -4,10 +4,15 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { open as openUrl } from "@tauri-apps/plugin-shell";
   import { autoBackupAppData } from "@core/backup";
+  import { gql } from "@api/client";
+  import { GET_ABOUT_SERVER, GET_ABOUT_WEBUI } from "@api/queries/updater";
 
   interface ReleaseInfo { tag_name: string; name: string; body: string; published_at: string; html_url: string; }
   type UpdatePhase = "idle" | "downloading" | "launching" | "ready" | "error";
   const IS_WINDOWS = navigator.userAgent.includes("Windows");
+
+  interface AboutServer { name: string; version: string; buildType: string; buildTime: number; github: string; discord: string; }
+  interface AboutWebUI  { channel: string; tag: string; updateTimestamp: number; }
 
   let appVersion      = $state("…");
   let releases        = $state<ReleaseInfo[]>([]);
@@ -21,9 +26,13 @@
   let targetTag       = $state<string | null>(null);
   let releasesLoaded  = false;
 
+  let serverInfo      = $state<AboutServer | null>(null);
+  let webuiInfo       = $state<AboutWebUI | null>(null);
+
   $effect(() => {
     getVersion().then(v => appVersion = v).catch(() => appVersion = "unknown");
     if (!releasesLoaded) { releasesLoaded = true; loadReleases(); }
+    loadServerInfo();
   });
 
   $effect(() => {
@@ -52,6 +61,17 @@
     } finally { releasesLoading = false; }
   }
 
+  async function loadServerInfo() {
+    try {
+      const [s, w] = await Promise.all([
+        gql<{ aboutServer: AboutServer }>(GET_ABOUT_SERVER),
+        gql<{ aboutWebUI: AboutWebUI }>(GET_ABOUT_WEBUI),
+      ]);
+      serverInfo = s.aboutServer;
+      webuiInfo  = w.aboutWebUI;
+    } catch {}
+  }
+
   function stripV(v: string) { return v.replace(/^v/, ""); }
   function isCurrentVersion(tag: string) { return stripV(tag) === appVersion; }
   function parseSemver(v: string) { return stripV(v).split(".").map(Number); }
@@ -70,6 +90,11 @@
   function fmtDate(iso: string) {
     if (!iso) return "";
     return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function fmtBuildTime(unix: number) {
+    if (!unix) return "";
+    return new Date(unix).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 
   function fmtBytes(bytes: number) {
@@ -164,6 +189,41 @@
     </div>
   </div>
 
+  {#if serverInfo}
+    <div class="s-section">
+      <p class="s-section-title">Server</p>
+      <div class="s-section-body">
+        <div class="s-row">
+          <div class="s-row-info">
+            <span class="s-label">Version</span>
+            <span class="s-desc">
+              {serverInfo.version}
+              {#if serverInfo.buildType}
+                <span class="s-release-badge">{serverInfo.buildType}</span>
+              {/if}
+            </span>
+          </div>
+        </div>
+        {#if serverInfo.buildTime}
+          <div class="s-row">
+            <div class="s-row-info">
+              <span class="s-label">Built</span>
+              <span class="s-desc">{fmtBuildTime(serverInfo.buildTime)}</span>
+            </div>
+          </div>
+        {/if}
+        {#if webuiInfo?.channel}
+          <div class="s-row">
+            <div class="s-row-info">
+              <span class="s-label">Channel</span>
+              <span class="s-desc">{webuiInfo.channel}</span>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <div class="s-section">
     <p class="s-section-title">Releases</p>
     <div class="s-section-body">
@@ -223,6 +283,12 @@
       <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:var(--sp-2)">
         <a href="https://github.com/moku-project/Moku" target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
         <a href="https://discord.gg/Jq3pwuNqPp" target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">Discord →</a>
+        {#if serverInfo?.github && serverInfo.github !== "https://github.com/moku-project/Moku"}
+          <a href={serverInfo.github} target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">Suwayomi GitHub →</a>
+        {/if}
+        {#if serverInfo?.discord && serverInfo.discord !== "https://discord.gg/Jq3pwuNqPp"}
+          <a href={serverInfo.discord} target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">Suwayomi Discord →</a>
+        {/if}
       </div>
     </div>
   </div>

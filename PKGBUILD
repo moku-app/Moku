@@ -64,7 +64,7 @@ EOF
 
     install -Dm755 /dev/stdin "$pkgdir/usr/bin/moku-suwayomi" << 'EOF'
 #!/bin/sh
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/moku/tachidesk"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Tachidesk"
 mkdir -p "$DATA_DIR"
 
 if [ ! -f "$DATA_DIR/server.conf" ]; then

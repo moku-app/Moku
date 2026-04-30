@@ -79,9 +79,9 @@ jobs:
         shell: bash
         run: |
           curl -fsSL \
-            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-windows-x64.zip" \
+            "https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/Suwayomi-Server-v2.1.2087-windows-x64.zip" \
             -o suwayomi-windows.zip
-          echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | sha256sum -c -
+          echo "65c3ec544190bc4e52f8ba05b49c87448421d9825aaaeb902cb4e34e69ff7207  suwayomi-windows.zip" | sha256sum -c -
           unzip -q suwayomi-windows.zip -d suwayomi-raw
 
       - name: Extract Suwayomi bundle

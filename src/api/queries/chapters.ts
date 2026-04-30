@@ -15,7 +15,7 @@ export const GET_CHAPTERS = `
     chapters(condition: { mangaId: $mangaId }) {
       nodes {
         id name chapterNumber sourceOrder isRead isDownloaded isBookmarked
-        pageCount mangaId uploadDate realUrl lastPageRead scanlator
+        pageCount mangaId uploadDate realUrl lastPageRead lastReadAt scanlator
       }
     }
   }

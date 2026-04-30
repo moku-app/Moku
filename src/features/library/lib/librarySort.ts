@@ -16,11 +16,11 @@ export const librarySorter = createSorter<Manga>({
     },
     {
       key: "totalChapters",
-      comparator: (a, b) => (a.chapterCount ?? 0) - (b.chapterCount ?? 0),
+      comparator: (a, b) => (a.chapters?.totalCount ?? 0) - (b.chapters?.totalCount ?? 0),
     },
     {
       key: "recentlyAdded",
-      comparator: (a, b) => a.id - b.id,
+      comparator: (a, b) => Number(a.inLibraryAt ?? 0) - Number(b.inLibraryAt ?? 0),
     },
     {
       key: "recentlyRead",
@@ -33,11 +33,11 @@ export const librarySorter = createSorter<Manga>({
     },
     {
       key: "latestFetched",
-      comparator: (a, b) => a.id - b.id,
+      comparator: (a, b) => Number(a.latestFetchedChapter?.uploadDate ?? 0) - Number(b.latestFetchedChapter?.uploadDate ?? 0),
     },
     {
       key: "latestUploaded",
-      comparator: (a, b) => a.id - b.id,
+      comparator: (a, b) => Number(a.latestUploadedChapter?.uploadDate ?? 0) - Number(b.latestUploadedChapter?.uploadDate ?? 0),
     },
   ],
 });
