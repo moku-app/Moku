@@ -7,13 +7,14 @@
   suwayomiServer,
   version,
   cargoSrc,
+  appIcon,
 }:
 
 let
   commonArgs = {
     src = cargoSrc;
-    cargoToml = ./src-tauri/Cargo.toml;
-    cargoLock = ./src-tauri/Cargo.lock;
+    pname = "moku";
+    inherit version;
     strictDeps = true;
     buildInputs = runtimeLibs;
     nativeBuildInputs = with pkgs; [ pkg-config wrapGAppsHook3 ];
@@ -57,7 +58,7 @@ EOF
         "$out/share/icons/hicolor/''${size}@2/apps/moku.png"
     done
 
-    install -Dm644 "${./src/assets/moku-icon.svg}" \
+    install -Dm644 "${appIcon}" \
       "$out/share/icons/hicolor/scalable/apps/moku.svg"
 
     wrapProgram $out/bin/moku \

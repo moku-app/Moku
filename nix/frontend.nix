@@ -1,4 +1,4 @@
-{ lib, stdenv, nodejs_22, pnpm, pnpmConfigHook, version, src }:
+{ lib, stdenv, nodejs_22, pnpm, pnpmConfigHook, fetchPnpmDeps, version, src }:
 
 stdenv.mkDerivation {
   pname = "moku-frontend";
@@ -6,7 +6,7 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = [ nodejs_22 pnpm pnpmConfigHook ];
 
-  pnpmDeps = pnpm.fetchDeps {
+  pnpmDeps = fetchPnpmDeps {
     pname = "moku-frontend";
     inherit version src;
     fetcherVersion = 1;

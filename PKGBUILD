@@ -19,11 +19,11 @@ makedepends=(
 )
 source=(
     "$pkgname-$pkgver.tar.gz::https://github.com/moku-project/Moku/archive/refs/tags/v$pkgver.tar.gz"
-    "Suwayomi-Server-v2.1.1867.jar::https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867.jar"
+    "Suwayomi-Server-v2.1.2087.jar::https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/Suwayomi-Server-v2.1.2087.jar"
 )
 sha256sums=(
     '4d0fbed929d5660ddcb591ff33f808910e13df1e8e7bfc8df83f367fd7bcd881'
-    '51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af'
+    'f589a422674252394c13b289a9c8be691905bf583efb7f4d5f1501ae5e91e6b3'
 )
 
 prepare() {
@@ -45,11 +45,11 @@ package() {
     install -Dm755 src-tauri/target/release/moku \
         "$pkgdir/usr/bin/moku"
 
-    install -Dm644 "$srcdir/Suwayomi-Server-v2.1.1867.jar" \
+    install -Dm644 "$srcdir/Suwayomi-Server-v2.1.2087.jar" \
         "$pkgdir/usr/lib/moku/tachidesk/Suwayomi-Server.jar"
 
     install -dm755 "$pkgdir/usr/lib/moku/tachidesk/default-conf"
-    cat > "$pkgdir/usr/lib/moku/tachidesk/default-conf/server.conf" << 'EOF'
+    cat > "$pkgdir/usr/lib/moku/tachidesk/default-conf/server.conf" << 'CONF'
 server.ip = "127.0.0.1"
 server.port = 4567
 server.webUIEnabled = false
@@ -60,9 +60,9 @@ server.autoDownloadNewChapters = false
 server.globalUpdateInterval = 12
 server.maxSourcesInParallel = 6
 server.extensionRepos = []
-EOF
+CONF
 
-    install -Dm755 /dev/stdin "$pkgdir/usr/bin/moku-suwayomi" << 'EOF'
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/moku-suwayomi" << 'LAUNCHER'
 #!/bin/sh
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Tachidesk"
 mkdir -p "$DATA_DIR"
@@ -93,7 +93,7 @@ exec java \
   -Dsun.awt.disablegui=true \
   -Dsuwayomi.tachidesk.config.server.rootDir="$DATA_DIR" \
   -jar /usr/lib/moku/tachidesk/Suwayomi-Server.jar
-EOF
+LAUNCHER
 
     install -Dm644 packaging/io.github.moku_project.Moku.desktop \
         "$pkgdir/usr/share/applications/io.github.moku_project.Moku.desktop"

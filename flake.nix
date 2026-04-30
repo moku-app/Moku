@@ -91,6 +91,7 @@
 
           moku = import ./nix/moku.nix {
             inherit lib craneLib pkgs runtimeLibs frontend suwayomiServer version cargoSrc;
+            appIcon = ./src/assets/moku-icon.svg;
           };
 
           # ── dev/release scripts ─────────────────────────────────────────
