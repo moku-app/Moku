@@ -1,14 +1,111 @@
 <script lang="ts">
   import { Trash, ClockCounterClockwise } from "phosphor-svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import { gql } from "@api/client";
-  import { GET_DOWNLOADS_PATH, GET_RESTORE_STATUS, VALIDATE_BACKUP } from "@api/queries/manga";
-  import { CREATE_BACKUP, RESTORE_BACKUP } from "@api/mutations/manga";
+  import { GET_DOWNLOADS_PATH, GET_RESTORE_STATUS } from "@api/queries/manga";
+  import { CREATE_BACKUP } from "@api/mutations/manga";
   import { SET_DOWNLOADS_PATH, SET_LOCAL_SOURCE_PATH } from "@api/mutations/downloads";
   import { untrack } from "svelte";
   import { store, updateSettings, addToast } from "@store/state.svelte";
   import { exportAppData, importAppData } from "@core/backup";
+  import { loadBackups, persistBackups, persistSettings, persistLibrary } from "@core/persistence/persist";
+  import type { BackupEntry } from "@core/persistence/persist";
+  import { DEFAULT_SETTINGS } from "@types/settings";
+  import { DEFAULT_READING_STATS } from "@types/history";
+
+  type ResetState = "idle" | "busy" | "done" | "error";
+  interface ResetItem { key: string; label: string; desc: string; state: ResetState; error: string | null; confirm: boolean; }
+
+  let resetItems = $state<ResetItem[]>([
+    { key: "moku-cache",      label: "Clear Moku cache",       desc: "Removes image cache and temporary files stored by Moku.",                                                            state: "idle", error: null, confirm: false },
+    { key: "suwayomi-cache",  label: "Clear Suwayomi cache",   desc: "Deletes the Suwayomi cache and KCEF directories inside the data folder.",                                            state: "idle", error: null, confirm: false },
+    { key: "reading-history", label: "Clear reading history",  desc: "Erases chapter history, read log, reading stats, and daily read counts.",                                            state: "idle", error: null, confirm: true  },
+    { key: "moku-settings",   label: "Reset Moku settings",    desc: "Restores all app settings to their defaults. Does not affect library data.",                                         state: "idle", error: null, confirm: true  },
+    { key: "suwayomi-data",   label: "Reset Suwayomi data",    desc: "Deletes the database, extensions, settings, and logs. Downloads and backups are preserved.",                         state: "idle", error: null, confirm: true  },
+  ]);
+
+  let confirming = $state<string | null>(null);
+
+  function patchReset(key: string, update: Partial<ResetItem>) {
+    resetItems = resetItems.map(i => i.key === key ? { ...i, ...update } : i);
+  }
+
+  function showExitCountdown(): Promise<void> {
+    return new Promise(resolve => {
+      const backdrop = document.createElement("div");
+      backdrop.className = "s-backdrop";
+      backdrop.style.cssText = "z-index:99999";
+      const modal = document.createElement("div");
+      modal.style.cssText = "background:var(--bg-surface);border:1px solid var(--border-base);border-radius:var(--radius-2xl);box-shadow:0 0 0 1px rgba(255,255,255,0.04) inset,0 24px 80px rgba(0,0,0,0.7);width:min(400px,calc(100vw - 40px));display:flex;flex-direction:column;overflow:hidden;animation:s-scale-in 0.2s cubic-bezier(0.16,1,0.3,1) both";
+      const header = document.createElement("div");
+      header.style.cssText = "padding:var(--sp-4) var(--sp-5) var(--sp-3);border-bottom:1px solid var(--border-dim)";
+      const title = document.createElement("p");
+      title.style.cssText = "margin:0;font-size:var(--text-sm);font-weight:var(--weight-medium);color:var(--text-primary);letter-spacing:0.01em";
+      title.textContent = "Reset complete";
+      header.appendChild(title);
+      const body = document.createElement("div");
+      body.style.cssText = "padding:var(--sp-4) var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-2)";
+      const sub = document.createElement("p");
+      sub.style.cssText = "margin:0;font-family:var(--font-ui);font-size:var(--text-xs);color:var(--text-faint);letter-spacing:var(--tracking-wide);line-height:var(--leading-snug)";
+      sub.textContent = "Moku will close so you can relaunch with the reset applied.";
+      const counter = document.createElement("p");
+      counter.style.cssText = "margin:0;font-family:var(--font-ui);font-size:var(--text-xs);color:var(--text-faint);letter-spacing:var(--tracking-wide)";
+      counter.textContent = "Closing in 3…";
+      body.append(sub, counter);
+      const footer = document.createElement("div");
+      footer.style.cssText = "padding:var(--sp-3) var(--sp-5);border-top:1px solid var(--border-dim);display:flex;justify-content:flex-end";
+      const btn = document.createElement("button");
+      btn.className = "s-btn s-btn-danger";
+      btn.textContent = "Close now";
+      footer.appendChild(btn);
+      modal.append(header, body, footer);
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+      let secs = 3;
+      const tick = setInterval(() => {
+        secs--;
+        counter.textContent = secs > 0 ? `Closing in ${secs}…` : "Closing…";
+        if (secs <= 0) { clearInterval(tick); backdrop.remove(); resolve(); }
+      }, 1000);
+      btn.addEventListener("click", () => { clearInterval(tick); backdrop.remove(); resolve(); });
+    });
+  }
+
+  async function runReset(key: string) {
+    confirming = null;
+    patchReset(key, { state: "busy", error: null });
+    try {
+      switch (key) {
+        case "moku-cache":
+          await invoke("clear_moku_cache");
+          break;
+        case "suwayomi-cache":
+          await invoke("clear_suwayomi_cache");
+          break;
+        case "reading-history":
+          store.clearHistory();
+          await persistLibrary({ history: [], bookmarks: store.bookmarks, markers: store.markers, readLog: [], readingStats: DEFAULT_READING_STATS, dailyReadCounts: {} });
+          break;
+        case "moku-settings":
+          store.hydrate({ settings: DEFAULT_SETTINGS } as any);
+          await persistSettings({ settings: DEFAULT_SETTINGS, storeVersion: 1 });
+          patchReset(key, { state: "done" });
+          await showExitCountdown();
+          invoke("exit_app");
+          return;
+        case "suwayomi-data":
+          await invoke("reset_suwayomi_data");
+          patchReset(key, { state: "done" });
+          await showExitCountdown();
+          invoke("exit_app");
+          return;
+      }
+      patchReset(key, { state: "done" });
+      setTimeout(() => patchReset(key, { state: "idle" }), 3000);
+    } catch (e: any) {
+      patchReset(key, { state: "error", error: e?.message ?? String(e) });
+    }
+  }
 
   interface StorageInfo { manga_bytes: number; total_bytes: number; free_bytes: number; path: string; }
 
@@ -20,9 +117,9 @@
     } catch { return false; }
   });
 
-  let storageInfo        = $state<StorageInfo | null>(null);
-  let storageLoading     = $state(false);
-  let storageError       = $state<string | null>(null);
+  let storageInfo       = $state<StorageInfo | null>(null);
+  let storageLoading    = $state(false);
+  let storageError      = $state<string | null>(null);
 
   let downloadsPathInput   = $state(store.settings.serverDownloadsPath ?? "");
   let localSourcePathInput = $state(store.settings.serverLocalSourcePath ?? "");
@@ -43,19 +140,20 @@
   let confirmedDownloadsPath   = $state(store.settings.serverDownloadsPath ?? "");
   let confirmedLocalSourcePath = $state(store.settings.serverLocalSourcePath ?? "");
 
-  let migrateFrom      = $state<string | null>(null);
-  let migrateTo        = $state<string | null>(null);
-  let migrating        = $state(false);
-  let migrateProgress  = $state<{ done: number; total: number; current: string } | null>(null);
-  let migrateError     = $state<string | null>(null);
+  let migrateFrom     = $state<string | null>(null);
+  let migrateTo       = $state<string | null>(null);
+  let migrating       = $state(false);
+  let migrateProgress = $state<{ done: number; total: number; current: string } | null>(null);
+  let migrateError    = $state<string | null>(null);
   let migrateUnlisten: (() => void) | null = null;
 
-  let extraScanDirs    = $state<string[]>([...(store.settings.extraScanDirs ?? [])]);
-  let newScanDir       = $state("");
+  let extraScanDirs     = $state<string[]>([...(store.settings.extraScanDirs ?? [])]);
+  let newScanDir        = $state("");
   let multiStorageInfos = $state<(StorageInfo & { label: string })[]>([]);
-  let advStorageOpen      = $state(false);
-  let backupSectionOpen   = $state(false);
-  let appDataSectionOpen  = $state(false);
+  let advStorageOpen    = $state(false);
+  let backupSectionOpen = $state(false);
+  let appDataSectionOpen = $state(false);
+  let resetSectionOpen  = $state(false);
 
   async function fetchStorage() {
     storageLoading = true; storageError = null;
@@ -175,29 +273,31 @@
 
   function fmtBytes(bytes: number): string {
     if (bytes === 0) return "0 B";
-    const units = ["B","KB","MB","GB","TB"];
+    const units = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
   }
 
-  let backupLoading  = $state(false);
-  let backupError    = $state<string | null>(null);
-  let backupList     = $state<{ url: string; name: string; deleting?: boolean }[]>([]);
+  let backupLoading = $state(false);
+  let backupError   = $state<string | null>(null);
+  let backupList    = $state<(BackupEntry & { deleting?: boolean })[]>([]);
 
-  function loadBackupList() {
-    try { backupList = JSON.parse(localStorage.getItem("moku_backups") ?? "[]"); } catch { backupList = []; }
+  async function loadBackupList() {
+    backupList = (await loadBackups()).map(b => ({ ...b }));
   }
-  function saveBackupList() {
-    try { localStorage.setItem("moku_backups", JSON.stringify(backupList)); } catch {}
+
+  async function saveBackupList() {
+    await persistBackups(backupList.map(({ url, name }) => ({ url, name })));
   }
 
   async function createBackup() {
     backupLoading = true; backupError = null;
     try {
       const res = await gql<{ createBackup: { url: string } }>(CREATE_BACKUP);
-      const url = res.createBackup.url;
+      const url  = res.createBackup.url;
       const name = url.split("/").pop() ?? url;
-      backupList = [{ url, name }, ...backupList]; saveBackupList();
+      backupList = [{ url, name }, ...backupList];
+      await saveBackupList();
     } catch (e: any) { backupError = e?.message ?? "Failed to create backup"; }
     finally { backupLoading = false; }
   }
@@ -206,26 +306,19 @@
     backupList = backupList.map(b => b.url === url ? { ...b, deleting: true } : b);
     try {
       const serverUrl = (store.settings.serverUrl ?? "http://localhost:4567").replace(/\/$/, "");
-      const headers: Record<string, string> = {};
-      const pass = store.settings.serverAuthPass ?? "", user = store.settings.serverAuthUser ?? "";
-      if (store.settings.serverAuthMode === "BASIC_AUTH" && user && pass)
-        headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
-      await fetch(`${serverUrl}${url}`, { method: "DELETE", headers });
-      backupList = backupList.filter(b => b.url !== url); saveBackupList();
+      await fetch(`${serverUrl}${url}`, { method: "DELETE", headers: buildAuthHeaders() });
+      backupList = backupList.filter(b => b.url !== url);
+      await saveBackupList();
     } catch (e: any) {
       backupList = backupList.map(b => b.url === url ? { ...b, deleting: false } : b);
-      backupError = (e as any)?.message ?? "Failed to delete backup";
+      backupError = e?.message ?? "Failed to delete backup";
     }
   }
 
-  async function downloadBackup(backup: { url: string; name: string }) {
+  async function downloadBackup(backup: BackupEntry) {
     try {
       const serverUrl = (store.settings.serverUrl ?? "http://localhost:4567").replace(/\/$/, "");
-      const headers: Record<string, string> = {};
-      const pass = store.settings.serverAuthPass ?? "", user = store.settings.serverAuthUser ?? "";
-      if (store.settings.serverAuthMode === "BASIC_AUTH" && user && pass)
-        headers["Authorization"] = "Basic " + btoa(`${user}:${pass}`);
-      const resp = await fetch(`${serverUrl}${backup.url}`, { headers });
+      const resp = await fetch(`${serverUrl}${backup.url}`, { headers: buildAuthHeaders() });
       if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
       const blob = await resp.blob();
       if ("showSaveFilePicker" in window) {
@@ -326,11 +419,11 @@
     finally { validateLoading = false; }
   }
 
-  let appDataExporting  = $state(false);
-  let appDataImporting  = $state(false);
-  let appDataError      = $state<string | null>(null);
-  let appDataMsg        = $state<string | null>(null);
-  let appDataBackupDir  = $state<string | null>(null);
+  let appDataExporting = $state(false);
+  let appDataImporting = $state(false);
+  let appDataError     = $state<string | null>(null);
+  let appDataMsg       = $state<string | null>(null);
+  let appDataBackupDir = $state<string | null>(null);
 
   $effect(() => {
     invoke<string>("get_auto_backup_dir").then(d => { appDataBackupDir = d; }).catch(() => {});
@@ -683,7 +776,7 @@
         <div class="s-row">
           <div class="s-row-info">
             <span class="s-label">Export settings</span>
-            <span class="s-desc">Save all Moku app settings to a JSON file via a native save dialog.</span>
+            <span class="s-desc">Save all Moku app settings to a .zip via a native save dialog.</span>
           </div>
           <button class="s-btn s-btn-accent" onclick={handleExportAppData} disabled={appDataExporting}>
             {appDataExporting ? "Saving…" : "Export"}
@@ -693,7 +786,7 @@
         <div class="s-row">
           <div class="s-row-info">
             <span class="s-label">Import settings</span>
-            <span class="s-desc">Restore from a previously exported JSON file. Reloads the app immediately.</span>
+            <span class="s-desc">Restore from a previously exported .zip file. Reloads the app immediately.</span>
           </div>
           <button class="s-btn" onclick={handleImportAppData} disabled={appDataImporting}>
             {appDataImporting ? "Importing…" : "Import"}
@@ -720,6 +813,43 @@
           </div>
         {/if}
 
+      </div>
+    {/if}
+  </div>
+
+  <div class="s-section">
+    <button class="s-collapsible-trigger" onclick={() => resetSectionOpen = !resetSectionOpen}>
+      <span class="s-label">Reset</span>
+      <svg class="s-collapsible-caret" class:open={resetSectionOpen} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+    </button>
+    {#if resetSectionOpen}
+      <div class="s-collapsible-body">
+        {#each resetItems as item}
+          <div class="s-row">
+            <div class="s-row-info">
+              <span class="s-label">{item.label}</span>
+              <span class="s-desc">{item.desc}</span>
+              {#if item.error}<span class="s-desc" style="color:var(--color-error)">{item.error}</span>{/if}
+            </div>
+            <div class="s-btn-row">
+              {#if item.state === "done"}
+                <span class="s-pill on">Done</span>
+              {:else if item.state === "busy"}
+                <button class="s-btn" disabled>Working…</button>
+              {:else if confirming === item.key}
+                <span class="s-desc" style="color:var(--text-muted)">Sure?</span>
+                <button class="s-btn s-btn-danger" onclick={() => runReset(item.key)}>Confirm</button>
+                <button class="s-btn" onclick={() => confirming = null}>Cancel</button>
+              {:else}
+                <button
+                  class="s-btn"
+                  class:s-btn-danger={item.confirm}
+                  onclick={() => item.confirm ? (confirming = item.key) : runReset(item.key)}
+                >Reset</button>
+              {/if}
+            </div>
+          </div>
+        {/each}
       </div>
     {/if}
   </div>

@@ -11,6 +11,10 @@ import { app }                                                        from "./ap
 import { persistSettings, persistLibrary, persistUpdates }           from "../core/persistence/persist";
 import type { PersistedData }                                         from "../core/persistence/persist";
 
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export type { NavPage }               from "./app.svelte";
 export type { Toast, ActiveDownload } from "./notifications.svelte";
 export type { Settings, ReaderSettings, ReaderPreset, CustomTheme,
@@ -158,9 +162,9 @@ class Store {
       const uniqueChapters = new Set(this.readLog.map(e => e.chapterId));
       const uniqueManga    = new Set(this.readLog.map(e => e.mangaId));
       const totalMinutes   = this.readLog.reduce((sum, e) => sum + e.minutes, 0);
-      const todayStr       = new Date().toISOString().slice(0, 10);
+      const todayStr       = localDateStr(new Date());
       const yesterday      = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr   = yesterday.toISOString().slice(0, 10);
+      const yesterdayStr   = localDateStr(yesterday);
       const lastDate       = this.readingStats.lastStreakDate;
       const streak         = lastDate === todayStr ? this.readingStats.currentStreakDays
                            : lastDate === yesterdayStr ? this.readingStats.currentStreakDays + 1 : 1;
@@ -170,7 +174,7 @@ class Store {
         lastReadAt: entry.readAt, currentStreakDays: streak,
         longestStreakDays: Math.max(this.readingStats.longestStreakDays, streak), lastStreakDate: todayStr,
       };
-      const dayKey = new Date().toISOString().slice(0, 10);
+      const dayKey = localDateStr(new Date());
       this.dailyReadCounts = { ...this.dailyReadCounts, [dayKey]: (this.dailyReadCounts[dayKey] ?? 0) + 1 };
     }
   }

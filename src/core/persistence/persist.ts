@@ -3,6 +3,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 const settingsStore = new LazyStore("settings.json", { autoSave: false });
 const libraryStore  = new LazyStore("library.json",  { autoSave: false });
 const updatesStore  = new LazyStore("updates.json",  { autoSave: false });
+const backupsStore  = new LazyStore("backups.json",  { autoSave: false });
 
 export interface PersistedData {
   settings:             any;
@@ -132,4 +133,24 @@ export async function persistUpdates(data: {
     updatesStore.set("acknowledgedUpdateIds",  data.acknowledgedUpdateIds),
   ]);
   await updatesStore.save();
+}
+
+export interface BackupEntry { url: string; name: string; }
+
+export async function loadBackups(): Promise<BackupEntry[]> {
+  const fromStore = await backupsStore.get<BackupEntry[]>("backupList");
+  if (fromStore) return fromStore;
+  try {
+    const raw = localStorage.getItem("moku_backups");
+    if (!raw) return [];
+    const migrated: BackupEntry[] = JSON.parse(raw);
+    await persistBackups(migrated);
+    localStorage.removeItem("moku_backups");
+    return migrated;
+  } catch { return []; }
+}
+
+export async function persistBackups(list: BackupEntry[]): Promise<void> {
+  await backupsStore.set("backupList", list);
+  await backupsStore.save();
 }

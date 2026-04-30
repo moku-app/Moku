@@ -29,6 +29,10 @@
     return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
+  function localDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
   let wrapEl: HTMLElement;
   let cellSize = $state(12);
   let numWeeks = $state(26);
@@ -55,7 +59,7 @@
   const visibleWeeks = $derived((() => {
     const today    = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = localDateStr(today);
     const endDow   = today.getDay(); // 0=Sun ... 6=Sat
     const weekEnd  = new Date(today);
     weekEnd.setDate(weekEnd.getDate() + (6 - endDow)); // advance to Saturday
@@ -66,7 +70,7 @@
       for (let di = 0; di < 7; di++) {
         const d = new Date(weekEnd);
         d.setDate(d.getDate() - wi * 7 - (6 - di));
-        const dateStr = d.toISOString().slice(0, 10);
+        const dateStr = localDateStr(d);
         week.push({ dateStr, count: dailyReadCounts[dateStr] ?? 0, isToday: dateStr === todayStr, isFuture: d > today });
       }
       weeks.push(week);

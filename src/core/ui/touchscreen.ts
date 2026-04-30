@@ -28,9 +28,6 @@ export function longPress(node: HTMLElement, opts: LongPressOptions) {
   node.addEventListener("pointerleave", cancel);
   node.addEventListener("pointercancel",cancel);
 
-  function suppressClick(e: MouseEvent) { if (fired) { fired = false; e.preventDefault(); e.stopPropagation(); } }
-  node.addEventListener("click", suppressClick, true);
-
   return {
     get fired() { return fired; },
     destroy() {
@@ -40,7 +37,6 @@ export function longPress(node: HTMLElement, opts: LongPressOptions) {
       node.removeEventListener("pointerup",    cancel);
       node.removeEventListener("pointerleave", cancel);
       node.removeEventListener("pointercancel",cancel);
-      node.removeEventListener("click", suppressClick, true);
     },
   };
 }
@@ -134,53 +130,69 @@ export interface PinchOptions {
   onPinchEnd?: (scale: number) => void;
 }
 
-export function pinch(node: HTMLElement, opts: PinchOptions) {
+export interface PinchGestureOptions {
+  onPinch:     (scale: number, origin: { x: number; y: number }) => void;
+  onPinchEnd?: (scale: number) => void;
+}
+
+export interface PinchGesture {
+  onPointerDown: (e: PointerEvent) => void;
+  onPointerMove: (e: PointerEvent) => void;
+  onPointerUp:   (e: PointerEvent) => void;
+  isPinching:    () => boolean;
+}
+
+export function createPinchGesture(opts: PinchGestureOptions): PinchGesture {
   const { onPinch, onPinchEnd } = opts;
   const pointers = new Map<number, PointerEvent>();
-  let initDist = 0, initMid = { x: 0, y: 0 };
+  let initDist = 0;
 
-  function dist(a: PointerEvent, b: PointerEvent) {
+  function pdist(a: PointerEvent, b: PointerEvent) {
     const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
     return Math.sqrt(dx * dx + dy * dy);
   }
-  function mid(a: PointerEvent, b: PointerEvent) {
+  function pmid(a: PointerEvent, b: PointerEvent) {
     return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
   }
 
-  function down(e: PointerEvent) {
+  function onPointerDown(e: PointerEvent) {
     pointers.set(e.pointerId, e);
-    node.setPointerCapture(e.pointerId);
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
-      initDist = dist(a, b);
-      initMid  = mid(a, b);
+      initDist = pdist(a, b);
     }
   }
-  function move(e: PointerEvent) {
+  function onPointerMove(e: PointerEvent) {
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, e);
     if (pointers.size !== 2 || initDist === 0) return;
     const [a, b] = [...pointers.values()];
-    onPinch(dist(a, b) / initDist, mid(a, b));
+    onPinch(pdist(a, b) / initDist, pmid(a, b));
   }
-  function up(e: PointerEvent) {
+  function onPointerUp(e: PointerEvent) {
     if (pointers.size === 2 && onPinchEnd) {
       const [a, b] = [...pointers.values()];
-      onPinchEnd(dist(a, b) / initDist);
+      onPinchEnd(pdist(a, b) / initDist);
     }
     pointers.delete(e.pointerId);
     initDist = 0;
   }
 
+  return { onPointerDown, onPointerMove, onPointerUp, isPinching: () => pointers.size >= 2 };
+}
+
+export function pinch(node: HTMLElement, opts: PinchOptions) {
+  const gesture = createPinchGesture(opts);
+  function down(e: PointerEvent) { node.setPointerCapture(e.pointerId); gesture.onPointerDown(e); }
   node.addEventListener("pointerdown",   down);
-  node.addEventListener("pointermove",   move);
-  node.addEventListener("pointerup",     up);
-  node.addEventListener("pointercancel", up);
+  node.addEventListener("pointermove",   gesture.onPointerMove);
+  node.addEventListener("pointerup",     gesture.onPointerUp);
+  node.addEventListener("pointercancel", gesture.onPointerUp);
   return { destroy() {
     node.removeEventListener("pointerdown",   down);
-    node.removeEventListener("pointermove",   move);
-    node.removeEventListener("pointerup",     up);
-    node.removeEventListener("pointercancel", up);
+    node.removeEventListener("pointermove",   gesture.onPointerMove);
+    node.removeEventListener("pointerup",     gesture.onPointerUp);
+    node.removeEventListener("pointercancel", gesture.onPointerUp);
   }};
 }
 
