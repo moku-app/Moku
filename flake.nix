@@ -53,8 +53,6 @@
             gsettings-desktop-schemas
           ];
 
-          # ── source filters ──────────────────────────────────────────────
-
           frontendSrc = lib.cleanSourceWith {
             src = ./.;
             filter =
@@ -80,8 +78,6 @@
               || (builtins.baseNameOf path == "tauri.conf.json");
           };
 
-          # ── packages ────────────────────────────────────────────────────
-
           suwayomiServer = pkgs.callPackage ./nix/server.nix { };
 
           frontend = pkgs.callPackage ./nix/frontend.nix {
@@ -93,8 +89,6 @@
             inherit lib craneLib pkgs runtimeLibs frontend suwayomiServer version cargoSrc;
             appIcon = ./src/assets/moku-icon.svg;
           };
-
-          # ── dev/release scripts ─────────────────────────────────────────
 
           scripts = import ./nix/scripts.nix { inherit pkgs rustToolchain version; };
 

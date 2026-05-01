@@ -1,6 +1,7 @@
 use crate::server::do_log;
 use serde::Serialize;
 use std::path::PathBuf;
+use walkdir::WalkDir;
 use tauri::Manager;
 
 #[derive(Serialize, Debug)]
