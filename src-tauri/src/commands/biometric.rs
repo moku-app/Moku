@@ -77,7 +77,7 @@ mod windows_hello {
 }
 
 #[tauri::command]
-pub fn windows_hello_authenticate(_reason: String) -> Result<(), String> {
+pub fn windows_hello_authenticate(reason: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     return windows_hello::authenticate(&reason);
     #[cfg(not(target_os = "windows"))]
