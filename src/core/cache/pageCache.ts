@@ -1,4 +1,4 @@
-import { gql, plainThumbUrl }         from "@api/client";
+import { gql, getServerUrl }           from "@api/client";
 import { getBlobUrl, preloadBlobUrls } from "@core/cache/imageCache";
 import { dedupeRequest }               from "@core/async/batchRequests";
 import { FETCH_CHAPTER_PAGES }         from "@api/mutations/chapters";
@@ -29,7 +29,7 @@ export function fetchPages(
     const p = dedupeRequest(`chapter-pages:${chapterId}`, () =>
       gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
         .then(d => {
-          const urls = d.fetchChapterPages.pages.map(p => plainThumbUrl(p));
+          const urls = d.fetchChapterPages.pages.map(p => p.startsWith("http") ? p : `${getServerUrl()}${p}`);
           if (useBlob) {
             if (urls[priorityPage]) getBlobUrl(urls[priorityPage], urls.length + 999);
             preloadBlobUrls(urls.filter((_, i) => i !== priorityPage), urls.length);

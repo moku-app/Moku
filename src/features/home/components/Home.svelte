@@ -97,7 +97,10 @@
     const path = heroThumbSrc;
     const mode = store.settings.serverAuthMode ?? "NONE";
     if (!path) { heroThumb = ""; return; }
-    if (mode !== "BASIC_AUTH") { heroThumb = thumbUrl(path); return; }
+
+    const needsBlob = mode === "BASIC_AUTH" || mode === "UI_LOGIN";
+    if (!needsBlob) { heroThumb = thumbUrl(path); return; }
+
     getBlobUrl(thumbUrl(path))
       .then(url => { heroThumb = url; })
       .catch(() => { heroThumb = ""; });

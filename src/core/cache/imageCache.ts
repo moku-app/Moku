@@ -1,5 +1,6 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { store } from "@store/state.svelte";
+import { uiAuth } from "@core/auth";
 
 const cache    = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
@@ -17,9 +18,17 @@ interface QueueEntry {
 const queue: QueueEntry[] = [];
 
 function getAuthHeaders(): Record<string, string> {
-  const user = store.settings.serverAuthUser?.trim() ?? "";
-  const pass = store.settings.serverAuthPass?.trim() ?? "";
-  return user && pass ? { Authorization: `Basic ${btoa(`${user}:${pass}`)}` } : {};
+  const mode = store.settings.serverAuthMode ?? "NONE";
+  if (mode === "UI_LOGIN") {
+    const token = uiAuth.getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+  if (mode === "BASIC_AUTH") {
+    const user = store.settings.serverAuthUser?.trim() ?? "";
+    const pass = store.settings.serverAuthPass?.trim() ?? "";
+    return user && pass ? { Authorization: `Basic ${btoa(`${user}:${pass}`)}` } : {};
+  }
+  return {};
 }
 
 async function doFetch(url: string): Promise<string> {

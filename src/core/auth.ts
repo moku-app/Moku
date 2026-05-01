@@ -9,12 +9,13 @@ export class AuthRequiredError extends Error {
   }
 }
 
-let _accessToken: string | null = null;
+const TOKEN_KEY = "moku_access_token";
+let _accessToken: string | null = sessionStorage.getItem(TOKEN_KEY);
 
 export const uiAuth = {
   getToken:   () => _accessToken,
-  setToken:   (t: string) => { _accessToken = t; },
-  clearToken: () => { _accessToken = null; },
+  setToken:   (t: string) => { _accessToken = t; sessionStorage.setItem(TOKEN_KEY, t); },
+  clearToken: () => { _accessToken = null; sessionStorage.removeItem(TOKEN_KEY); },
 };
 
 export const authSession = {

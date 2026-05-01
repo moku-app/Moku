@@ -1,10 +1,10 @@
 import { store } from "@store/state.svelte";
-import { fetchAuthenticated, AuthRequiredError } from "../core/auth";
+import { fetchAuthenticated, AuthRequiredError, uiAuth } from "../core/auth";
 import { boot } from "@store/boot.svelte";
 
 const DEFAULT_URL = "http://127.0.0.1:4567";
 
-function getServerUrl(): string {
+export function getServerUrl(): string {
   const url = store.settings.serverUrl;
   return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : DEFAULT_URL;
 }
@@ -12,7 +12,20 @@ function getServerUrl(): string {
 export function plainThumbUrl(path: string): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
-  return `${getServerUrl()}${path}`;
+  
+  const base = `${getServerUrl()}${path}`;
+  const mode = store.settings.serverAuthMode ?? "NONE";
+  
+  if (mode === "UI_LOGIN") {
+    const token = uiAuth.getToken();
+    if (token) {
+      const url = new URL(base);
+      url.searchParams.set("authorization", token);
+      return url.toString();
+    }
+  }
+  
+  return base;
 }
 
 export const thumbUrl = plainThumbUrl;
@@ -56,6 +69,25 @@ async function fetchWithRetry(
     }
   }
   throw new Error("unreachable");
+}
+
+export async function fetchImage(
+  path: string,
+  signal?: AbortSignal,
+): Promise<{ src: string; revoke: () => void }> {
+  if (!path) return { src: "", revoke: () => {} };
+
+  const url  = path.startsWith("http") ? path : `${getServerUrl()}${path}`;
+  const mode = store.settings.serverAuthMode ?? "NONE";
+
+  if (mode === "NONE") return { src: url, revoke: () => {} };
+
+  const res = await fetchWithRetry(url, { method: "GET" }, signal);
+  if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`);
+
+  const blob = await res.blob();
+  const src  = URL.createObjectURL(blob);
+  return { src, revoke: () => URL.revokeObjectURL(src) };
 }
 
 export async function gql<T>(

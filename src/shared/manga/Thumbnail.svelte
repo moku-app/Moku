@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { thumbUrl, plainThumbUrl } from "@api/client";
+  import { thumbUrl, getServerUrl } from "@api/client";
   import { store } from "@store/state.svelte";
   import { getBlobUrl } from "@core/cache/imageCache";
 
@@ -23,7 +23,10 @@
     [key: string]: any;
   } = $props();
 
-  const isAuth = $derived(store.settings.serverAuthMode === "BASIC_AUTH");
+  const isAuth = $derived(
+    store.settings.serverAuthMode === "BASIC_AUTH" ||
+    store.settings.serverAuthMode === "UI_LOGIN"
+  );
 
   let blobUrl = $state("");
   let reqId   = 0;
@@ -36,7 +39,8 @@
     if (!_isAuth || !_src) { blobUrl = ""; return; }
 
     const id = ++reqId;
-    getBlobUrl(plainThumbUrl(_src), _priority)
+    const bareUrl = _src.startsWith("http") ? _src : `${getServerUrl()}${_src}`;
+    getBlobUrl(bareUrl, _priority)
       .then(u  => { if (id === reqId) blobUrl = u; })
       .catch(() => { if (id === reqId) blobUrl = ""; });
   });
