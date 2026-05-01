@@ -210,7 +210,7 @@
       </div>
       <button class="s-toggle" class:on={store.settings.trackerSyncBack}
         onclick={() => updateSettings({ trackerSyncBack: !store.settings.trackerSyncBack })}
-        role="switch" aria-checked={store.settings.trackerSyncBack}>
+        role="switch" aria-checked={store.settings.trackerSyncBack} aria-label="Enable sync back">
         <span class="s-toggle-thumb"></span>
       </button>
     </div>
@@ -221,7 +221,7 @@
           <span class="s-label">Chapter number tolerance</span>
           <span class="s-desc">Allow source and tracker chapter numbers to differ by up to the set amount. When off, the tracker number is used as-is with no range check.</span>
         </div>
-        <button role="switch" aria-checked={store.settings.trackerSyncBackThreshold !== null} class="s-toggle" class:on={store.settings.trackerSyncBackThreshold !== null}
+        <button role="switch" aria-checked={store.settings.trackerSyncBackThreshold !== null} aria-label="Chapter number tolerance" class="s-toggle" class:on={store.settings.trackerSyncBackThreshold !== null}
           onclick={() => updateSettings({ trackerSyncBackThreshold: store.settings.trackerSyncBackThreshold !== null ? null : 20 })}>
           <span class="s-toggle-thumb"></span>
         </button>
@@ -244,7 +244,7 @@
         </div>
         <button class="s-toggle" class:on={store.settings.trackerRespectScanlatorFilter}
           onclick={() => updateSettings({ trackerRespectScanlatorFilter: !store.settings.trackerRespectScanlatorFilter })}
-          role="switch" aria-checked={store.settings.trackerRespectScanlatorFilter}>
+          role="switch" aria-checked={store.settings.trackerRespectScanlatorFilter} aria-label="Respect scanlator filter">
           <span class="s-toggle-thumb"></span>
         </button>
       </div>

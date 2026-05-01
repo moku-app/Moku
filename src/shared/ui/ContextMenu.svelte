@@ -23,7 +23,7 @@
   let focused  = $state(-1);
   let el       = $state<HTMLDivElement | undefined>(undefined);
   let measured = $state(false);
-  let pos      = $state({ left: x, top: y });
+  let pos      = $state({ left: 0, top: 0 });
   let subOpen  = $state(-1);
   let subEls   = $state<(HTMLDivElement | null)[]>([]);
 
@@ -159,7 +159,7 @@
           {#if hasSub}<span class="sub-arrow">›</span>{/if}
         </button>
         {#if hasSub && subOpen === i}
-          <div bind:this={subEls[i]} class="menu submenu" role="menu"
+          <div bind:this={subEls[i]} class="menu submenu" role="menu" tabindex="-1"
             onmouseenter={() => { subOpen = i; }}>
             {#each mi.children as child}
               {#if "separator" in child}
@@ -204,7 +204,7 @@
     animation: scaleIn 0.08s ease both;
     transform-origin: top left;
   }
-  .submenu.sub-flip {
+  :global(.submenu.sub-flip) {
     left: auto;
     right: 100%;
     transform-origin: top right;

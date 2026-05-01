@@ -11,9 +11,9 @@
 
   let { selectOpen, toggleSelect, anims }: Props = $props();
 
-  let triggerPageStyle:  HTMLButtonElement;
-  let triggerReadingDir: HTMLButtonElement;
-  let triggerFitMode:    HTMLButtonElement;
+  let triggerPageStyle  = $state<HTMLButtonElement>(null!);
+  let triggerReadingDir = $state<HTMLButtonElement>(null!);
+  let triggerFitMode    = $state<HTMLButtonElement>(null!);
 </script>
 
 <div class="s-panel">

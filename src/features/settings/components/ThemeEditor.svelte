@@ -139,8 +139,8 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="backdrop" role="presentation" onclick={onClose} onkeydown={(e) => e.key === "Escape" && onClose()}>
-  <div class="shell" role="dialog" aria-label="Theme editor" tabindex="0" style={toCssVars(tokens)} onclick={(e) => e.stopPropagation()}>
+<div class="backdrop" role="button" tabindex="-1" aria-label="Close theme editor" onclick={onClose} onkeydown={(e) => e.key === "Escape" && onClose()}>
+  <div class="shell" role="dialog" aria-label="Theme editor" tabindex="0" style={toCssVars(tokens)} onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 
     <header class="header">
       <div class="header-left">

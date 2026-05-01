@@ -266,11 +266,6 @@
   .panel-divider { height: 1px; background: var(--border-dim); margin: 4px 2px; }
   .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px 4px; }
   .panel-heading { font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); color: var(--text-secondary); font-weight: var(--weight-medium, 500); }
-  .panel-clear-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 0; transition: color var(--t-base); }
-  .panel-clear-btn:hover { color: var(--color-error); }
-  .panel-item-check { justify-content: flex-start; gap: var(--sp-2); }
-  .panel-check { width: 13px; height: 13px; border-radius: 2px; border: 1px solid var(--border-strong); background: transparent; flex-shrink: 0; transition: background var(--t-base), border-color var(--t-base); display: flex; align-items: center; justify-content: center; color: var(--bg-base); }
-  .panel-check-on { background: var(--accent); border-color: var(--accent); }
   .dir-toggle { color: var(--text-secondary); justify-content: flex-start; gap: var(--sp-2); border-top: 1px solid var(--border-dim); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: 2px; padding-top: 9px; }
   :global(.sort-caret) { flex-shrink: 0; }
 </style>

@@ -200,7 +200,7 @@
           <div class="s-row-info"><span class="s-label">Password</span></div>
           <div class="s-field-wrap">
             <input class="s-input" type={showAuthPass ? "text" : "password"} bind:value={authPassword} placeholder="Password" autocomplete="off" spellcheck="false" disabled={secLoading} />
-            <button class="s-eye-btn" onclick={() => showAuthPass = !showAuthPass} tabindex="-1">{@html showAuthPass ? EyeClose : EyeOpen}</button>
+            <button class="s-eye-btn" onclick={() => showAuthPass = !showAuthPass} tabindex="-1" aria-label={showAuthPass ? "Hide password" : "Show password"}>{@html showAuthPass ? EyeClose : EyeOpen}</button>
           </div>
         </div>
       {/if}
@@ -236,7 +236,7 @@
     <div class="s-section-body">
       <label class="s-row">
         <div class="s-row-info"><span class="s-label">Enable SOCKS proxy</span><span class="s-desc">Route Suwayomi traffic through a SOCKS4/5 proxy</span></div>
-        <button role="switch" aria-checked={socksEnabled} class="s-toggle" class:on={socksEnabled}
+        <button role="switch" aria-checked={socksEnabled} aria-label="Enable SOCKS proxy" class="s-toggle" class:on={socksEnabled}
           onclick={() => { socksEnabled = !socksEnabled; saveSocksProxy(); }}><span class="s-toggle-thumb"></span></button>
       </label>
       {#if socksEnabled}
@@ -272,7 +272,7 @@
           <div class="s-row-info"><span class="s-label">Password</span><span class="s-desc">Optional</span></div>
           <div class="s-field-wrap">
             <input class="s-input" type={showSocksPass ? "text" : "password"} bind:value={socksPassword} placeholder="Password" autocomplete="off" spellcheck="false" />
-            <button class="s-eye-btn" onclick={() => showSocksPass = !showSocksPass} tabindex="-1">{@html showSocksPass ? EyeClose : EyeOpen}</button>
+            <button class="s-eye-btn" onclick={() => showSocksPass = !showSocksPass} tabindex="-1" aria-label={showSocksPass ? "Hide password" : "Show password"}>{@html showSocksPass ? EyeClose : EyeOpen}</button>
           </div>
         </div>
         <div class="s-row">
@@ -290,7 +290,7 @@
     <div class="s-section-body">
       <label class="s-row">
         <div class="s-row-info"><span class="s-label">Enable FlareSolverr</span><span class="s-desc">Bypass Cloudflare challenges for sources that require it</span></div>
-        <button role="switch" aria-checked={flareEnabled} class="s-toggle" class:on={flareEnabled}
+        <button role="switch" aria-checked={flareEnabled} aria-label="Enable FlareSolverr" class="s-toggle" class:on={flareEnabled}
           onclick={() => { flareEnabled = !flareEnabled; saveFlareSolverr(); }}><span class="s-toggle-thumb"></span></button>
       </label>
       {#if flareEnabled}
@@ -320,7 +320,7 @@
         </div>
         <label class="s-row">
           <div class="s-row-info"><span class="s-label">Response fallback</span><span class="s-desc">Use FlareSolverr's response when the direct request fails</span></div>
-          <button role="switch" aria-checked={flareFallback} class="s-toggle" class:on={flareFallback}
+          <button role="switch" aria-checked={flareFallback} aria-label="Response fallback" class="s-toggle" class:on={flareFallback}
             onclick={() => flareFallback = !flareFallback}><span class="s-toggle-thumb"></span></button>
         </label>
         <div class="s-row">

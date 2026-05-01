@@ -44,7 +44,7 @@
   let search:         string      = $state("");
   let renderVisible:  number      = $state(store.settings.renderLimit ?? 48);
   let scrollEl:       HTMLDivElement;
-  let tabsEl:         HTMLDivElement;
+  let tabsEl         = $state<HTMLDivElement>(null!);
   let containerWidth: number      = $state(800);
   let ctx:      { x: number; y: number; manga: Manga } | null = $state(null);
   let emptyCtx: { x: number; y: number } | null              = $state(null);

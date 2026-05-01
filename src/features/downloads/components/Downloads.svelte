@@ -115,7 +115,7 @@
   </div>
 
   <div class="bar-wrap">
-    <div class="status-bar" onclick={handleClickOff} role="presentation">
+    <div class="status-bar" role="none">
       <div class="status-dot" class:active={downloadStore.isRunning}></div>
       <span class="status-text">
         {downloadStore.togglingPlay
@@ -127,7 +127,7 @@
           <button class="sel-action-btn" disabled={downloadStore.batchWorking} onclick={(e) => { e.stopPropagation(); downloadStore.reorderSelectedToEdge("top"); }} title="Move to top">
             <ArrowLineUp size={12} weight="bold" />
           </button>
-          <div class="move-step" onclick={(e) => e.stopPropagation()} role="presentation">
+          <div class="move-step" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="none">
             <button class="sel-action-btn" disabled={downloadStore.batchWorking} onclick={(e) => { e.stopPropagation(); downloadStore.reorderSelected("up", moveBy); }} title="Move up">
               <CaretUp size={12} weight="bold" />
             </button>
@@ -168,7 +168,7 @@
     </div>
   </div>
 
-  <div class="content" onclick={handleClickOff}>
+  <div class="content" role="none" onclick={handleClickOff} onkeydown={(e) => e.key === 'Escape' && handleClickOff()}>
     <DownloadQueue
       queue={downloadStore.queue}
       loading={downloadStore.loading}
@@ -204,9 +204,6 @@
   .sel-controls { display: flex; align-items: center; gap: var(--sp-2); }
   .status-bar { cursor: default; }
   .bar-sep { width: 1px; height: 12px; background: var(--border-dim); flex-shrink: 0; }
-  .sel-count { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); white-space: nowrap; }
-  .sel-text-btn { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); transition: color var(--t-base); white-space: nowrap; }
-  .sel-text-btn:hover { color: var(--text-primary); }
   .sel-action-btn { display: flex; align-items: center; gap: 4px; font-family: var(--font-ui); font-size: var(--text-xs); padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-overlay); color: var(--text-muted); cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); white-space: nowrap; }
   .sel-action-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
   .sel-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }

@@ -306,6 +306,7 @@
       {#if readerState.winOpen}
         <div
           class="wc-clip wc-clip-{popoverSide}"
+          role="presentation"
           onmouseenter={wcResetTimer}
           onmousemove={wcResetTimer}
         >

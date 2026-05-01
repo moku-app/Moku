@@ -63,7 +63,7 @@
   let inspectPanStartX  = 0;
   let inspectPanStartY  = 0;
 
-  let stripDragging    = false;
+  let stripDragging    = $state(false);
   let stripDragMoved   = false;
   let stripDragStartY  = 0;
   let stripScrollStart = 0;

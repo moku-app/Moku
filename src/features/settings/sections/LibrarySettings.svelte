@@ -11,7 +11,7 @@
 
   let { selectOpen, toggleSelect, anims }: Props = $props();
 
-  let triggerSortDir: HTMLButtonElement;
+  let triggerSortDir = $state<HTMLButtonElement>(null!);
 </script>
 
 <div class="s-panel">

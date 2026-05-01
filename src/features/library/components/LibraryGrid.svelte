@@ -95,7 +95,7 @@
   </div>
 {/if}
 
-<div class="content" onclick={(e) => { if (selectMode && !(e.target as HTMLElement).closest(".card")) onExitSelectMode(); }}>
+<div class="content" role="presentation" onclick={(e) => { if (selectMode && !(e.target as HTMLElement).closest(".card")) onExitSelectMode(); }}>
   {#if loading}
     <div class="grid">
       {#each Array(12) as _}
@@ -184,7 +184,6 @@
   .grid { position: relative; z-index: 1; isolation: isolate; display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
   .card { background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
   .card.anims:not(.select-mode):hover .cover-wrap { transform: translateY(-3px); border-color: var(--border-strong); box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
-  .card.anims:not(.select-mode):hover .cover { filter: brightness(1.1); }
   .card:not(.select-mode):hover .title { color: var(--text-primary); }
   .card.select-mode { cursor: default; }
   .card.card-selected .cover-wrap { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-md); }
@@ -192,7 +191,6 @@
   .cover-wrap { position: relative; aspect-ratio: 2/3; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-raised); border: 1px solid var(--border-dim); will-change: transform; }
   .card.anims .cover-wrap { transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color var(--t-base), box-shadow 0.18s cubic-bezier(0.16,1,0.3,1); }
   .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
-  .card.anims .cover { transition: filter var(--t-base); }
   .card-info-overlay { position: absolute; bottom: -4px; left: 0; right: 0; z-index: 2; padding: 32px 6px 10px; background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 50%, transparent 100%); opacity: 0; pointer-events: none; }
   .card-info-overlay.anim { transition: opacity 0.18s ease; }
   .card-info-overlay.instant { transition: none; }

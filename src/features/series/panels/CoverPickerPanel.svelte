@@ -60,11 +60,13 @@
 
 <div
   class="backdrop"
-  role="presentation"
+  role="button"
+  tabindex="-1"
+  aria-label="Close cover picker"
   onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => e.key === "Escape" && onClose()}
 >
-  <div class="modal" role="dialog" aria-label="Choose cover image" onkeydown={onKeydown}>
+  <div class="modal" role="dialog" aria-label="Choose cover image" tabindex="-1" onkeydown={onKeydown}>
     <div class="header">
       <span class="title">Cover Image</span>
 <button class="close-btn" onclick={onClose}><X size={14} weight="light" /></button>
@@ -141,12 +143,6 @@
   .title {
     font-size: var(--text-sm); font-weight: var(--weight-medium);
     color: var(--text-secondary); flex: 1;
-  }
-  .comparing {
-    font-family: var(--font-ui); font-size: 9px;
-    color: var(--text-faint); letter-spacing: var(--tracking-wider);
-    text-transform: uppercase;
-    animation: pulse 1.2s ease-in-out infinite;
   }
   .close-btn {
     display: flex; align-items: center; justify-content: center;

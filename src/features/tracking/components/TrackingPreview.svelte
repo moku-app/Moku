@@ -20,8 +20,13 @@
   let updatingId     = $state<number | null>(null);
   let syncingId      = $state<number | null>(null);
   let editingChapter = $state(false);
-  let chapterDraft   = $state(record.lastChapterRead);
-  let scoreDraft     = $state(record.displayScore ?? "");
+  let chapterDraft   = $state(0);
+  let scoreDraft     = $state("");
+
+  $effect(() => {
+    chapterDraft = record.lastChapterRead;
+    scoreDraft   = record.displayScore ?? "";
+  });
   let confirmUnbind  = $state(false);
 
   const isBusy     = $derived(updatingId === record.id);
@@ -123,8 +128,11 @@
 
 <div
   class="backdrop"
-  role="presentation"
+  role="button"
+  tabindex="-1"
+  aria-label="Close tracking detail"
   onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+  onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
   <div class="modal" role="dialog" aria-label="Tracking detail">
 
@@ -323,8 +331,8 @@
 </div>
 
 {#if confirmUnbind}
-  <div class="confirm-backdrop" role="presentation" onclick={() => confirmUnbind = false}>
-    <div class="confirm-modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  <div class="confirm-backdrop" role="button" tabindex="-1" aria-label="Cancel" onclick={() => confirmUnbind = false} onkeydown={(e) => { if (e.key === 'Escape') confirmUnbind = false; }}>
+    <div class="confirm-modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="confirm-icon"><X size={16} weight="bold" /></div>
       <p class="confirm-title">Unlink from {record.tracker.name}?</p>
       <p class="confirm-body"><strong>{record.title}</strong> will be removed from your list. Your progress on {record.tracker.name} is unaffected.</p>

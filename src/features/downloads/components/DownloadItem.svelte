@@ -39,8 +39,12 @@
   class:row-error={isError}
   class:row-selected={isSelected}
   class:row-removing={isRemoving}
+  role="option"
+  aria-selected={isSelected}
+  tabindex="0"
   use:rowLongPress
   onclick={(e) => { e.stopPropagation(); onSelect(item.chapter.id, e); }}
+  onkeydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onSelect(item.chapter.id, e as unknown as MouseEvent); } }}
 >
   {#if manga?.thumbnailUrl}
     <div class="thumb">

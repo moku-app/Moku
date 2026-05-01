@@ -11,7 +11,7 @@
 
   let { selectOpen, closingSelect, toggleSelect, anims }: Props = $props();
 
-  let triggerIdleTimeout: HTMLButtonElement;
+  let triggerIdleTimeout = $state<HTMLButtonElement>(null!);
 </script>
 
 <div class="s-panel">

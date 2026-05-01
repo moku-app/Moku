@@ -493,8 +493,8 @@
 {#if confirmUnbindId !== null}
   {@const rec = records.find(r => r.id === confirmUnbindId)}
   {@const trk = rec ? trackerFor(rec.trackerId) : null}
-  <div class="confirm-backdrop" role="presentation" onclick={() => confirmUnbindId = null}>
-    <div class="confirm-modal" role="dialog" onclick={(e) => e.stopPropagation()}>
+  <div class="confirm-backdrop" role="button" tabindex="-1" aria-label="Cancel" onclick={() => confirmUnbindId = null} onkeydown={(e) => { if (e.key === 'Escape') confirmUnbindId = null; }}>
+    <div class="confirm-modal" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <p class="confirm-title">Unlink from {trk?.name ?? "tracker"}?</p>
       <p class="confirm-body">Your progress on {trk?.name} is unaffected.</p>
       <div class="confirm-row">

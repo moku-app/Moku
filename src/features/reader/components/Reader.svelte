@@ -139,7 +139,7 @@
   let containerEl: HTMLDivElement | null = null;
   let pageViewRef: PageView;
   let zoomAnchor = { el: null as HTMLElement | null, offset: 0 };
-  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  let hideTimer = $state<ReturnType<typeof setTimeout> | null>(null);
   let markedRead  = new Set<number>();
   let appending   = false;
   let abortCtrl   = { current: null as AbortController | null };

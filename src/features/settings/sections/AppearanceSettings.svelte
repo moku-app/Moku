@@ -32,8 +32,8 @@
     mountSystemThemeSync();
   }
 
-  let triggerDark:  HTMLButtonElement;
-  let triggerLight: HTMLButtonElement;
+  let triggerDark  = $state<HTMLButtonElement>(null!);
+  let triggerLight = $state<HTMLButtonElement>(null!);
 </script>
 
 <div class="s-panel">
@@ -49,6 +49,7 @@
         class:on={store.settings.systemThemeSync}
         onclick={toggleSync}
         role="switch"
+        aria-label="Match system theme"
         aria-checked={store.settings.systemThemeSync}
       ><span class="s-toggle-thumb"></span></button>
     </div>

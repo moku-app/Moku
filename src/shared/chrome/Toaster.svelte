@@ -49,7 +49,7 @@
 {#if store.toasts.length}
   <div class="toaster" aria-live="polite">
     {#each store.toasts as t (t.id)}
-      <div role="alert" class="toast toast-{t.kind}" data-toast-id={t.id} onclick={() => dismiss(t.id)}>
+      <button class="toast toast-{t.kind}" data-toast-id={t.id} aria-label="{t.title}{t.body ? ': ' + t.body : ''}" onclick={() => dismiss(t.id)}>
         <div class="accent-bar"></div>
         <span class="icon">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -60,7 +60,7 @@
           <p class="title">{t.title}</p>
           <p class="sub">{t.body ?? '\u00a0'}</p>
         </div>
-      </div>
+      </button>
     {/each}
   </div>
 {/if}

@@ -108,7 +108,7 @@
   ];
 </script>
 
-<div class="backdrop" role="presentation" onclick={close} transition:fade={{ duration: 150 }}></div>
+<div class="backdrop" role="button" tabindex="-1" aria-label="Close settings" onclick={close} onkeydown={(e) => e.key === 'Escape' && close()} transition:fade={{ duration: 150 }}></div>
 
 <div
   class="panel"
@@ -130,12 +130,13 @@
       <p class="section-label">Page Style</p>
       <div class="option-grid">
         {#each styleOptions as o}
+          {@const Icon = o.icon}
           <button
             class="option-tile"
             class:active={style === o.value}
             onclick={() => onApplySettings({ pageStyle: o.value as typeof PAGE_STYLES[number] })}
           >
-            <div class="tile-icon"><svelte:component this={o.icon} size={18} weight={style === o.value ? "fill" : "light"} /></div>
+            <div class="tile-icon"><Icon size={18} weight={style === o.value ? "fill" : "light"} /></div>
             <span class="tile-label">{o.label}</span>
           </button>
         {/each}
@@ -149,6 +150,7 @@
             class:on={effectiveSettings.offsetDoubleSpreads}
             onclick={() => onApplySettings({ offsetDoubleSpreads: !effectiveSettings.offsetDoubleSpreads })}
             role="switch"
+            aria-label="Offset double spreads"
             aria-checked={effectiveSettings.offsetDoubleSpreads}
           ><span class="toggle-knob"></span></button>
         </label>
@@ -161,6 +163,7 @@
             class:on={effectiveSettings.pageGap ?? true}
             onclick={() => onApplySettings({ pageGap: !(effectiveSettings.pageGap ?? true) })}
             role="switch"
+            aria-label="Gap between pages"
             aria-checked={effectiveSettings.pageGap ?? true}
           ><span class="toggle-knob"></span></button>
         </label>
@@ -171,6 +174,7 @@
             class:on={store.settings.autoNextChapter ?? false}
             onclick={() => updateSettings({ autoNextChapter: !(store.settings.autoNextChapter ?? false) })}
             role="switch"
+            aria-label="Auto next chapter"
             aria-checked={store.settings.autoNextChapter ?? false}
           ><span class="toggle-knob"></span></button>
         </label>
@@ -181,12 +185,13 @@
       <p class="section-label">Fit Mode</p>
       <div class="option-grid">
         {#each fitOptions as o}
+          {@const Icon = o.icon}
           <button
             class="option-tile"
             class:active={fit === o.value}
             onclick={() => onApplySettings({ fitMode: o.value })}
           >
-            <div class="tile-icon"><svelte:component this={o.icon} size={18} weight={fit === o.value ? "fill" : "light"} /></div>
+            <div class="tile-icon"><Icon size={18} weight={fit === o.value ? "fill" : "light"} /></div>
             <span class="tile-label">{o.label}</span>
           </button>
         {/each}
@@ -240,7 +245,7 @@
         <span class="zoom-readout">{zoomPct}%</span>
       </div>
       <div class="zoom-row">
-        <button class="zoom-step" onclick={() => setZoom(zoom - 0.1)} disabled={zoom <= ZOOM_MIN}>−</button>
+        <button class="zoom-step" aria-label="Zoom out" onclick={() => setZoom(zoom - 0.1)} disabled={zoom <= ZOOM_MIN}>−</button>
         <input
           type="range"
           class="zoom-slider"
@@ -250,7 +255,7 @@
           value={zoomPct}
           oninput={(e) => setZoom(Number(e.currentTarget.value) / 100)}
         />
-        <button class="zoom-step" onclick={() => setZoom(zoom + 0.1)} disabled={zoom >= ZOOM_MAX}>+</button>
+        <button class="zoom-step" aria-label="Zoom in" onclick={() => setZoom(zoom + 0.1)} disabled={zoom >= ZOOM_MAX}>+</button>
       </div>
     </section>
 
@@ -263,6 +268,7 @@
           class:on={effectiveSettings.optimizeContrast}
           onclick={() => onApplySettings({ optimizeContrast: !effectiveSettings.optimizeContrast })}
           role="switch"
+          aria-label="Optimize contrast"
           aria-checked={effectiveSettings.optimizeContrast}
         ><span class="toggle-knob"></span></button>
       </label>
@@ -273,6 +279,7 @@
           class:on={store.settings.pinchZoom ?? false}
           onclick={() => updateSettings({ pinchZoom: !(store.settings.pinchZoom ?? false) })}
           role="switch"
+          aria-label="Pinch to zoom"
           aria-checked={store.settings.pinchZoom ?? false}
         ><span class="toggle-knob"></span></button>
       </label>
@@ -283,6 +290,7 @@
           class:on={store.settings.markReadOnNext ?? true}
           onclick={() => updateSettings({ markReadOnNext: !(store.settings.markReadOnNext ?? true) })}
           role="switch"
+          aria-label="Mark read on chapter advance"
           aria-checked={store.settings.markReadOnNext ?? true}
         ><span class="toggle-knob"></span></button>
       </label>
@@ -297,6 +305,7 @@
             class:on={perMangaEnabled}
             onclick={onTogglePerManga}
             role="switch"
+            aria-label="Per-manga settings"
             aria-checked={perMangaEnabled}
           ><span class="toggle-knob"></span></button>
         </label>
@@ -319,8 +328,8 @@
             bind:value={presetNameInput}
             onkeydown={(e) => { if (e.key === "Enter") commitSavePreset(); if (e.key === "Escape") presetSaving = false; }}
           />
-          <button class="small-btn" disabled={!presetNameInput.trim()} onclick={commitSavePreset}><Check size={12} weight="bold" /></button>
-          <button class="small-btn" onclick={() => presetSaving = false}><X size={12} weight="light" /></button>
+          <button class="small-btn" aria-label="Confirm" disabled={!presetNameInput.trim()} onclick={commitSavePreset}><Check size={12} weight="bold" /></button>
+          <button class="small-btn" aria-label="Cancel" onclick={() => presetSaving = false}><X size={12} weight="light" /></button>
         </div>
       {/if}
 
@@ -336,8 +345,8 @@
                   bind:value={presetEditName}
                   onkeydown={(e) => { if (e.key === "Enter") commitRenamePreset(); if (e.key === "Escape") presetEditId = null; }}
                 />
-                <button class="small-btn" disabled={!presetEditName.trim()} onclick={commitRenamePreset}><Check size={12} weight="bold" /></button>
-                <button class="small-btn" onclick={() => presetEditId = null}><X size={12} weight="light" /></button>
+                <button class="small-btn" aria-label="Confirm" disabled={!presetEditName.trim()} onclick={commitRenamePreset}><Check size={12} weight="bold" /></button>
+                <button class="small-btn" aria-label="Cancel" onclick={() => presetEditId = null}><X size={12} weight="light" /></button>
               </div>
             {:else}
               <div class="preset-row">

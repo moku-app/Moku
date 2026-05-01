@@ -355,7 +355,9 @@
 {#if store.previewManga}
 <div
   class="backdrop"
-  role="presentation"
+  role="button"
+  tabindex="-1"
+  aria-label="Close preview"
   onclick={(e) => { if (e.target === e.currentTarget) close(); }}
   onkeydown={(e) => { if (e.key === "Escape") close(); }}
 >
