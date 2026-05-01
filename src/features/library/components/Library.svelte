@@ -6,7 +6,7 @@
     GET_CATEGORIES, GET_LIBRARY, UPDATE_MANGA, UPDATE_MANGAS,
     GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD,
     CREATE_CATEGORY, UPDATE_MANGA_CATEGORIES,
-    UPDATE_CATEGORY_ORDER,
+    UPDATE_CATEGORY_ORDER, UPDATE_STOP, UPDATE_LIBRARY_MANGA, UPDATE_CATEGORY_MANGA,
   } from "@api";
   import { cache, CACHE_KEYS, CACHE_GROUPS, DEFAULT_TTL_MS } from "@core/cache/queryCache";
   import { dedupeMangaById, dedupeMangaByTitle, shouldHideNsfw } from "@core/util";
@@ -28,7 +28,7 @@
   import BulkAutomationPanel  from "../panels/BulkAutomationPanel.svelte";
   import ContextMenu, { type MenuEntry } from "@shared/ui/ContextMenu.svelte";
 
-  import { Books, DownloadSimple, Folder, FolderSimple, FolderSimplePlus, Trash, Star, CheckSquare, ArrowSquareOut } from "phosphor-svelte";
+  import { Books, DownloadSimple, Folder, FolderSimple, FolderSimplePlus, Trash, Star, CheckSquare, ArrowSquareOut, ArrowsClockwise } from "phosphor-svelte";
 
   const CARD_MIN_W     = 130;
   const CARD_GAP       = 16;
@@ -64,6 +64,9 @@
   let cancelUpdate:     (() => void) | null = null;
   let refreshDone:      boolean = $state(false);
   let refreshDoneTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let refreshingMangaId: number | null = $state(null);
+  let refreshingCatId:   number | null = $state(null);
 
   let activeDragKind:   "tab" | null = $state(null);
   let dragInsertIdx:    number       = $state(-1);
@@ -285,6 +288,31 @@
     } catch (e) { console.error(e); }
   }
 
+  async function refreshManga(manga: Manga) {
+    if (refreshingMangaId !== null) return;
+    refreshingMangaId = manga.id;
+    try {
+      await gql(UPDATE_LIBRARY_MANGA, { id: manga.id });
+      cache.clearGroup(CACHE_GROUPS.LIBRARY);
+      await loadData();
+      addToast({ kind: "success", title: "Manga refreshed", body: manga.title, duration: 2500 });
+    } catch (e) { console.error(e); }
+    finally { refreshingMangaId = null; }
+  }
+
+  async function refreshCategory(catId: number) {
+    if (refreshingCatId !== null || refreshing) return;
+    refreshingCatId = catId;
+    try {
+      await gql(UPDATE_CATEGORY_MANGA, { categoryId: catId });
+      cache.clearGroup(CACHE_GROUPS.LIBRARY);
+      await loadData();
+      const cat = store.categories.find(c => c.id === catId);
+      addToast({ kind: "success", title: "Folder refreshed", body: cat?.name ?? "", duration: 2500 });
+    } catch (e) { console.error(e); }
+    finally { refreshingCatId = null; }
+  }
+
   function bumpCategoryFrecency(catId: number) {
     const prev = (store.settings as any).categoryFrecency ?? {};
     updateSettings({ categoryFrecency: { ...prev, [catId]: (prev[catId] ?? 0) + 1 } } as any);
@@ -383,11 +411,12 @@
       return { label: inCat ? `Remove from ${cat.name}` : cat.name, icon: Folder, onClick: () => toggleMangaCategory(m, cat) };
     };
 
-    const pinnedEntries = pinned.map(makeCatEntry);
-    const overflowChildren: MenuEntry[] = overflow.map(makeCatEntry);
+    const pinnedEntries    = pinned.map(makeCatEntry);
+    const overflowChildren = overflow.map(makeCatEntry);
 
     return [
       { label: m.inLibrary ? "Remove from library" : "Add to library", icon: Books, onClick: () => m.inLibrary ? removeFromLibrary(m) : gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).then(() => { allManga = allManga.map(x => x.id === m.id ? { ...x, inLibrary: true } : x); cache.clear(CACHE_KEYS.LIBRARY); }).catch(console.error) },
+      { label: refreshingMangaId === m.id ? "Refreshing…" : "Refresh manga", icon: ArrowsClockwise, disabled: refreshingMangaId !== null, onClick: () => refreshManga(m) },
       { label: "Open in file manager", icon: ArrowSquareOut, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => openMangaFolder(m) },
       { label: "Delete all downloads",  icon: Trash, danger: true, disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => deleteAllDownloads(m) },
       { separator: true },
@@ -419,6 +448,15 @@
     } else {
       addToast({ kind: "info", title: "Already up to date", body: "No new chapters found" });
     }
+  }
+
+  async function cancelLibraryRefresh() {
+    if (!refreshing) return;
+    try { await gql(UPDATE_STOP); } catch (e) { console.error(e); }
+    cancelUpdate?.();
+    cancelUpdate  = null;
+    refreshing    = false;
+    refreshProgress = { finished: 0, total: 0 };
   }
 
   async function startLibraryRefresh() {
@@ -569,6 +607,7 @@
       {refreshing}
       {refreshProgress}
       {refreshDone}
+      {refreshingCatId}
       {activeDragKind}
       {dragInsertIdx}
       {dragTabId}
@@ -586,6 +625,8 @@
       onSortPanelToggle={() => { sortPanelOpen = !sortPanelOpen; filterPanelOpen = false; }}
       onFilterPanelToggle={() => { filterPanelOpen = !filterPanelOpen; sortPanelOpen = false; }}
       onRefresh={startLibraryRefresh}
+      onCancelRefresh={cancelLibraryRefresh}
+      onRefreshCategory={refreshCategory}
       onOpenDownloadsFolder={openDownloadsFolder}
       onTabDragStart={onTabDragStart}
       onTabDragOver={onTabDragOver}

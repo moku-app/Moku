@@ -138,13 +138,25 @@
               <img src={thumbUrl(tracker.icon)} alt={tracker.name} class="s-tracker-logo" />
               <div class="s-row-info">
                 <span class="s-label">{tracker.name}</span>
-                <span class="s-pill" class:on={tracker.isLoggedIn}>
-                  {tracker.isLoggedIn ? "Connected" : "Not connected"}
-                </span>
+                <div class="s-tracker-status-row">
+                  <span class="s-pill" class:on={tracker.isLoggedIn && !tracker.isTokenExpired}>
+                    {tracker.isLoggedIn ? "Connected" : "Not connected"}
+                  </span>
+                  {#if tracker.isLoggedIn && tracker.isTokenExpired}
+                    <span class="s-pill s-pill-warn">Token expired — reconnect</span>
+                  {/if}
+                </div>
               </div>
             </div>
             <div class="s-tracker-action">
-              {#if tracker.isLoggedIn}
+              {#if tracker.isLoggedIn && tracker.isTokenExpired}
+                <button class="s-btn s-btn-accent" onclick={() => tracker.authUrl ? startOAuth(tracker) : startCredentials(tracker)}>
+                  Reconnect
+                </button>
+                <button class="s-btn s-btn-danger" onclick={() => logoutTracker(tracker.id)} disabled={loggingOut === tracker.id}>
+                  {loggingOut === tracker.id ? "Disconnecting…" : "Disconnect"}
+                </button>
+              {:else if tracker.isLoggedIn}
                 <button class="s-btn s-btn-danger" onclick={() => logoutTracker(tracker.id)} disabled={loggingOut === tracker.id}>
                   {loggingOut === tracker.id ? "Disconnecting…" : "Disconnect"}
                 </button>
@@ -250,3 +262,8 @@
   </div>
 
 </div>
+
+<style>
+  .s-tracker-status-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  .s-pill-warn { background: color-mix(in srgb, var(--color-warn, #c97c2b) 15%, transparent); color: var(--color-warn, #c97c2b); border-color: color-mix(in srgb, var(--color-warn, #c97c2b) 35%, transparent); }
+</style>

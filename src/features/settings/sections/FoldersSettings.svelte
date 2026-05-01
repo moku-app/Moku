@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { FolderSimple, Plus, Pencil, Trash, Star, Eye, EyeSlash } from "phosphor-svelte";
+  import { FolderSimple, Plus, Pencil, Trash, Star, Eye, EyeSlash, ArrowsClockwise, DownloadSimple } from "phosphor-svelte";
   import { gql } from "@api/client";
   import { GET_CATEGORIES } from "@api/queries/manga";
-  import { CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER } from "@api/mutations/manga";
+  import { CREATE_CATEGORY, UPDATE_CATEGORY, UPDATE_CATEGORIES, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER } from "@api/mutations/manga";
   import type { Category } from "@types";
   import { store, updateSettings, toggleHiddenCategory, setCategories } from "@store/state.svelte";
 
@@ -55,6 +55,19 @@
       await gql(DELETE_CATEGORY, { id });
       setCategories(store.categories.filter(c => c.id !== id));
     } catch (e: any) { catsError = e?.message ?? "Failed to delete folder"; }
+  }
+
+  async function toggleCategoryFlag(id: number, flag: "includeInUpdate" | "includeInDownload") {
+    const cat = store.categories.find(c => c.id === id);
+    if (!cat) return;
+    const next = !cat[flag];
+    setCategories(store.categories.map(c => c.id === id ? { ...c, [flag]: next } : c));
+    try {
+      await gql(UPDATE_CATEGORIES, { ids: [id], patch: { [flag]: next } });
+    } catch (e: any) {
+      setCategories(store.categories.map(c => c.id === id ? { ...c, [flag]: !next } : c));
+      catsError = e?.message ?? "Failed to update folder";
+    }
   }
 
   async function moveCategory(id: number, direction: -1 | 1) {
@@ -143,6 +156,20 @@
                 onclick={() => toggleHiddenCategory(cat.id)}
                 title={(store.settings.hiddenCategoryIds ?? []).includes(cat.id) ? "Show in Saved tab" : "Hide from Saved tab"}>
                 {#if (store.settings.hiddenCategoryIds ?? []).includes(cat.id)}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
+              </button>
+              <button
+                class="s-btn-icon"
+                class:accent={cat.includeInUpdate !== false}
+                onclick={() => toggleCategoryFlag(cat.id, "includeInUpdate")}
+                title={cat.includeInUpdate !== false ? "Exclude from library updates" : "Include in library updates"}>
+                <ArrowsClockwise size={13} weight={cat.includeInUpdate !== false ? "bold" : "light"} />
+              </button>
+              <button
+                class="s-btn-icon"
+                class:accent={cat.includeInDownload !== false}
+                onclick={() => toggleCategoryFlag(cat.id, "includeInDownload")}
+                title={cat.includeInDownload !== false ? "Exclude from auto-downloads" : "Include in auto-downloads"}>
+                <DownloadSimple size={13} weight={cat.includeInDownload !== false ? "bold" : "light"} />
               </button>
               <button class="s-btn-icon" onclick={() => moveCategory(cat.id, -1)} disabled={i === 0} title="Move up">↑</button>
               <button class="s-btn-icon" onclick={() => moveCategory(cat.id, 1)} disabled={i === displayCats.length - 1} title="Move down">↓</button>

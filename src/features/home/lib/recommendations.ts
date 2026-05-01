@@ -9,9 +9,11 @@ export interface RecommendedManga {
   matchedGenres: string[];
 }
 
-const TOP_GENRES   = 6;
-const PAGE_SIZE    = 100;
-const MAX_PAGES    = 5;
+const TOP_GENRES        = 6;
+const PAGE_SIZE         = 100;
+const MAX_PAGES         = 10;
+const TARGET_PER_GENRE  = 20;
+const EXCLUDED_STATUSES = ["CANCELLED", "ABANDONED"];
 
 export function topGenres(history: HistoryEntry[], libraryManga: Manga[]): string[] {
   const byId  = new Map(libraryManga.map(m => [m.id, m]));
@@ -36,7 +38,11 @@ export function topGenres(history: HistoryEntry[], libraryManga: Manga[]): strin
 
 type Result = { mangas: { nodes: Manga[] } };
 
-async function fetchGenrePages(genre: string, signal?: AbortSignal): Promise<Manga[]> {
+async function fetchGenrePages(
+  genre:      string,
+  globalSeen: Set<number>,
+  signal?:    AbortSignal,
+): Promise<Manga[]> {
   const filter = {
     and: [
       buildTagFilter([genre], "OR", []),
@@ -44,23 +50,33 @@ async function fetchGenrePages(genre: string, signal?: AbortSignal): Promise<Man
     ],
   };
 
-  const pages = await Promise.all(
-    Array.from({ length: MAX_PAGES }, (_, i) =>
-      gql<Result>(MANGAS_BY_GENRE, { filter, first: PAGE_SIZE, offset: i * PAGE_SIZE }, signal)
-        .then(d => d.mangas.nodes)
-        .catch(() => [] as Manga[])
-    )
-  );
-
-  const seen  = new Set<number>();
+  const localSeen = new Set<number>();
   const nodes: Manga[] = [];
-  for (const page of pages) {
-    if (!page.length) break;
-    for (const m of page) {
-      if (!seen.has(m.id)) { seen.add(m.id); nodes.push(m); }
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    if (signal?.aborted) break;
+
+    let batch: Manga[];
+    try {
+      const d = await gql<Result>(MANGAS_BY_GENRE, { filter, first: PAGE_SIZE, offset: page * PAGE_SIZE }, signal);
+      batch = d.mangas.nodes;
+    } catch {
+      break;
     }
-    if (page.length < PAGE_SIZE) break;
+
+    if (!batch.length) break;
+
+    for (const m of batch) {
+      if (localSeen.has(m.id) || globalSeen.has(m.id)) continue;
+      if (EXCLUDED_STATUSES.includes(m.status ?? "")) continue;
+      localSeen.add(m.id);
+      nodes.push(m);
+    }
+
+    if (nodes.length >= TARGET_PER_GENRE) break;
+    if (batch.length < PAGE_SIZE) break;
   }
+
   return nodes;
 }
 
@@ -74,13 +90,14 @@ export async function fetchRecommendations(
   const genres = topGenres(history, libraryManga);
   if (!genres.length) return [];
 
-  const perGenre = await Promise.all(genres.map(g => fetchGenrePages(g, signal)));
-
-  const seen   = new Set<number>();
+  const globalSeen = new Set<number>();
   const merged: Manga[] = [];
-  for (const page of perGenre) {
-    for (const m of page) {
-      if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+
+  for (const genre of genres) {
+    const results = await fetchGenrePages(genre, globalSeen, signal);
+    for (const m of results) {
+      globalSeen.add(m.id);
+      merged.push(m);
     }
   }
 

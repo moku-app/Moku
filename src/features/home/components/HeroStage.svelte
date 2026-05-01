@@ -21,6 +21,7 @@
     heroEntry,
     heroMangaId,
     heroChapters,
+    heroNewChapter,
     loadingHeroChapters,
     resuming,
     onresume,
@@ -40,6 +41,7 @@
     heroEntry: HistoryEntry | null;
     heroMangaId: number | null;
     heroChapters: Chapter[];
+    heroNewChapter: Chapter | null;
     loadingHeroChapters: boolean;
     resuming: boolean;
     onresume: () => void;
@@ -101,6 +103,9 @@
           <span class="hero-tag hero-tag-reading"><Play size={8} weight="fill" /> Reading</span>
         {:else}
           <span class="hero-tag hero-tag-pinned"><PushPin size={8} weight="fill" /> Pinned</span>
+        {/if}
+        {#if heroNewChapter && !heroNewChapter.isRead}
+          <span class="hero-tag hero-tag-new">New ch.{Math.floor(heroNewChapter.chapterNumber)}</span>
         {/if}
         {#each (heroManga?.genre ?? []).slice(0, 3) as g}
           <button
@@ -326,6 +331,7 @@
   }
   .hero-tag-reading { background: var(--accent-muted); color: var(--accent-fg); border-color: var(--accent-dim); }
   .hero-tag-pinned  { background: rgba(168, 132, 232, 0.18); color: #c4a8f0; border-color: rgba(168, 132, 232, 0.28); }
+  .hero-tag-new     { background: rgba(74, 222, 128, 0.15); color: #86efac; border-color: rgba(74, 222, 128, 0.25); }
   .hero-tag-genre   { cursor: pointer; transition: background 0.15s, color 0.15s; }
   .hero-tag-genre:hover { background: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.9); }
 

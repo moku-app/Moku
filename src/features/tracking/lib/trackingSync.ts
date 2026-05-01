@@ -125,10 +125,15 @@ export async function syncBackFromTracker(
   opts:     SyncBackOptions,
   gqlFn:    (query: string, vars: Record<string, unknown>) => Promise<unknown>,
 ): Promise<number[]> {
-  const base = opts.respectScanlatorFilter
-    ? buildChapterList(chapters, opts.chapterPrefs)
-    : chapters;
-  const eligible = buildChapterList(base, { ...opts.chapterPrefs, sortDir: "asc" });
+  const eligible = buildChapterList(chapters, {
+    ...opts.chapterPrefs,
+    sortDir: "asc",
+    ...(opts.respectScanlatorFilter ? {} : {
+      scanlatorFilter:   [],
+      scanlatorBlacklist: [],
+      scanlatorForce:    false,
+    }),
+  });
 
   const toMarkRead: number[] = [];
 

@@ -4,6 +4,7 @@
   import { gql } from "@api/client";
   import { GET_DOWNLOADS_PATH, GET_RESTORE_STATUS } from "@api/queries/manga";
   import { CREATE_BACKUP } from "@api/mutations/manga";
+  import { CLEAR_CACHED_IMAGES } from "@api/mutations/extensions";
   import { SET_DOWNLOADS_PATH, SET_LOCAL_SOURCE_PATH } from "@api/mutations/downloads";
   import { untrack } from "svelte";
   import { store, updateSettings, addToast } from "@store/state.svelte";
@@ -17,8 +18,9 @@
   interface ResetItem { key: string; label: string; desc: string; state: ResetState; error: string | null; confirm: boolean; }
 
   let resetItems = $state<ResetItem[]>([
-    { key: "moku-cache",      label: "Clear Moku cache",       desc: "Removes image cache and temporary files stored by Moku.",                                                            state: "idle", error: null, confirm: false },
-    { key: "suwayomi-cache",  label: "Clear Suwayomi cache",   desc: "Deletes the Suwayomi cache and KCEF directories inside the data folder.",                                            state: "idle", error: null, confirm: false },
+    { key: "moku-cache",      label: "Clear Moku cache",         desc: "Removes image cache and temporary files stored by Moku.",                                                          state: "idle", error: null, confirm: false },
+    { key: "suwayomi-cache",  label: "Clear Suwayomi cache",     desc: "Deletes the Suwayomi cache and KCEF directories inside the data folder.",                                          state: "idle", error: null, confirm: false },
+    { key: "server-cache",    label: "Clear server image cache", desc: "Removes cached chapter pages and thumbnails stored on the Suwayomi server.",                                       state: "idle", error: null, confirm: false },
     { key: "reading-history", label: "Clear reading history",  desc: "Erases chapter history, read log, reading stats, and daily read counts.",                                            state: "idle", error: null, confirm: true  },
     { key: "moku-settings",   label: "Reset Moku settings",    desc: "Restores all app settings to their defaults. Does not affect library data.",                                         state: "idle", error: null, confirm: true  },
     { key: "suwayomi-data",   label: "Reset Suwayomi data",    desc: "Deletes the database, extensions, settings, and logs. Downloads and backups are preserved.",                         state: "idle", error: null, confirm: true  },
@@ -82,11 +84,15 @@
         case "suwayomi-cache":
           await invoke("clear_suwayomi_cache");
           break;
+        case "server-cache":
+          await gql(CLEAR_CACHED_IMAGES, { cachedPages: true, cachedThumbnails: true, downloadedThumbnails: false });
+          break;
         case "reading-history":
           store.clearHistory();
           await persistLibrary({ history: [], bookmarks: store.bookmarks, markers: store.markers, readLog: [], readingStats: DEFAULT_READING_STATS, dailyReadCounts: {} });
           break;
         case "moku-settings":
+          localStorage.clear();
           store.hydrate({ settings: DEFAULT_SETTINGS } as any);
           await persistSettings({ settings: DEFAULT_SETTINGS, storeVersion: 1 });
           patchReset(key, { state: "done" });
@@ -94,6 +100,7 @@
           invoke("exit_app");
           return;
         case "suwayomi-data":
+          localStorage.clear();
           await invoke("reset_suwayomi_data");
           patchReset(key, { state: "done" });
           await showExitCountdown();

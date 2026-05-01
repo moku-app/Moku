@@ -114,6 +114,12 @@
   const heroEntry   = $derived(activeSlot?.kind === "continue" ? activeSlot.entry : null);
   const heroMangaId = $derived(heroEntry?.mangaId ?? heroManga?.id ?? null);
 
+  const heroNewChapter = $derived(
+    heroManga
+      ? (libraryManga.find(m => m.id === heroManga!.id) as any)?.latestUploadedChapter ?? null
+      : null
+  );
+
   function cycleNext() { activeIdx = (activeIdx + 1) % TOTAL_SLOTS; heroChapters = []; heroAllChapters = []; }
   function cyclePrev() { activeIdx = (activeIdx - 1 + TOTAL_SLOTS) % TOTAL_SLOTS; heroChapters = []; heroAllChapters = []; }
   function goToSlot(i: number) { if (i !== activeIdx) { activeIdx = i; heroChapters = []; heroAllChapters = []; } }
@@ -234,6 +240,7 @@
         {heroEntry}
         {heroMangaId}
         {heroChapters}
+        {heroNewChapter}
         {loadingHeroChapters}
         {resuming}
         onresume={resumeActive}
@@ -328,7 +335,6 @@
     min-width: 0;
     overflow: hidden;
   }
-  /* suppress ActivityFeed's own border-top — mid-row provides it */
   .mid-left :global(.section) { border-top: none; }
   .mid-divider { background: var(--border-dim); align-self: stretch; }
   .mid-right {

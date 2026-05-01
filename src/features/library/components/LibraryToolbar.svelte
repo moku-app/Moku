@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimple,
-    SortAscending, CaretUp, CaretDown, ArrowsClockwise, Star,
+    SortAscending, CaretUp, CaretDown, ArrowsClockwise, Star, X,
   } from "phosphor-svelte";
   import LibraryFilters from "./LibraryFilters.svelte";
   import type { Category } from "@types";
@@ -22,6 +22,7 @@
     refreshing:       boolean;
     refreshProgress:  { finished: number; total: number };
     refreshDone:      boolean;
+    refreshingCatId:  number | null;
     activeDragKind:   "tab" | null;
     dragInsertIdx:    number;
     dragTabId:        number | null;
@@ -29,33 +30,35 @@
     sortPanelOpen:    boolean;
     filterPanelOpen:  boolean;
     tabsEl:           HTMLDivElement;
-    onSearchChange:   (v: string) => void;
-    onTabChange:      (f: string) => void;
-    onSortChange:     (mode: LibrarySortMode) => void;
-    onSortDirToggle:  () => void;
-    onStatusChange:   (s: LibraryStatusFilter) => void;
-    onFilterToggle:   (f: LibraryContentFilter) => void;
-    onFiltersClear:   () => void;
+    onSearchChange:      (v: string) => void;
+    onTabChange:         (f: string) => void;
+    onSortChange:        (mode: LibrarySortMode) => void;
+    onSortDirToggle:     () => void;
+    onStatusChange:      (s: LibraryStatusFilter) => void;
+    onFilterToggle:      (f: LibraryContentFilter) => void;
+    onFiltersClear:      () => void;
     onSortPanelToggle:   () => void;
     onFilterPanelToggle: () => void;
     onRefresh:           () => void;
+    onCancelRefresh:     () => void;
+    onRefreshCategory:   (catId: number) => void;
     onOpenDownloadsFolder: () => void;
-    onTabDragStart:    (e: DragEvent, cat: Category) => void;
-    onTabDragOver:     (e: DragEvent, cat: Category, idx: number) => void;
-    onTabDragLeave:    () => void;
-    onTabDrop:         (e: DragEvent, cat: Category) => void;
-    onTabDragEnd:      () => void;
+    onTabDragStart:      (e: DragEvent, cat: Category) => void;
+    onTabDragOver:       (e: DragEvent, cat: Category, idx: number) => void;
+    onTabDragLeave:      () => void;
+    onTabDrop:           (e: DragEvent, cat: Category) => void;
+    onTabDragEnd:        () => void;
   }
 
   let {
     tab, tabSortMode, tabSortDir, tabStatus, tabFilters, hasActiveFilters,
     anims, tabIndicator, visibleCategories, counts, search, refreshing,
-    refreshProgress, refreshDone, activeDragKind, dragInsertIdx, dragTabId,
-    dragOverTabId, sortPanelOpen, filterPanelOpen,
+    refreshProgress, refreshDone, refreshingCatId, activeDragKind, dragInsertIdx,
+    dragTabId, dragOverTabId, sortPanelOpen, filterPanelOpen,
     tabsEl = $bindable(),
     onSearchChange, onTabChange, onSortChange, onSortDirToggle, onStatusChange,
     onFilterToggle, onFiltersClear, onSortPanelToggle, onFilterPanelToggle,
-    onRefresh, onOpenDownloadsFolder,
+    onRefresh, onCancelRefresh, onRefreshCategory, onOpenDownloadsFolder,
     onTabDragStart, onTabDragOver, onTabDragLeave, onTabDrop, onTabDragEnd,
   }: Props = $props();
 
@@ -73,7 +76,9 @@
     "az", "unreadCount", "totalChapters", "recentlyAdded", "recentlyRead", "latestFetched", "latestUploaded",
   ];
 
-
+  const activeCatId = $derived(
+    tab !== "library" && tab !== "downloaded" ? Number(tab) : null
+  );
 </script>
 
 <div class="header">
@@ -113,6 +118,20 @@
             <Folder size={11} weight="bold" />
             {cat.name}
             <span class="tab-count">{counts[String(cat.id)] ?? 0}</span>
+            {#if tab === String(cat.id) && !refreshing}
+              <span
+                class="tab-refresh"
+                role="button"
+                tabindex="-1"
+                title="Refresh {cat.name}"
+                aria-label="Refresh {cat.name}"
+                class:tab-refresh-spinning={refreshingCatId === cat.id}
+                onclick={(e) => { e.stopPropagation(); onRefreshCategory(cat.id); }}
+                onkeydown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onRefreshCategory(cat.id); } }}
+              >
+                <ArrowsClockwise size={10} weight="bold" class={refreshingCatId === cat.id ? "anim-spin" : ""} />
+              </span>
+            {/if}
           </button>
           {#if dragInsertIdx === idx + 1 && activeDragKind === "tab" && idx === visibleCategories.length - 1}
             <div class="tab-insert-bar" aria-hidden="true"></div>
@@ -128,19 +147,27 @@
       <input class="search" placeholder="Search" value={search} oninput={(e) => onSearchChange((e.target as HTMLInputElement).value)} />
     </div>
 
-    <button
-      class="icon-btn refresh-btn"
-      class:icon-btn-active={refreshing}
-      class:refresh-btn-done={refreshDone}
-      title={refreshing ? `Checking… ${refreshProgress.finished}/${refreshProgress.total}` : refreshDone ? "Library updated" : "Check for updates"}
-      disabled={refreshing}
-      onclick={onRefresh}
-    >
-      <ArrowsClockwise size={15} weight="bold" class={refreshing ? "anim-spin" : ""} />
-      {#if refreshing && refreshProgress.total > 0}
-        <span class="refresh-progress">{refreshProgress.finished}/{refreshProgress.total}</span>
-      {/if}
-    </button>
+    {#if refreshing}
+      <button
+        class="icon-btn refresh-btn icon-btn-active"
+        title="Cancel update"
+        onclick={onCancelRefresh}
+      >
+        <X size={15} weight="bold" />
+        {#if refreshProgress.total > 0}
+          <span class="refresh-progress">{refreshProgress.finished}/{refreshProgress.total}</span>
+        {/if}
+      </button>
+    {:else}
+      <button
+        class="icon-btn refresh-btn"
+        class:refresh-btn-done={refreshDone}
+        title={refreshDone ? "Library updated" : "Check for updates"}
+        onclick={onRefresh}
+      >
+        <ArrowsClockwise size={15} weight="bold" />
+      </button>
+    {/if}
 
     <button class="icon-btn" title="Open downloads folder" onclick={onOpenDownloadsFolder}>
       <FolderSimple size={15} weight="bold" />
@@ -214,6 +241,10 @@
   .tab-dragging { opacity: 0.4; cursor: grabbing; }
   .tab-insert-bar { width: 2px; height: 22px; background: var(--accent); border-radius: 2px; flex-shrink: 0; box-shadow: 0 0 6px var(--accent); pointer-events: none; }
   .tab-count { font-size: var(--text-2xs); opacity: 0.6; }
+  .tab-refresh { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 2px; opacity: 0; color: var(--accent-fg); cursor: pointer; transition: opacity var(--t-base), background var(--t-base); flex-shrink: 0; }
+  .tab.active:hover .tab-refresh { opacity: 0.6; }
+  .tab.active:hover .tab-refresh:hover { opacity: 1; background: var(--accent-dim); }
+  .tab-refresh-spinning { opacity: 1 !important; }
   .search-wrap { position: relative; display: flex; align-items: center; }
   .search-wrap :global(.search-icon) { position: absolute; left: 10px; color: var(--text-faint); pointer-events: none; }
   .search { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 5px 10px 5px 28px; color: var(--text-primary); font-size: var(--text-sm); width: 180px; outline: none; transition: border-color var(--t-base); }
@@ -223,7 +254,6 @@
   .icon-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
   .icon-btn-active { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .refresh-btn { gap: var(--sp-1); width: auto; padding: 0 8px; }
-  .refresh-btn:disabled { cursor: default; }
   .refresh-progress { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--accent-fg); }
   .refresh-btn-done { color: var(--color-success, #5cae6e) !important; border-color: color-mix(in srgb, var(--color-success, #5cae6e) 40%, transparent) !important; background: color-mix(in srgb, var(--color-success, #5cae6e) 10%, transparent) !important; }
   .sort-panel-wrap { position: relative; }
