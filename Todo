@@ -29,9 +29,6 @@ In-Progress:
 - Fix Tracking Login
    - Pasting OAuth URL is not User-Friendly, Look for Alternatives
 
-- Tracking
-   - Fix SeriesDetail Tracking Window (Maybe Link to TrackingPanel)
-
  - Apply Syer's Fix for Library on Backup Load (Manga Metadata)
    - Note User's have to always install extensions manually
       - Create "Missing Source" for Manga
@@ -39,7 +36,6 @@ In-Progress:
  - Wire Series-Detail Refresh to Fix Manga-Metadata (MAJOR)
 
  - Add Disable Auto-Completed Feature to Library
- - Implement Unwired Fixes (DOCUMENT)
  - Cap ReaderSettings Zoom (100)
  - Fix SeriesDetail Chapter Amount (Link to Scanlator Filtering)
 

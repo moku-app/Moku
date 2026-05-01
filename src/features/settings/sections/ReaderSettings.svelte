@@ -88,20 +88,20 @@
         </div>
       </div>
       <div class="s-slider-row">
-        <input type="range" min={10} max={400} step={5}
+        <input type="range" min={10} max={100} step={5}
           value={Math.round((store.settings.readerZoom ?? 0.5) * 100)}
           oninput={(e) => updateSettings({ readerZoom: Number(e.currentTarget.value) / 100 })}
           class="s-slider" />
-        <input type="number" min={10} max={400} step={5} class="s-slider-val"
+        <input type="number" min={10} max={100} step={5} class="s-slider-val"
           value={Math.round((store.settings.readerZoom ?? 0.5) * 100)}
-          oninput={(e) => { const n = parseInt(e.currentTarget.value, 10); if (!isNaN(n) && n >= 10 && n <= 400) updateSettings({ readerZoom: n / 100 }); }}
-          onblur={(e) => { const n = parseInt(e.currentTarget.value, 10); if (isNaN(n) || n < 10) { updateSettings({ readerZoom: 0.1 }); e.currentTarget.value = "10"; } else if (n > 400) { updateSettings({ readerZoom: 4.0 }); e.currentTarget.value = "400"; } }}
+          oninput={(e) => { const n = parseInt(e.currentTarget.value, 10); if (!isNaN(n) && n >= 10 && n <= 100) updateSettings({ readerZoom: n / 100 }); }}
+          onblur={(e) => { const n = parseInt(e.currentTarget.value, 10); if (isNaN(n) || n < 10) { updateSettings({ readerZoom: 0.1 }); e.currentTarget.value = "10"; } else if (n > 100) { updateSettings({ readerZoom: 1.0 }); e.currentTarget.value = "100"; } }}
         />
         <span class="s-slider-unit">%</span>
         <button class="s-btn-icon" onclick={() => updateSettings({ readerZoom: 0.5 })} disabled={(store.settings.readerZoom ?? 0.5) === 0.5} title="Reset to 100%">↺</button>
       </div>
       <div class="s-presets">
-        {#each [50, 75, 100, 125, 150, 200] as v}
+        {#each [0, 10, 30, 50, 70, 90, 100] as v}
           <button class="s-preset" class:active={Math.round((store.settings.readerZoom ?? 0.5) * 100) === v} onclick={() => updateSettings({ readerZoom: v / 100 })}>{v}%</button>
         {/each}
       </div>
