@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleNotch, X, MagnifyingGlass, ArrowSquareOut, Lock, LockOpen, ArrowsClockwise, ArrowLineDown } from "phosphor-svelte";
+  import { CircleNotch, X, MagnifyingGlass, ArrowSquareOut, Lock, LockOpen, ArrowsClockwise, ArrowLineDown, CalendarBlank } from "phosphor-svelte";
   import { gql }        from "@api/client";
   import Thumbnail      from "@shared/manga/Thumbnail.svelte";
   import { GET_TRACKERS, GET_MANGA_TRACK_RECORDS, SEARCH_TRACKER } from "@api/queries/tracking";
@@ -31,9 +31,13 @@
   let binding:        boolean       = $state(false);
   let updatingRecord: number | null = $state(null);
   let syncing:        number | null = $state(null);
-  let editingChapter: number | null = $state(null);
-  let chapterDraft:   number        = $state(0);
   let applyingRecord: number | null = $state(null);
+
+  let editingId:    number | null = $state(null);
+  let chapterDraft: number        = $state(0);
+  let startDraft:   string        = $state("");
+  let finishDraft:  string        = $state("");
+  let confirmUnbindId: number | null = $state(null);
 
   const loggedInTrackers = $derived(trackers.filter(t => t.isLoggedIn));
 
@@ -49,7 +53,7 @@
       trackers = tRes.trackers.nodes;
       records  = rRes.manga.trackRecords.nodes;
       if (store.settings.trackerSyncBack && records.length > 0) {
-        await Promise.all(records.map(r => applyToLibrary(r)));
+        await Promise.all(records.map(r => applyToLibrary(r, true)));
       }
     } catch (e: any) {
       addToast({ kind: "error", title: "Failed to load tracking", body: e?.message });
@@ -113,9 +117,7 @@
       records   = [...records, newRecord];
       activeTab = "records";
       addToast({ kind: "success", title: "Now tracking", body: result.title });
-      if (store.settings.trackerSyncBack) {
-        await applyToLibrary(newRecord);
-      }
+      if (store.settings.trackerSyncBack) await applyToLibrary(newRecord, true);
     } catch (e: any) {
       addToast({ kind: "error", title: "Failed to bind", body: e?.message });
     } finally {
@@ -125,6 +127,7 @@
 
   async function unbind(record: TrackRecord) {
     updatingRecord = record.id;
+    confirmUnbindId = null;
     try {
       await gql(UNBIND_TRACK, { recordId: record.id });
       records = records.filter(r => r.id !== record.id);
@@ -147,9 +150,7 @@
       patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
-    } finally {
-      updatingRecord = null;
-    }
+    } finally { updatingRecord = null; }
   }
 
   async function updateScore(record: TrackRecord, scoreString: string) {
@@ -159,9 +160,7 @@
       patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
-    } finally {
-      updatingRecord = null;
-    }
+    } finally { updatingRecord = null; }
   }
 
   async function togglePrivate(record: TrackRecord) {
@@ -171,9 +170,7 @@
       patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
-    } finally {
-      updatingRecord = null;
-    }
+    } finally { updatingRecord = null; }
   }
 
   async function syncRecord(record: TrackRecord) {
@@ -184,26 +181,25 @@
       addToast({ kind: "success", title: "Synced from tracker" });
     } catch (e: any) {
       addToast({ kind: "error", title: "Sync failed", body: e?.message });
-    } finally {
-      syncing = null;
-    }
+    } finally { syncing = null; }
   }
 
   function openChapterEditor(record: TrackRecord) {
-    editingChapter = record.id;
-    chapterDraft   = record.lastChapterRead;
+    editingId    = record.id;
+    chapterDraft = record.lastChapterRead;
+    startDraft   = record.startDate  ?? "";
+    finishDraft  = record.finishDate ?? "";
   }
 
-  function cancelChapterEditor() { editingChapter = null; }
+  function cancelEditor() { editingId = null; }
 
-  async function applyToLibrary(record: TrackRecord) {
+  async function applyToLibrary(record: TrackRecord, silent = false) {
     applyingRecord = record.id;
     try {
       const chapRes = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId });
       const prefs   = store.settings.mangaPrefs?.[mangaId] ?? {};
       const marked  = await syncBackFromTracker(
-        [record],
-        chapRes.chapters.nodes,
+        [record], chapRes.chapters.nodes,
         {
           threshold:              store.settings.trackerSyncBackThreshold ?? null,
           respectScanlatorFilter: store.settings.trackerRespectScanlatorFilter ?? true,
@@ -211,35 +207,44 @@
         },
         (query, vars) => gql(query, vars),
       );
-      if (marked.length > 0) {
-        addToast({ kind: "success", title: `${marked.length} chapter${marked.length !== 1 ? "s" : ""} marked read` });
-      } else {
-        addToast({ kind: "info", title: "Already up to date" });
+      if (!silent) {
+        if (marked.length > 0) addToast({ kind: "success", title: `${marked.length} chapter${marked.length !== 1 ? "s" : ""} marked read` });
+        else addToast({ kind: "info", title: "Already up to date" });
       }
     } catch (e: any) {
       addToast({ kind: "error", title: "Apply failed", body: e?.message });
-    } finally {
-      applyingRecord = null;
-    }
+    } finally { applyingRecord = null; }
   }
 
   async function submitChapter(record: TrackRecord) {
-    const val = Math.max(0, chapterDraft);
-    editingChapter = null;
-    if (val === record.lastChapterRead) return;
+    const tracker = trackerFor(record.trackerId);
+    const val     = Math.max(0, chapterDraft);
+    const sd      = tracker?.supportsReadingDates ? (startDraft.trim()  || undefined) : undefined;
+    const fd      = tracker?.supportsReadingDates ? (finishDraft.trim() || undefined) : undefined;
+
+    editingId = null;
+
+    const chapterChanged = val !== record.lastChapterRead;
+    const startChanged   = sd !== (record.startDate  ?? undefined);
+    const finishChanged  = fd !== (record.finishDate ?? undefined);
+    if (!chapterChanged && !startChanged && !finishChanged) return;
+
     updatingRecord = record.id;
     try {
-      const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, { recordId: record.id, lastChapterRead: val });
+      const res = await gql<{ updateTrack: { trackRecord: TrackRecord } }>(UPDATE_TRACK, {
+        recordId:        record.id,
+        lastChapterRead: chapterChanged ? val : undefined,
+        startDate:       sd,
+        finishDate:      fd,
+      });
       patchRecord(res.updateTrack.trackRecord);
     } catch (e: any) {
       addToast({ kind: "error", title: "Update failed", body: e?.message });
-    } finally {
-      updatingRecord = null;
-    }
+    } finally { updatingRecord = null; }
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && onClose()} />
+<svelte:window onkeydown={(e) => { if (e.key === "Escape") { if (confirmUnbindId !== null) { confirmUnbindId = null; } else if (editingId !== null) { editingId = null; } else { onClose(); } } }} />
 
 <div class="backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
   <div class="modal" role="dialog" aria-label="Tracking">
@@ -249,13 +254,12 @@
         <span class="modal-title">Tracking</span>
         <span class="modal-subtitle">{mangaTitle}</span>
       </div>
-      <button class="close-btn" onclick={onClose}><X size={15} weight="light" /></button>
+      <button class="close-btn" onclick={onClose}><X size={14} weight="light" /></button>
     </div>
 
     {#if loading}
       <div class="state-body">
-        <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
-        <span class="state-label">Loading…</span>
+        <CircleNotch size={18} weight="light" class="anim-spin" style="color:var(--text-faint)" />
       </div>
 
     {:else if loggedInTrackers.length === 0}
@@ -284,119 +288,140 @@
         <div class="tab-body">
           {#if records.length === 0}
             <div class="state-body">
-              <p class="state-text">Not tracking this manga yet.</p>
-              <p class="state-hint">Click a tracker tab above to search and add it.</p>
+              <p class="state-text">Not tracking yet.</p>
+              <p class="state-hint">Click a tracker tab above to search and link it.</p>
             </div>
           {:else}
             {#each records as record (record.id)}
               {@const tracker = trackerFor(record.trackerId)}
               {@const isBusy  = updatingRecord === record.id}
+              {@const isEdit  = editingId === record.id}
+              {@const pct     = record.totalChapters > 0 ? Math.min(100, (record.lastChapterRead / record.totalChapters) * 100) : null}
+              {@const canUnlink = !tracker || tracker.supportsTrackDeletion !== false}
+
               <div class="record-card" class:record-busy={isBusy}>
 
                 <div class="record-head">
                   <div class="record-source">
-                    {#if tracker}<Thumbnail src={tracker.icon} alt={tracker.name} class="record-tracker-icon" />{/if}
+                    {#if tracker}<Thumbnail src={tracker.icon} alt={tracker.name} class="record-icon" />{/if}
                     <span class="record-source-name">{tracker?.name ?? "Tracker"}</span>
+                    {#if record.remoteUrl}
+                      <a href={record.remoteUrl} target="_blank" rel="noreferrer" class="record-external" title="Open on {tracker?.name}">
+                        <ArrowSquareOut size={10} weight="light" />
+                      </a>
+                    {/if}
                   </div>
-                  <div class="record-head-actions">
+                  <div class="record-actions">
                     {#if tracker?.supportsPrivateTracking}
                       <button
-                        class="record-icon-btn"
-                        class:icon-active={record.private}
-                        title={record.private ? "Private — click to make public" : "Public"}
+                        class="pill-btn"
+                        class:pill-btn-on={record.private}
+                        title={record.private ? "Private" : "Public"}
                         disabled={isBusy}
                         onclick={() => togglePrivate(record)}
                       >
-                        {#if record.private}<Lock size={11} weight="fill" />{:else}<LockOpen size={11} weight="light" />{/if}
+                        {#if record.private}<Lock size={9} weight="fill" />{:else}<LockOpen size={9} weight="light" />{/if}
+                        {record.private ? "Private" : "Public"}
                       </button>
                     {/if}
-                    <button class="record-icon-btn" title="Sync from tracker" disabled={syncing === record.id} onclick={() => syncRecord(record)}>
-                      <ArrowsClockwise size={11} weight="light" class={syncing === record.id ? "anim-spin" : ""} />
+                    <button class="icon-action" title="Sync from tracker" disabled={syncing === record.id} onclick={() => syncRecord(record)}>
+                      <ArrowsClockwise size={12} weight="light" class={syncing === record.id ? "anim-spin" : ""} />
                     </button>
                     {#if store.settings.trackerSyncBack}
-                      <button class="record-icon-btn" title="Apply tracker progress to library" disabled={applyingRecord === record.id} onclick={() => applyToLibrary(record)}>
-                        <ArrowLineDown size={11} weight="light" class={applyingRecord === record.id ? "anim-spin" : ""} />
+                      <button class="icon-action" title="Apply to library" disabled={applyingRecord === record.id} onclick={() => applyToLibrary(record)}>
+                        <ArrowLineDown size={12} weight="light" class={applyingRecord === record.id ? "anim-spin" : ""} />
                       </button>
                     {/if}
-                    <button class="record-icon-btn icon-danger" title="Unlink" disabled={isBusy} onclick={() => unbind(record)}>
-                      <X size={11} weight="bold" />
+                    {#if canUnlink}
+                      <button class="icon-action icon-action-danger" title="Unlink" disabled={isBusy} onclick={() => confirmUnbindId = record.id}>
+                        <X size={11} weight="bold" />
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+
+                <div class="record-body">
+                  <div class="record-selects">
+                    <select class="field-select" value={record.status} disabled={isBusy}
+                      onchange={(e) => updateStatus(record, parseInt((e.target as HTMLSelectElement).value))}>
+                      {#each (tracker?.statuses ?? []) as s}
+                        <option value={s.value}>{s.name}</option>
+                      {/each}
+                    </select>
+                    {#if (tracker?.scores ?? []).length > 0}
+                      <select class="field-select score-select" value={record.displayScore} disabled={isBusy}
+                        onchange={(e) => updateScore(record, (e.target as HTMLSelectElement).value)}>
+                        {#each (tracker?.scores ?? []) as s}
+                          <option value={s}>★ {s}</option>
+                        {/each}
+                      </select>
+                    {/if}
+                  </div>
+
+                  {#if isEdit}
+                    <div class="editor">
+                      <div class="editor-row">
+                        <span class="editor-label">Chapter read</span>
+                        <div class="editor-input-row">
+                          <input
+                            type="number" class="editor-input"
+                            min="0" max={record.totalChapters > 0 ? record.totalChapters : undefined}
+                            step="0.5" bind:value={chapterDraft}
+                            onkeydown={(e) => { if (e.key === "Enter") submitChapter(record); if (e.key === "Escape") cancelEditor(); }}
+                            use:autoFocus
+                          />
+                          {#if record.totalChapters > 0}
+                            <span class="editor-total">/ {record.totalChapters}</span>
+                          {/if}
+                        </div>
+                      </div>
+                      {#if record.totalChapters > 0}
+                        <input type="range" class="chapter-slider" min="0" max={record.totalChapters} step="1" bind:value={chapterDraft} />
+                      {/if}
+                      {#if tracker?.supportsReadingDates}
+                        <div class="date-row">
+                          <div class="date-field">
+                            <CalendarBlank size={11} weight="light" class="date-icon" />
+                            <span class="editor-label">Started</span>
+                            <input type="date" class="date-input" bind:value={startDraft} />
+                          </div>
+                          <div class="date-field">
+                            <CalendarBlank size={11} weight="light" class="date-icon" />
+                            <span class="editor-label">Finished</span>
+                            <input type="date" class="date-input" bind:value={finishDraft} />
+                          </div>
+                        </div>
+                      {/if}
+                      <div class="editor-actions">
+                        <button class="editor-cancel" onclick={cancelEditor}>Cancel</button>
+                        <button class="editor-save" onclick={() => submitChapter(record)}>Save</button>
+                      </div>
+                    </div>
+                  {:else}
+                    <button class="progress-row" onclick={() => openChapterEditor(record)} disabled={isBusy}>
+                      <div class="progress-labels">
+                        <span class="progress-text">
+                          {#if record.totalChapters > 0}Ch. {record.lastChapterRead} / {record.totalChapters}
+                          {:else if record.lastChapterRead > 0}Ch. {record.lastChapterRead} read
+                          {:else}Set progress…{/if}
+                        </span>
+                        {#if record.startDate || record.finishDate}
+                          <span class="progress-dates">
+                            {#if record.startDate}{record.startDate}{/if}
+                            {#if record.startDate && record.finishDate} → {/if}
+                            {#if record.finishDate}{record.finishDate}{/if}
+                          </span>
+                        {/if}
+                      </div>
+                      <span class="progress-edit-hint">Edit</span>
                     </button>
-                  </div>
-                </div>
-
-                {#if record.remoteUrl}
-                  <a href={record.remoteUrl} target="_blank" rel="noreferrer" class="record-title">
-                    {record.title} <ArrowSquareOut size={10} weight="light" />
-                  </a>
-                {:else}
-                  <span class="record-title-plain">{record.title}</span>
-                {/if}
-
-                <div class="record-selects">
-                  <select class="record-select record-select-status" value={record.status} disabled={isBusy}
-                    onchange={(e) => updateStatus(record, parseInt((e.target as HTMLSelectElement).value))}>
-                    {#each (tracker?.statuses ?? []) as s}
-                      <option value={s.value}>{s.name}</option>
-                    {/each}
-                  </select>
-                  <select class="record-select record-select-score" value={record.displayScore} disabled={isBusy}
-                    onchange={(e) => updateScore(record, (e.target as HTMLSelectElement).value)}>
-                    {#each (tracker?.scores ?? []) as s}
-                      <option value={s}>★ {s}</option>
-                    {/each}
-                  </select>
-                </div>
-
-                {#if editingChapter === record.id}
-                  <div class="chapter-editor">
-                    <div class="chapter-editor-top">
-                      <span class="chapter-editor-label">Chapter read</span>
-                      <div class="chapter-input-wrap">
-                        <input
-                          type="number" class="chapter-input"
-                          min="0" max={record.totalChapters > 0 ? record.totalChapters : undefined}
-                          step="0.5" bind:value={chapterDraft}
-                          onkeydown={(e) => { if (e.key === "Enter") submitChapter(record); if (e.key === "Escape") cancelChapterEditor(); }}
-                          use:autoFocus
-                        />
-                        {#if record.totalChapters > 0}
-                          <span class="chapter-total">/ {record.totalChapters}</span>
-                        {/if}
-                      </div>
-                    </div>
-                    {#if record.totalChapters > 0}
-                      <input type="range" class="chapter-slider" min="0" max={record.totalChapters} step="1" bind:value={chapterDraft} />
-                    {/if}
-                    <div class="chapter-editor-actions">
-                      <button class="chapter-cancel-btn" onclick={cancelChapterEditor}>Cancel</button>
-                      <button class="chapter-save-btn" onclick={() => submitChapter(record)}>Save</button>
-                    </div>
-                  </div>
-                {:else}
-                  <div class="record-progress clickable" role="button" tabindex="0"
-                    onclick={() => openChapterEditor(record)}
-                    onkeydown={(e) => e.key === "Enter" && openChapterEditor(record)}
-                    title="Click to edit"
-                  >
-                    <div class="record-progress-header">
-                      <span class="record-progress-label">
-                        {#if record.totalChapters > 0}
-                          Ch. {record.lastChapterRead} / {record.totalChapters}
-                        {:else if record.lastChapterRead > 0}
-                          Ch. {record.lastChapterRead} read
-                        {:else}
-                          Set chapter…
-                        {/if}
-                      </span>
-                      <span class="edit-hint">Edit</span>
-                    </div>
-                    {#if record.totalChapters > 0}
-                      <div class="record-progress-track">
-                        <div class="record-progress-fill" style="width:{Math.min(100,(record.lastChapterRead/record.totalChapters)*100)}%"></div>
+                    {#if pct !== null}
+                      <div class="progress-track">
+                        <div class="progress-fill" style="width:{pct}%"></div>
                       </div>
                     {/if}
-                  </div>
-                {/if}
+                  {/if}
+                </div>
 
               </div>
             {/each}
@@ -416,7 +441,7 @@
             onkeydown={(e) => e.key === "Enter" && doSearch(activeTab as number, searchQuery)}
             use:autoFocus
           />
-          {#if searching}<CircleNotch size={13} weight="light" class="anim-spin search-icon" />{/if}
+          {#if searching}<CircleNotch size={13} weight="light" class="anim-spin" style="color:var(--text-faint)" />{/if}
         </div>
 
         <div class="search-results">
@@ -453,7 +478,7 @@
                   {/if}
                 </div>
                 <span class="result-action" class:result-action-on={isBound}>
-                  {isBound ? "✓ Tracking" : "Track"}
+                  {isBound ? "✓ Linked" : "Link"}
                 </span>
               </button>
             {/each}
@@ -465,41 +490,59 @@
   </div>
 </div>
 
+{#if confirmUnbindId !== null}
+  {@const rec = records.find(r => r.id === confirmUnbindId)}
+  {@const trk = rec ? trackerFor(rec.trackerId) : null}
+  <div class="confirm-backdrop" role="presentation" onclick={() => confirmUnbindId = null}>
+    <div class="confirm-modal" role="dialog" onclick={(e) => e.stopPropagation()}>
+      <p class="confirm-title">Unlink from {trk?.name ?? "tracker"}?</p>
+      <p class="confirm-body">Your progress on {trk?.name} is unaffected.</p>
+      <div class="confirm-row">
+        <button class="confirm-cancel" onclick={() => confirmUnbindId = null}>Cancel</button>
+        <button class="confirm-ok" onclick={() => rec && unbind(rec)}>Unlink</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.72);
+    position: fixed; inset: 0; background: rgba(0,0,0,0.68);
     z-index: var(--z-settings);
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
     animation: fadeIn 0.12s ease both;
   }
   .modal {
-    width: min(560px, calc(100vw - 48px));
-    max-height: min(660px, calc(100vh - 80px));
+    width: min(520px, calc(100vw - 40px));
+    max-height: min(640px, calc(100vh - 72px));
     display: flex; flex-direction: column;
     background: var(--bg-surface); border: 1px solid var(--border-base);
     border-radius: var(--radius-xl); overflow: hidden;
-    box-shadow: 0 0 0 1px var(--border-dim), 0 24px 64px rgba(0,0,0,0.6);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 24px 64px rgba(0,0,0,0.6);
     animation: scaleIn 0.15s ease both;
   }
 
-  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
-  .header-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .modal-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); letter-spacing: var(--tracking-tight); }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-4) var(--sp-4) var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--border-dim); flex-shrink: 0;
+  }
+  .header-left { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .modal-title  { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); letter-spacing: var(--tracking-tight); }
   .modal-subtitle { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .close-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
+  .close-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
   .close-btn:hover { color: var(--text-muted); background: var(--bg-raised); }
 
   .state-body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2); padding: var(--sp-10) var(--sp-5); flex: 1; }
-  .state-label { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .state-text  { font-size: var(--text-sm); color: var(--text-muted); }
   .state-hint  { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); text-align: center; }
 
   .tabs { display: flex; align-items: center; gap: 1px; padding: 0 var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; overflow-x: auto; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
-  .tab { display: flex; align-items: center; gap: var(--sp-2); position: relative; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 10px 10px 9px; color: var(--text-faint); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; transition: color var(--t-base), border-color var(--t-base); margin-bottom: -1px; }
+  .tab { display: flex; align-items: center; gap: 6px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 10px 8px 9px; color: var(--text-faint); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; transition: color var(--t-base), border-color var(--t-base); margin-bottom: -1px; }
   .tab:hover { color: var(--text-muted); }
-  .tab-active { color: var(--text-secondary); border-bottom-color: var(--accent); }
+  .tab-active  { color: var(--text-secondary); border-bottom-color: var(--accent); }
   :global(.tab-icon) { width: 13px; height: 13px; border-radius: 2px; object-fit: contain; }
   .tab-badge { font-size: 10px; padding: 0 4px; border-radius: var(--radius-full); background: var(--bg-overlay); color: var(--text-faint); min-width: 16px; text-align: center; line-height: 16px; }
   .tab-active .tab-badge { background: var(--accent-muted); color: var(--accent-fg); }
@@ -508,63 +551,75 @@
   .tab-body { flex: 1; overflow-y: auto; padding: var(--sp-3); scrollbar-width: none; display: flex; flex-direction: column; gap: var(--sp-2); }
   .tab-body::-webkit-scrollbar { display: none; }
 
-  .record-card { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); border-radius: var(--radius-lg); border: 1px solid var(--border-dim); background: var(--bg-raised); transition: opacity var(--t-base), border-color var(--t-base); }
+  .record-card { display: flex; flex-direction: column; border-radius: var(--radius-lg); border: 1px solid var(--border-dim); background: var(--bg-raised); overflow: hidden; transition: border-color var(--t-base); }
   .record-card:hover { border-color: var(--border-strong); }
-  .record-busy { opacity: 0.4; pointer-events: none; }
+  .record-busy { opacity: 0.45; pointer-events: none; }
 
-  .record-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-  .record-source { display: flex; align-items: center; gap: var(--sp-2); }
-  :global(.record-tracker-icon) { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; object-fit: contain; opacity: 0.75; }
+  .record-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-3) var(--sp-3) 0; }
+  .record-source { display: flex; align-items: center; gap: 6px; }
+  :global(.record-icon) { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; object-fit: contain; opacity: 0.7; }
   .record-source-name { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
-  .record-head-actions { display: flex; align-items: center; gap: 2px; }
+  .record-external { display: flex; align-items: center; color: var(--text-faint); transition: color var(--t-base); }
+  .record-external:hover { color: var(--accent-fg); }
+  .record-actions { display: flex; align-items: center; gap: 2px; }
 
-  .record-title { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); text-decoration: none; line-height: var(--leading-snug); transition: color var(--t-base); }
-  .record-title:hover { color: var(--accent-fg); }
-  .record-title-plain { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-secondary); line-height: var(--leading-snug); }
+  .pill-btn { display: flex; align-items: center; gap: 4px; font-family: var(--font-ui); font-size: 10px; letter-spacing: var(--tracking-wide); padding: 2px 7px; border-radius: var(--radius-full); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), background var(--t-base), border-color var(--t-base); }
+  .pill-btn:hover:not(:disabled) { color: var(--text-muted); border-color: var(--border-strong); }
+  .pill-btn-on { color: var(--accent-fg); background: var(--accent-muted); border-color: var(--accent-dim); }
+  .pill-btn:disabled { opacity: 0.35; cursor: default; }
 
-  .record-selects { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-  .record-select { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 5px 24px 5px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-surface); color: var(--text-muted); outline: none; cursor: pointer; flex: 1; min-width: 0; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; transition: border-color var(--t-base), color var(--t-base); }
-  .record-select:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-secondary); }
-  .record-select:focus { border-color: var(--accent-dim); color: var(--text-secondary); }
-  .record-select:disabled { opacity: 0.35; cursor: default; }
-  .record-select option { background: var(--bg-surface); color: var(--text-secondary); }
-  .record-select-score { flex: 0 0 auto; min-width: 80px; }
-  .record-select-status { flex: 1; }
+  .icon-action { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
+  .icon-action:hover:not(:disabled) { color: var(--text-muted); background: var(--bg-overlay); }
+  .icon-action-danger:hover:not(:disabled) { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 10%, transparent); }
+  .icon-action:disabled { opacity: 0.3; cursor: default; }
 
-  .record-icon-btn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
-  .record-icon-btn:hover:not(:disabled) { color: var(--text-muted); background: var(--bg-overlay); }
-  .record-icon-btn.icon-active { color: var(--accent-fg); }
-  .record-icon-btn.icon-danger:hover:not(:disabled) { color: var(--color-error); background: var(--color-error-bg); }
-  .record-icon-btn:disabled { opacity: 0.3; cursor: default; }
+  .record-body { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3) var(--sp-3); }
 
-  .record-progress { display: flex; flex-direction: column; gap: 6px; }
-  .record-progress.clickable { cursor: pointer; border-radius: var(--radius-sm); padding: 4px 6px; margin: -4px -6px; transition: background var(--t-fast); }
-  .record-progress.clickable:hover { background: var(--bg-overlay); }
-  .record-progress-header { display: flex; align-items: center; justify-content: space-between; }
-  .record-progress-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .edit-hint { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); opacity: 0; transition: opacity var(--t-fast); }
-  .record-progress.clickable:hover .edit-hint { opacity: 0.6; }
-  .record-progress-track { height: 2px; background: var(--border-strong); border-radius: var(--radius-full); overflow: hidden; }
-  .record-progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
+  .record-selects { display: flex; gap: var(--sp-2); }
+  .field-select { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 5px 22px 5px 9px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-surface); color: var(--text-muted); outline: none; cursor: pointer; flex: 1; min-width: 0; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23555' stroke-width='1.3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 7px center; transition: border-color var(--t-base), color var(--t-base); }
+  .field-select:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-secondary); }
+  .field-select:focus { border-color: var(--accent-dim); }
+  .field-select:disabled { opacity: 0.35; cursor: default; }
+  .field-select option { background: var(--bg-surface); color: var(--text-secondary); }
+  .score-select { flex: 0 0 auto; min-width: 76px; }
 
-  .chapter-editor { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-surface); }
-  .chapter-editor-top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
-  .chapter-editor-label { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
-  .chapter-input-wrap { display: flex; align-items: center; gap: var(--sp-2); }
-  .chapter-input { width: 64px; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 3px 6px; font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-primary); outline: none; text-align: center; }
-  .chapter-input:focus { border-color: var(--accent); }
-  .chapter-total { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .progress-row { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid transparent; background: none; cursor: pointer; text-align: left; transition: background var(--t-fast), border-color var(--t-fast); }
+  .progress-row:hover:not(:disabled) { background: var(--bg-overlay); border-color: var(--border-dim); }
+  .progress-row:disabled { cursor: default; }
+  .progress-labels { display: flex; flex-direction: column; gap: 1px; }
+  .progress-text { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .progress-dates { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); opacity: 0.7; }
+  .progress-edit-hint { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); opacity: 0; letter-spacing: var(--tracking-wide); transition: opacity var(--t-fast); }
+  .progress-row:hover:not(:disabled) .progress-edit-hint { opacity: 0.5; }
+  .progress-track { height: 2px; background: var(--border-strong); border-radius: var(--radius-full); overflow: hidden; }
+  .progress-fill  { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
+
+  .editor { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-surface); }
+  .editor-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+  .editor-label { font-family: var(--font-ui); font-size: 10px; color: var(--text-faint); letter-spacing: var(--tracking-wide); text-transform: uppercase; }
+  .editor-input-row { display: flex; align-items: center; gap: var(--sp-2); }
+  .editor-input { width: 60px; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 3px 6px; font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-primary); outline: none; text-align: center; transition: border-color var(--t-base); }
+  .editor-input:focus { border-color: var(--accent); }
+  .editor-total { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); }
   .chapter-slider { width: 100%; accent-color: var(--accent); cursor: pointer; height: 3px; }
-  .chapter-editor-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; }
-  .chapter-save-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 4px 12px; border-radius: var(--radius-sm); border: 1px solid var(--accent-dim); background: var(--accent-muted); color: var(--accent-fg); cursor: pointer; transition: filter var(--t-base); }
-  .chapter-save-btn:hover { filter: brightness(1.15); }
-  .chapter-cancel-btn { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 4px 8px; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base); }
-  .chapter-cancel-btn:hover { color: var(--text-muted); }
 
-  .search-bar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; background: var(--bg-surface); }
+  .date-row { display: flex; gap: var(--sp-3); padding-top: var(--sp-1); border-top: 1px solid var(--border-dim); }
+  .date-field { display: flex; align-items: center; gap: 5px; flex: 1; }
+  :global(.date-icon) { color: var(--text-faint); flex-shrink: 0; }
+  .date-input { flex: 1; min-width: 0; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 3px 6px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-muted); outline: none; transition: border-color var(--t-base); }
+  .date-input:focus { border-color: var(--accent-dim); }
+
+  .editor-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; padding-top: var(--sp-1); }
+  .editor-save { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 4px 12px; border-radius: var(--radius-sm); border: 1px solid var(--accent-dim); background: var(--accent-muted); color: var(--accent-fg); cursor: pointer; transition: filter var(--t-base); }
+  .editor-save:hover { filter: brightness(1.15); }
+  .editor-cancel { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 4px 8px; border-radius: var(--radius-sm); border: none; background: none; color: var(--text-faint); cursor: pointer; transition: color var(--t-base); }
+  .editor-cancel:hover { color: var(--text-muted); }
+
+  .search-bar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   :global(.search-icon) { color: var(--text-faint); flex-shrink: 0; }
   .search-input { flex: 1; background: none; border: none; outline: none; font-size: var(--text-sm); color: var(--text-primary); }
   .search-input::placeholder { color: var(--text-faint); }
+
   .search-results { flex: 1; overflow-y: auto; padding: var(--sp-2); scrollbar-width: none; }
   .search-results::-webkit-scrollbar { display: none; }
 
@@ -572,16 +627,26 @@
   .result-row:hover:not(:disabled) { background: var(--bg-raised); }
   .result-row:disabled { opacity: 0.4; cursor: default; }
   .result-bound { background: color-mix(in srgb, var(--accent) 8%, transparent) !important; }
-  .result-cover { width: 44px; height: 62px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); flex-shrink: 0; }
+  .result-cover { width: 40px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); flex-shrink: 0; }
   .result-cover-empty { background: var(--bg-raised); }
-  .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); padding-top: 2px; }
+  .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
   .result-title { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); text-align: left; }
-  .result-meta { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
-  .result-tag { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 1px 5px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); }
+  .result-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+  .result-tag { font-family: var(--font-ui); font-size: 10px; letter-spacing: var(--tracking-wide); padding: 1px 5px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); }
   .result-summary { font-size: var(--text-xs); color: var(--text-faint); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-align: left; }
   .result-action { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: none; color: var(--text-faint); flex-shrink: 0; align-self: center; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .result-row:hover:not(:disabled) .result-action { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .result-action-on { color: var(--accent-fg) !important; border-color: var(--accent-dim) !important; background: var(--accent-muted) !important; }
+
+  .confirm-backdrop { position: fixed; inset: 0; z-index: calc(var(--z-settings) + 1); background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.1s ease both; }
+  .confirm-modal { background: var(--bg-surface); border: 1px solid var(--border-dim); border-radius: var(--radius-xl); padding: var(--sp-5); width: 260px; display: flex; flex-direction: column; gap: var(--sp-3); box-shadow: 0 16px 48px rgba(0,0,0,0.5); animation: scaleIn 0.15s ease both; }
+  .confirm-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); margin: 0; }
+  .confirm-body  { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); line-height: 1.5; margin: 0; letter-spacing: var(--tracking-wide); }
+  .confirm-row   { display: flex; gap: var(--sp-2); }
+  .confirm-cancel { flex: 1; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 7px 0; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: none; color: var(--text-muted); cursor: pointer; transition: border-color var(--t-base), color var(--t-base); }
+  .confirm-cancel:hover { border-color: var(--border-strong); color: var(--text-primary); }
+  .confirm-ok { flex: 1; font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); padding: 7px 0; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--color-error) 30%, transparent); background: color-mix(in srgb, var(--color-error) 8%, transparent); color: var(--color-error); cursor: pointer; transition: filter var(--t-base); }
+  .confirm-ok:hover { filter: brightness(1.2); }
 
   @keyframes fadeIn  { from { opacity: 0 }                         to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }
