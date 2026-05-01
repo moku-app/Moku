@@ -41,6 +41,8 @@ pub fn run() {
             commands::backup::get_auto_backup_dir,
             commands::updater::list_releases,
             commands::updater::download_and_install_update,
+            commands::biometric::windows_hello_authenticate,
+            commands::biometric::windows_hello_available,
         ])
         .setup(|_app| Ok(()))
         .on_window_event(|window, event| {

@@ -2,17 +2,21 @@
   import ThreeDCard from "@shared/manga/ThreeDCard.svelte";
   import { store, addToast } from "@store/state.svelte";
   import { cache } from "@core/cache/index";
+  import { invoke } from "@tauri-apps/api/core";
 
   interface PerfSnapshot { cacheEntries: number; cacheKeys: string[]; oldestEntryMs: number | null; newestEntryMs: number | null; }
 
-  let perfSnapshot   = $state<PerfSnapshot | null>(null);
+  let perfSnapshot    = $state<PerfSnapshot | null>(null);
   let splashTriggered = $state(false);
   let expOpen         = $state(false);
   let appVersion      = $state("…");
+  let helloAvailable  = $state<boolean | null>(null);
+  let helloBusy       = $state(false);
 
   $effect(() => {
     import("@tauri-apps/api/app").then(m => m.getVersion()).then(v => appVersion = v).catch(() => {});
     refreshPerfMetrics();
+    invoke<boolean>("windows_hello_available").then(v => helloAvailable = v).catch(() => helloAvailable = false);
   });
 
   function refreshPerfMetrics() {
@@ -49,6 +53,18 @@
     setTimeout(() => splashTriggered = false, 200);
     (window as any).__mokuShowSplash?.();
   }
+
+  async function testWindowsHello() {
+    helloBusy = true;
+    try {
+      await invoke("windows_hello_authenticate", { reason: "Moku devtools test" });
+      addToast({ kind: "success", title: "Windows Hello", body: "Verified successfully" });
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Windows Hello", body: String(e) });
+    } finally {
+      helloBusy = false;
+    }
+  }
 </script>
 
 <div class="s-panel">
@@ -77,6 +93,21 @@
       <div class="s-row">
         <div class="s-row-info"><span class="s-label">Idle splash</span><span class="s-desc">Dismiss with any click or key</span></div>
         <button class="s-btn" class:s-btn-accent={splashTriggered} onclick={triggerSplash}>Show</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="s-section">
+    <p class="s-section-title">Biometrics</p>
+    <div class="s-section-body">
+      <div class="s-row">
+        <div class="s-row-info">
+          <span class="s-label">Windows Hello</span>
+          <span class="s-desc">Available: {helloAvailable === null ? "…" : helloAvailable ? "yes" : "no"}</span>
+        </div>
+        <button class="s-btn" disabled={!helloAvailable || helloBusy} onclick={testWindowsHello}>
+          {helloBusy ? "…" : "Test"}
+        </button>
       </div>
     </div>
   </div>
