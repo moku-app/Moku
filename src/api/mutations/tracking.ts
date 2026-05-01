@@ -110,7 +110,7 @@ export const PUSH_KOSYNC_PROGRESS = `
 export const LOGIN_USER = `
   mutation Login($username: String!, $password: String!) {
     login(input: { username: $username, password: $password }) {
-      accessToken refreshToken
+      accessToken
     }
   }
 `;

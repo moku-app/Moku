@@ -1,10 +1,29 @@
 import { store, updateSettings } from "@store/state.svelte";
 
-export type AuthMode = "NONE" | "BASIC_AUTH" | "SIMPLE_LOGIN" | "UI_LOGIN";
+export type AuthMode = "NONE" | "BASIC_AUTH" | "UI_LOGIN";
+
+export class AuthRequiredError extends Error {
+  constructor(msg = "Authentication required") {
+    super(msg);
+    this.name = "AuthRequiredError";
+  }
+}
+
+let _accessToken: string | null = null;
+
+export const uiAuth = {
+  getToken:   () => _accessToken,
+  setToken:   (t: string) => { _accessToken = t; },
+  clearToken: () => { _accessToken = null; },
+};
 
 export const authSession = {
-  clearTokens() {},
-  hasSession(): boolean { return true; },
+  clearTokens() { uiAuth.clearToken(); },
+  hasSession(): boolean {
+    const mode = store.settings.serverAuthMode ?? "NONE";
+    if (mode === "UI_LOGIN") return _accessToken !== null;
+    return true;
+  },
 };
 
 function getServerBase(): string {
@@ -22,24 +41,72 @@ function basicHeader(user: string, pass: string): Record<string, string> {
   return { Authorization: `Basic ${btoa(`${user}:${pass}`)}` };
 }
 
-export function fetchAuthenticated(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
-  const mode = store.settings.serverAuthMode ?? "NONE";
+function bearerHeader(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
+
+function gqlBody(query: string, variables?: Record<string, unknown>): string {
+  return JSON.stringify({ query, ...(variables ? { variables } : {}) });
+}
+
+export async function fetchAuthenticated(
+  url: string,
+  init: RequestInit,
+  signal?: AbortSignal,
+  skipped = false,
+): Promise<Response> {
+  const mode        = store.settings.serverAuthMode ?? "NONE";
+  const baseHeaders = (init.headers ?? {}) as Record<string, string>;
+
   if (mode === "BASIC_AUTH") {
     const user = store.settings.serverAuthUser?.trim() ?? "";
     const pass = store.settings.serverAuthPass?.trim() ?? "";
     return fetch(url, {
       ...init, signal, credentials: "omit",
-      headers: { ...(init.headers as Record<string, string> ?? {}), ...(user && pass ? basicHeader(user, pass) : {}) },
+      headers: { ...baseHeaders, ...(user && pass ? basicHeader(user, pass) : {}) },
     });
   }
+
+  if (mode === "UI_LOGIN") {
+    const token = uiAuth.getToken();
+    if (!token) {
+      if (skipped) return fetch(url, { ...init, signal, credentials: "omit", headers: baseHeaders });
+      throw new AuthRequiredError();
+    }
+    return fetch(url, {
+      ...init, signal, credentials: "omit",
+      headers: { ...baseHeaders, ...bearerHeader(token) },
+    });
+  }
+
   return fetch(url, { ...init, signal, credentials: "omit" });
+}
+
+export async function loginUI(user: string, pass: string): Promise<void> {
+  const res = await fetch(`${getServerBase()}/api/graphql`, {
+    method: "POST", credentials: "omit",
+    headers: { "Content-Type": "application/json" },
+    body: gqlBody(
+      `mutation Login($username: String!, $password: String!) {
+         login(input: { username: $username, password: $password }) { accessToken }
+       }`,
+      { username: user, password: pass },
+    ),
+    signal: timeoutSignal(8000),
+  });
+  if (!res.ok) throw new Error(`Login request failed (${res.status})`);
+  const json = await res.json();
+  const token: string | undefined = json?.data?.login?.accessToken;
+  if (!token) throw new Error(json?.errors?.[0]?.message ?? "Login failed");
+  uiAuth.setToken(token);
+  updateSettings({ serverAuthMode: "UI_LOGIN" });
 }
 
 export async function loginBasic(user: string, pass: string): Promise<void> {
   const res = await fetch(`${getServerBase()}/api/graphql`, {
     method: "POST", credentials: "omit",
     headers: { "Content-Type": "application/json", ...basicHeader(user, pass) },
-    body: JSON.stringify({ query: "{ __typename }" }),
+    body: gqlBody("{ __typename }"),
     signal: timeoutSignal(5000),
   });
   if (!res.ok) throw new Error(`Authentication failed (${res.status})`);
@@ -47,39 +114,37 @@ export async function loginBasic(user: string, pass: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  updateSettings({ serverAuthPass: "" });
+  uiAuth.clearToken();
+  updateSettings({ serverAuthPass: "", serverAuthMode: "NONE" });
 }
 
-export async function probeServer(): Promise<"ok" | "auth_required" | "unsupported_mode" | "unreachable"> {
+export async function probeServer(): Promise<"ok" | "auth_required" | "unreachable"> {
   const base = getServerBase();
   const mode = store.settings.serverAuthMode ?? "NONE";
   const s    = store.settings;
+
+  if (mode === "UI_LOGIN" && !_accessToken) return "auth_required";
+
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (mode === "BASIC_AUTH") {
       const user = s.serverAuthUser?.trim() ?? "";
       const pass = s.serverAuthPass?.trim() ?? "";
       if (user && pass) Object.assign(headers, basicHeader(user, pass));
+    } else if (mode === "UI_LOGIN" && _accessToken) {
+      Object.assign(headers, bearerHeader(_accessToken));
     }
+
     const res = await fetch(`${base}/api/graphql`, {
       method: "POST", credentials: "omit", headers,
-      body: JSON.stringify({ query: "{ __typename }" }),
+      body: gqlBody("{ __typename }"),
       signal: timeoutSignal(5000),
     });
+
     if (res.ok) return "ok";
-    if (res.status === 401) {
-      const wwwAuth = res.headers.get("WWW-Authenticate") ?? "";
-      if (/basic/i.test(wwwAuth)) {
-        if (mode !== "BASIC_AUTH") updateSettings({ serverAuthMode: "BASIC_AUTH" });
-        return "auth_required";
-      }
-      if (/bearer/i.test(wwwAuth)) {
-        if (mode !== "UI_LOGIN") updateSettings({ serverAuthMode: "UI_LOGIN" });
-      } else if (mode === "NONE") {
-        updateSettings({ serverAuthMode: "SIMPLE_LOGIN" });
-      }
-      return "unsupported_mode";
-    }
+    if (res.status === 401) return "auth_required";
     return "unreachable";
-  } catch { return "unreachable"; }
+  } catch {
+    return "unreachable";
+  }
 }

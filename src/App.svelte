@@ -128,7 +128,7 @@
   <SplashScreen mode="idle" showFps showCards={store.settings.splashCards ?? true}
     onDismiss={() => setTimeout(() => devSplash = false, 340)} />
 
-{:else if !appReady && !boot.loginRequired && !boot.unsupportedMode}
+{:else if !appReady && !boot.loginRequired}
   <SplashScreen mode="loading" ringFull={boot.serverProbeOk}
     failed={boot.failed} notConfigured={boot.notConfigured}
     showCards={store.settings.splashCards ?? true}
@@ -136,7 +136,7 @@
     onRetry={retryBoot}
     onBypass={() => bypassBoot(() => { appReady = true; })} />
 
-{:else if boot.unsupportedMode || boot.loginRequired}
+{:else if boot.loginRequired}
   <SplashScreen mode="loading" ringFull={true} showCards={store.settings.splashCards ?? true} />
   <AuthGate onReady={() => { appReady = true; }} />
 
@@ -144,6 +144,11 @@
   {#if idle && !store.activeChapter}
     <SplashScreen mode="idle" showCards={store.settings.splashCards ?? true}
       onDismiss={() => { idle = false; }} />
+  {/if}
+
+  {#if boot.sessionExpired}
+    <SplashScreen mode="loading" ringFull={true} showCards={store.settings.splashCards ?? true} />
+    <AuthGate onReady={() => { boot.sessionExpired = false; }} />
   {/if}
 
   <div id="app-shell" class="root">

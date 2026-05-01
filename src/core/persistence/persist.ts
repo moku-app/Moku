@@ -154,3 +154,13 @@ export async function persistBackups(list: BackupEntry[]): Promise<void> {
   await backupsStore.set("backupList", list);
   await backupsStore.save();
 }
+
+export async function resetAuthSettings(): Promise<void> {
+  const current = await settingsStore.get<any>("settings") ?? {};
+  current.serverAuthMode = "NONE";
+  current.serverAuthUser = "";
+  current.serverAuthPass = "";
+  await settingsStore.set("settings", current);
+  await settingsStore.save();
+  localStorage.removeItem("moku-credential-vault");
+}

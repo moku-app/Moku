@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 const DEFAULT_SERVER_CONF: &str = r#"server.ip = "127.0.0.1"
 server.port = 4567
-server.webUIEnabled = false
+server.webUIEnabled = true
 server.initialOpenInBrowserEnabled = false
 server.systemTrayEnabled = false
 server.webUIInterface = "browser"
 server.webUIFlavor = "WebUI"
-server.webUIChannel = "stable"
+server.webUIChannel = "preview"
 server.electronPath = ""
 server.debugLogsEnabled = false
 server.downloadAsCbz = true
@@ -37,7 +37,7 @@ pub fn seed_server_conf(data_dir: &PathBuf) {
 
     let patched = patch_conf_key(
         patch_conf_key(
-            patch_conf_key(contents, "server.webUIEnabled", "false"),
+            patch_conf_key(contents, "server.webUIEnabled", "true"),
             "server.initialOpenInBrowserEnabled",
             "false",
         ),

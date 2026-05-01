@@ -6,6 +6,7 @@ import {
   ENQUEUE_DOWNLOAD, REORDER_DOWNLOAD,
 } from "@api/mutations";
 import { addToast, setActiveDownloads } from "@store/state.svelte";
+import { boot } from "@store/boot.svelte";
 import type { DownloadStatus, DownloadQueueItem } from "@types/index";
 import {
   toActiveDownloads, optimisticRemove, optimisticRemoveMany,
@@ -104,6 +105,7 @@ class DownloadStore {
   }
 
   async poll() {
+    if (boot.sessionExpired) return;
     gql<{ downloadStatus: DownloadStatus }>(GET_DOWNLOAD_STATUS)
       .then((d) => this.applyStatus(d.downloadStatus))
       .catch(console.error)

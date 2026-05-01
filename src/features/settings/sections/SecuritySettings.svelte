@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { store, updateSettings, addToast } from "@store/state.svelte";
+  import { store, updateSettings } from "@store/state.svelte";
   import { gql } from "@api/client";
   import { authSession } from "@core/auth";
   import { GET_SERVER_SECURITY } from "@api/queries/extensions";
@@ -10,8 +10,6 @@
 
   let showAuthPass  = $state(false);
   let showSocksPass = $state(false);
-  let pinInput      = $state(store.settings.appLockPin ?? "");
-  let pinError      = $state("");
   let secLoading    = $state(false);
   let secError      = $state<string | null>(null);
   let secSaved      = $state<string | null>(null);
@@ -20,11 +18,6 @@
   let authMode     = $state(store.settings.serverAuthMode ?? "NONE");
   let authUsername = $state(store.settings.serverAuthUser ?? "");
   let authPassword = $state("");
-
-  const authModeUnsupported = $derived(
-    store.settings.serverAuthMode === "SIMPLE_LOGIN" ||
-    store.settings.serverAuthMode === "UI_LOGIN"
-  );
 
   let socksEnabled  = $state(store.settings.socksProxyEnabled ?? false);
   let socksHost     = $state(store.settings.socksProxyHost ?? "");
@@ -60,9 +53,9 @@
         flareSolverrAsResponseFallback: boolean;
       }}>(GET_SERVER_SECURITY);
       const s = res.settings;
-      const mode = (s.authMode ?? "NONE") as "NONE" | "BASIC_AUTH" | "SIMPLE_LOGIN" | "UI_LOGIN";
-      authMode = mode; authUsername = s.authUsername;
-      updateSettings({ serverAuthMode: mode, serverAuthUser: s.authUsername });
+      authMode = store.settings.serverAuthMode ?? "NONE";
+      authUsername = s.authUsername || store.settings.serverAuthUser || "";
+      updateSettings({ serverAuthUser: authUsername });
       socksEnabled = s.socksProxyEnabled; socksHost = s.socksProxyHost;
       socksPort = s.socksProxyPort; socksVersion = s.socksProxyVersion;
       socksUsername = s.socksProxyUsername;
@@ -80,19 +73,28 @@
   }
 
   async function saveAuth() {
-    if (authMode === "BASIC_AUTH" && (!authUsername.trim() || !authPassword.trim())) {
-      secError = "Username and password are required for Basic Auth"; return;
+    if ((authMode === "BASIC_AUTH" || authMode === "UI_LOGIN") && (!authUsername.trim() || !authPassword.trim())) {
+      secError = "Username and password are required"; return;
     }
     secLoading = true; secError = null;
     const prev = { mode: store.settings.serverAuthMode, user: store.settings.serverAuthUser, pass: store.settings.serverAuthPass };
-    const newUser = authMode === "BASIC_AUTH" ? authUsername.trim() : "";
-    const newPass = authMode === "BASIC_AUTH" ? authPassword.trim() : "";
-    if (authMode === "BASIC_AUTH" && !prev.pass.trim())
-      updateSettings({ serverAuthMode: authMode as any, serverAuthUser: newUser, serverAuthPass: newPass });
+
     try {
+      const newUser = authMode !== "NONE" ? authUsername.trim() : "";
+      const newPass = authMode !== "NONE" ? authPassword.trim() : "";
       await gql(SET_SERVER_AUTH, { authMode, authUsername: newUser, authPassword: newPass });
-      updateSettings({ serverAuthMode: authMode as any, serverAuthUser: newUser, serverAuthPass: newPass });
-      if (authMode === "NONE") { authSession.clearTokens(); authPassword = ""; }
+
+      if (authMode === "UI_LOGIN") {
+        authSession.clearTokens();
+        updateSettings({ serverAuthMode: "UI_LOGIN", serverAuthUser: newUser, serverAuthPass: "" });
+      } else if (authMode === "BASIC_AUTH") {
+        updateSettings({ serverAuthMode: "BASIC_AUTH", serverAuthUser: newUser, serverAuthPass: newPass });
+      } else {
+        authSession.clearTokens();
+        updateSettings({ serverAuthMode: "NONE", serverAuthUser: "", serverAuthPass: "" });
+      }
+
+      authPassword = "";
       showSaved("auth");
     } catch (e: any) {
       updateSettings({ serverAuthMode: prev.mode, serverAuthUser: prev.user, serverAuthPass: prev.pass });
@@ -152,12 +154,13 @@
     } finally { secLoading = false; }
   }
 
-  function commitPin() {
-    const cleaned = pinInput.replace(/\D/g, "").slice(0, 8);
-    pinInput = cleaned;
-    if (cleaned.length >= 4) { updateSettings({ appLockPin: cleaned }); pinError = ""; }
-    else if (cleaned.length > 0) { pinError = "PIN must be at least 4 digits"; }
-    else { updateSettings({ appLockPin: "" }); pinError = ""; }
+  function forceResetAuth() {
+    authSession.clearTokens();
+    authMode = "NONE";
+    authUsername = "";
+    authPassword = "";
+    updateSettings({ serverAuthMode: "NONE", serverAuthUser: "", serverAuthPass: "" });
+    showSaved("auth");
   }
 
   const EyeOpen  = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -173,22 +176,16 @@
   <div class="s-section">
     <p class="s-section-title">
       Server Authentication
-      <span class="s-pill" class:on={store.settings.serverAuthMode === "BASIC_AUTH"} class:warn={authModeUnsupported}>
-        {store.settings.serverAuthMode === "BASIC_AUTH"   ? "Basic Auth"                  :
-         store.settings.serverAuthMode === "SIMPLE_LOGIN" ? "Simple Login — unsupported"  :
-         store.settings.serverAuthMode === "UI_LOGIN"     ? "UI Login — unsupported"      : "Disabled"}
+      <span class="s-pill" class:on={store.settings.serverAuthMode === "BASIC_AUTH" || store.settings.serverAuthMode === "UI_LOGIN"}>
+        {store.settings.serverAuthMode === "BASIC_AUTH" ? "Basic Auth" :
+         store.settings.serverAuthMode === "UI_LOGIN"   ? "UI Login"  : "Disabled"}
       </span>
     </p>
     <div class="s-section-body">
-      {#if authModeUnsupported}
-        <div class="s-banner s-banner-warn">
-          <strong>{store.settings.serverAuthMode === "SIMPLE_LOGIN" ? "Simple Login" : "UI Login"}</strong> is not supported — only <strong>Basic Auth</strong> works here. Switch your server to <code>basic_auth</code> and set the mode to <strong>Basic</strong>.
-        </div>
-      {/if}
       <div class="s-row">
-        <div class="s-row-info"><span class="s-label">Mode</span><span class="s-desc">How Suwayomi verifies requests</span></div>
+        <div class="s-row-info"><span class="s-label">Mode</span><span class="s-desc">How Moku authenticates with the server</span></div>
         <div class="s-segment">
-          {#each [{ value: "NONE", label: "None" }, { value: "BASIC_AUTH", label: "Basic" }] as opt}
+          {#each [{ value: "NONE", label: "None" }, { value: "BASIC_AUTH", label: "Basic" }, { value: "UI_LOGIN", label: "UI Login" }] as opt}
             <button class="s-segment-btn" class:active={authMode === opt.value}
               onclick={() => authMode = opt.value as any} disabled={secLoading}>{opt.label}</button>
           {/each}
@@ -213,7 +210,12 @@
         </div>
       {/if}
       <div class="s-row">
-        <div class="s-row-info"></div>
+        <div class="s-row-info">
+          <button class="s-ghost-btn" onclick={forceResetAuth} disabled={secLoading} title="Force reset local auth state">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Reset
+          </button>
+        </div>
         <div class="s-btn-row">
           {#if store.settings.serverAuthMode !== "NONE"}
             <button class="s-btn s-btn-danger" onclick={clearAuth} disabled={secLoading}>
@@ -226,33 +228,6 @@
           </button>
         </div>
       </div>
-    </div>
-  </div>
-
-  <div class="s-section">
-    <p class="s-section-title">App Lock</p>
-    <div class="s-section-body">
-      <label class="s-row">
-        <div class="s-row-info"><span class="s-label">PIN lock</span><span class="s-desc">Require a PIN on launch and after idle timeout</span></div>
-        <button role="switch" aria-checked={store.settings.appLockEnabled ?? false} class="s-toggle" class:on={store.settings.appLockEnabled}
-          onclick={() => updateSettings({ appLockEnabled: !store.settings.appLockEnabled })}><span class="s-toggle-thumb"></span></button>
-      </label>
-      {#if store.settings.appLockEnabled}
-        <div class="s-row">
-          <div class="s-row-info"><span class="s-label">PIN</span><span class="s-desc">4–8 digits</span></div>
-          <div class="s-btn-row">
-            <input class="s-input" type="password" inputmode="numeric" maxlength={8} placeholder="4–8 digits"
-              value={pinInput}
-              oninput={(e) => { pinInput = e.currentTarget.value.replace(/\D/g, "").slice(0, 8); pinError = ""; }}
-              onkeydown={(e) => e.key === "Enter" && commitPin()}
-              autocomplete="off" style="width:120px;letter-spacing:0.2em" />
-            <button class="s-btn s-btn-accent" onclick={commitPin} disabled={pinInput.length > 0 && pinInput.length < 4}>
-              {store.settings.appLockPin && pinInput === store.settings.appLockPin ? "Saved ✓" : "Save"}
-            </button>
-          </div>
-        </div>
-        {#if pinError}<div class="s-row"><span class="s-pin-error">{pinError}</span></div>{/if}
-      {/if}
     </div>
   </div>
 
@@ -359,3 +334,8 @@
   </div>
 
 </div>
+<style>
+  .s-ghost-btn { display: inline-flex; align-items: center; gap: 5px; background: none; border: none; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); cursor: pointer; padding: 2px 0; transition: color 0.15s; }
+  .s-ghost-btn:hover:not(:disabled) { color: var(--color-error); }
+  .s-ghost-btn:disabled { opacity: 0.35; cursor: default; }
+</style>

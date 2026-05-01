@@ -1,5 +1,6 @@
 import { store } from "@store/state.svelte";
-import { fetchAuthenticated } from "../core/auth";
+import { fetchAuthenticated, AuthRequiredError } from "../core/auth";
+import { boot } from "@store/boot.svelte";
 
 const DEFAULT_URL = "http://127.0.0.1:4567";
 
@@ -43,12 +44,13 @@ async function fetchWithRetry(
   for (let i = 0; i < retries; i++) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     try {
-      const res = await fetchAuthenticated(url, init, signal);
+      const res = await fetchAuthenticated(url, init, signal, boot.skipped);
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       return res;
     } catch (e: any) {
       if (e?.authRequired) throw e;
       if (e?.name === "AbortError" || signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (e instanceof AuthRequiredError) throw e;
       if (i === retries - 1) throw e;
       await abortableSleep(delayMs * Math.pow(1.5, i), signal);
     }
@@ -70,6 +72,15 @@ export async function gql<T>(
   if (!res.ok) throw new Error(`Suwayomi HTTP ${res.status}`);
   const json: GQLResponse<T> = await res.json();
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-  if (json.errors?.length) throw new Error(json.errors[0].message);
+  if (json.errors?.length) {
+    const isAuthError = json.errors.some(e => /unauthorized|unauthenticated/i.test(e.message));
+    if (isAuthError && !boot.skipped) {
+      boot.sessionExpired = true;
+      boot.loginRequired  = true;
+      boot.loginUser      = store.settings.serverAuthUser ?? "";
+      throw new AuthRequiredError(json.errors[0].message);
+    }
+    throw new Error(json.errors[0].message);
+  }
   return json.data;
 }

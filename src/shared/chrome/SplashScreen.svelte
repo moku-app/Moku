@@ -23,8 +23,14 @@
     onReady, onRetry, onBypass, onDismiss,
   }: Props = $props();
 
+  const serverAuthActive = $derived(
+    store.settings.serverAuthMode === "BASIC_AUTH" || store.settings.serverAuthMode === "UI_LOGIN"
+  );
+
   const lockEnabled = $derived(
-    store.settings.appLockEnabled && (store.settings.appLockPin?.length ?? 0) >= 4
+    store.settings.appLockEnabled &&
+    (store.settings.appLockPin?.length ?? 0) >= 4 &&
+    (mode === "idle" || !serverAuthActive)
   );
 
   let pinEntry    = $state("");
