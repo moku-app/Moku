@@ -5,7 +5,7 @@ import {
   DEQUEUE_DOWNLOAD, DEQUEUE_CHAPTERS_DOWNLOAD,
   ENQUEUE_DOWNLOAD, REORDER_DOWNLOAD,
 } from "@api/mutations";
-import { addToast, setActiveDownloads } from "@store/state.svelte";
+import { addToast, setActiveDownloads, store, updateSettings } from "@store/state.svelte";
 import { boot } from "@store/boot.svelte";
 import type { DownloadStatus, DownloadQueueItem } from "@types/index";
 import {
@@ -26,8 +26,8 @@ class DownloadStore {
   pagesPerSec:  number | null         = $state(null);
   eta:          number | null         = $state(null);
 
-  toastsEnabled    = $state(true);
-  autoRetryEnabled = $state(false);
+  get toastsEnabled()    { return store.settings.downloadToastsEnabled ?? true; }
+  get autoRetryEnabled() { return store.settings.downloadAutoRetry ?? false; }
 
   private lastSample:   SpeedSample | null   = null;
   private prevQueue:    DownloadQueueItem[]   = [];
@@ -39,18 +39,19 @@ class DownloadStore {
   get hasErrored() { return this.erroredIds.size > 0; }
 
   toggleToasts() {
-    this.toastsEnabled = !this.toastsEnabled;
-    addToast({ kind: "info", title: this.toastsEnabled ? "Notifications enabled" : "Notifications muted", body: this.toastsEnabled ? "You'll be notified when chapters finish downloading" : "Download notifications are silenced", duration: 2500 });
+    const next = !this.toastsEnabled;
+    updateSettings({ downloadToastsEnabled: next });
+    addToast({ kind: "info", title: next ? "Notifications enabled" : "Notifications muted", body: next ? "You'll be notified when chapters finish downloading" : "Download notifications are silenced", duration: 2500 });
   }
 
   toggleAutoRetry() {
     if (this.autoRetryEnabled) {
       this.autoRetryHnd?.stop();
-      this.autoRetryHnd    = null;
-      this.autoRetryEnabled = false;
+      this.autoRetryHnd = null;
+      updateSettings({ downloadAutoRetry: false });
       addToast({ kind: "info", title: "Auto-retry disabled", body: "Failed downloads will no longer retry automatically", duration: 2500 });
     } else {
-      this.autoRetryEnabled = true;
+      updateSettings({ downloadAutoRetry: true });
       this.autoRetryHnd = startAutoRetry(
         () => this.queue,
         () => this.isRunning,

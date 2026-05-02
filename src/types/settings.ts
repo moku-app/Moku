@@ -124,6 +124,8 @@ export interface Settings {
   trackerRespectScanlatorFilter: boolean;
   pinchZoom?: boolean;
   autoLinkOnOpen: boolean;
+  downloadToastsEnabled: boolean;
+  downloadAutoRetry: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -163,4 +165,6 @@ export const DEFAULT_SETTINGS: Settings = {
   trackerRespectScanlatorFilter: true,
   pinchZoom: false,
   autoLinkOnOpen: false,
+  downloadToastsEnabled: true,
+  downloadAutoRetry: false,
 };
