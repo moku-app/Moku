@@ -412,8 +412,7 @@
     gap: var(--sp-2);
     font-size: var(--text-sm);
     color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-x: auto;
     white-space: nowrap;
     min-width: 0;
     padding: 2px 4px;
@@ -421,7 +420,9 @@
     background: none;
     cursor: default;
     transition: background var(--t-fast);
+    scrollbar-width: none;
   }
+  .ch-pill::-webkit-scrollbar { display: none; }
   .bar-left .ch-pill, .bar-right .ch-pill {
     width: 28px;
     height: 28px;
@@ -429,9 +430,9 @@
     padding: 0;
   }
   .ch-info { font-size: 15px; line-height: 1; color: var(--text-faint); flex-shrink: 0; }
-  .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); }
   .ch-sep   { color: var(--text-faint); flex-shrink: 0; }
-  .ch-name  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ch-name  { color: var(--text-muted); }
   .ch-page  { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
 
   .ch-popover {
