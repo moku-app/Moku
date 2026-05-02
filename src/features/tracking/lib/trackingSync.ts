@@ -134,6 +134,21 @@ export async function syncBackFromTracker(
       scanlatorForce:    false,
     }),
   });
+  const seenInt = new Map<number, Chapter>();
+  for (const ch of eligible) {
+    const key = Math.floor(ch.chapterNumber);
+    if (!Number.isInteger(ch.chapterNumber)) continue;
+    if (!seenInt.has(key)) seenInt.set(key, ch);
+  }
+  const dedupedEligible = [...seenInt.values()];
+  const decimalsByFloor = new Map<number, Chapter[]>();
+  for (const ch of eligible) {
+    if (Number.isInteger(ch.chapterNumber)) continue;
+    const key = Math.floor(ch.chapterNumber);
+    const arr = decimalsByFloor.get(key) ?? [];
+    arr.push(ch);
+    decimalsByFloor.set(key, arr);
+  }
 
   const toMarkRead: number[] = [];
 
@@ -141,11 +156,14 @@ export async function syncBackFromTracker(
     const remote = record.lastChapterRead;
     if (!remote || remote <= 0) continue;
 
-    for (const chapter of eligible) {
+    for (const chapter of dedupedEligible) {
       if (chapter.isRead) continue;
-      const diff = Math.abs(chapter.chapterNumber - remote);
-      if (opts.threshold !== null && diff > opts.threshold) continue;
-      if (chapter.chapterNumber <= remote) toMarkRead.push(chapter.id);
+      if (chapter.chapterNumber > remote) continue;
+      if (opts.threshold !== null && remote - chapter.chapterNumber > opts.threshold) continue;
+      toMarkRead.push(chapter.id);
+      for (const dec of decimalsByFloor.get(chapter.chapterNumber) ?? []) {
+        if (!dec.isRead) toMarkRead.push(dec.id);
+      }
     }
   }
 
