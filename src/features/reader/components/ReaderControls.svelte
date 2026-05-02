@@ -142,12 +142,18 @@
         {#if isVertical}
           <span class="ch-info">&#xE2CE;</span>
         {:else}
-          <span class="ch-title">{store.activeManga?.title}</span>
-          <span class="ch-sep">/</span>
-          <span class="ch-name">{displayChapter?.name}</span>
-          <span class="ch-page">{store.pageNumber} / {visibleChunkLastPage || "…"}</span>
+          <span class="ch-marquee-track" onwheel={(e) => { e.stopPropagation(); (e.currentTarget as HTMLElement).scrollLeft += e.deltaY; }}>
+            <span class="ch-marquee-content">
+              <span class="ch-title">{store.activeManga?.title}</span>
+              <span class="ch-sep">/</span>
+              <span class="ch-name">{displayChapter?.name}</span>
+            </span>
+          </span>
         {/if}
       </button>
+      {#if !isVertical}
+        <span class="ch-page">{store.pageNumber} / {visibleChunkLastPage || "…"}</span>
+      {/if}
 
       {#if chapterHover && isVertical}
         <div class="ch-popover ch-popover-{popoverSide}">
@@ -404,15 +410,14 @@
   .icon-btn.active { color: var(--accent-fg); }
   .marker-btn-has { color: var(--marker-color, var(--accent-fg)) !important; }
 
-  .ch-hover-wrap { position: relative; min-width: 0; }
+  .ch-hover-wrap { position: relative; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); }
 
   .ch-pill {
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
     font-size: var(--text-sm);
     color: var(--text-muted);
-    overflow-x: auto;
+    overflow: hidden;
     white-space: nowrap;
     min-width: 0;
     padding: 2px 4px;
@@ -420,9 +425,7 @@
     background: none;
     cursor: default;
     transition: background var(--t-fast);
-    scrollbar-width: none;
   }
-  .ch-pill::-webkit-scrollbar { display: none; }
   .bar-left .ch-pill, .bar-right .ch-pill {
     width: 28px;
     height: 28px;
@@ -430,6 +433,21 @@
     padding: 0;
   }
   .ch-info { font-size: 15px; line-height: 1; color: var(--text-faint); flex-shrink: 0; }
+
+  .ch-marquee-track {
+    overflow-x: auto;
+    min-width: 0;
+    flex: 1;
+    scrollbar-width: none;
+  }
+  .ch-marquee-track::-webkit-scrollbar { display: none; }
+  .ch-marquee-content {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    white-space: nowrap;
+  }
+
   .ch-title { color: var(--text-secondary); font-weight: var(--weight-medium); }
   .ch-sep   { color: var(--text-faint); flex-shrink: 0; }
   .ch-name  { color: var(--text-muted); }

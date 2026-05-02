@@ -86,6 +86,7 @@
   });
 
   export function onInspectMouseDown(e: MouseEvent) {
+    if ((e.target as Element).closest(".bar")) return;
     if (style === "longstrip") {
       stripDragging    = true;
       stripDragMoved   = false;
@@ -126,6 +127,7 @@
   }
 
   export function onPointerDown(e: PointerEvent) {
+    if ((e.target as Element).closest(".bar")) return;
     pinch?.onPointerDown(e);
   }
 
