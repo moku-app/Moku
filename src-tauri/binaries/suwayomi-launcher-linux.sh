@@ -61,12 +61,12 @@ if [ ! -f "$DATA_DIR/server.conf" ]; then
   cat > "$DATA_DIR/server.conf" << 'EOF'
 server.ip = "127.0.0.1"
 server.port = 4567
-server.webUIEnabled = false
+server.webUIEnabled = true
 server.initialOpenInBrowserEnabled = false
 server.systemTrayEnabled = false
 server.webUIInterface = "browser"
 server.webUIFlavor = "WebUI"
-server.webUIChannel = "stable"
+server.webUIChannel = "PREVIEW"
 server.electronPath = ""
 server.debugLogsEnabled = false
 server.downloadAsCbz = true
@@ -79,13 +79,13 @@ fi
 
 # ── Force-patch the three keys that cause JCEF/GUI crashes ────────────────────
 sed -i \
-  -e 's|server\.webUIEnabled.*|server.webUIEnabled = false|' \
+  -e 's|server\.webUIEnabled.*|server.webUIEnabled = true|' \
   -e 's|server\.initialOpenInBrowserEnabled.*|server.initialOpenInBrowserEnabled = false|' \
   -e 's|server\.systemTrayEnabled.*|server.systemTrayEnabled = false|' \
   "$DATA_DIR/server.conf"
 
 # Append keys if absent (e.g. user-managed conf missing them)
-grep -q 'server\.webUIEnabled'                "$DATA_DIR/server.conf" || echo 'server.webUIEnabled = false'                >> "$DATA_DIR/server.conf"
+grep -q 'server\.webUIEnabled'                "$DATA_DIR/server.conf" || echo 'server.webUIEnabled = true'                >> "$DATA_DIR/server.conf"
 grep -q 'server\.initialOpenInBrowserEnabled' "$DATA_DIR/server.conf" || echo 'server.initialOpenInBrowserEnabled = false' >> "$DATA_DIR/server.conf"
 grep -q 'server\.systemTrayEnabled'           "$DATA_DIR/server.conf" || echo 'server.systemTrayEnabled = false'           >> "$DATA_DIR/server.conf"
 

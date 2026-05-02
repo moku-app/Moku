@@ -32,6 +32,9 @@
   $effect(() => {
     getVersion().then(v => appVersion = v).catch(() => appVersion = "unknown");
     if (!releasesLoaded) { releasesLoaded = true; loadReleases(); }
+  });
+
+  $effect(() => {
     loadServerInfo();
   });
 
@@ -92,9 +95,9 @@
     return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 
-  function fmtBuildTime(unix: number) {
+  function fmtBuildTime(unix: number | string) {
     if (!unix) return "";
-    return new Date(unix).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    return new Date(Number(unix) * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 
   function fmtBytes(bytes: number) {

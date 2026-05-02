@@ -52,7 +52,7 @@ package() {
     cat > "$pkgdir/usr/lib/moku/tachidesk/default-conf/server.conf" << 'CONF'
 server.ip = "127.0.0.1"
 server.port = 4567
-server.webUIEnabled = false
+server.webUIEnabled = true
 server.initialOpenInBrowserEnabled = false
 server.systemTrayEnabled = false
 server.downloadAsCbz = true

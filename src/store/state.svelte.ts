@@ -10,6 +10,7 @@ import { notifications }                                              from "./no
 import { app }                                                        from "./app.svelte";
 import { persistSettings, persistLibrary, persistUpdates }           from "../core/persistence/persist";
 import type { PersistedData }                                         from "../core/persistence/persist";
+import { untrack }                                                    from "svelte";
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -104,17 +105,23 @@ class Store {
         (saved.settings as any)[key] = (DEFAULT_SETTINGS as any)[key];
     }
 
-    this.settings            = mergeSettings(saved);
-    this.history             = saved.history             ?? [];
-    this.bookmarks           = saved.bookmarks           ?? [];
-    this.markers             = saved.markers             ?? [];
-    this.readLog             = saved.readLog             ?? [];
-    this.readingStats        = saved.readingStats        ?? { ...DEFAULT_READING_STATS };
-    this.dailyReadCounts     = saved.dailyReadCounts     ?? {};
-    this.libraryUpdates      = saved.libraryUpdates      ?? [];
-    this.lastLibraryRefresh  = saved.lastLibraryRefresh  ?? 0;
-    this.acknowledgedUpdates = new Set(saved.acknowledgedUpdateIds ?? []);
+    // Assign all persisted values outside of reactive tracking so the
+    // $effects registered below don't fire on this initial write.
+    untrack(() => {
+      this.settings            = mergeSettings(saved);
+      this.history             = saved.history             ?? [];
+      this.bookmarks           = saved.bookmarks           ?? [];
+      this.markers             = saved.markers             ?? [];
+      this.readLog             = saved.readLog             ?? [];
+      this.readingStats        = saved.readingStats        ?? { ...DEFAULT_READING_STATS };
+      this.dailyReadCounts     = saved.dailyReadCounts     ?? {};
+      this.libraryUpdates      = saved.libraryUpdates      ?? [];
+      this.lastLibraryRefresh  = saved.lastLibraryRefresh  ?? 0;
+      this.acknowledgedUpdates = new Set(saved.acknowledgedUpdateIds ?? []);
+    });
 
+    // Mark ready before registering effects so the first reactive run
+    // (which Svelte schedules after the current microtask) is allowed through.
     this.#ready = true;
 
     $effect.root(() => {
