@@ -16,10 +16,12 @@
   let oauthTrackerId  = $state<number | null>(null);
   let oauthCallbackInput = $state("");
   let oauthSubmitting = $state(false);
+  let oauthError      = $state<string | null>(null);
   let credsTrackerId  = $state<number | null>(null);
   let credsUsername   = $state("");
   let credsPassword   = $state("");
   let credsSubmitting = $state(false);
+  let credsError      = $state<string | null>(null);
   let loggingOut      = $state<number | null>(null);
 
   $effect(() => {
@@ -50,11 +52,11 @@
       await loadTrackers();
       oauthTrackerId = null; oauthCallbackInput = "";
     } catch (e: any) {
-      trackersError = e?.message ?? "Login failed";
+      oauthError = e?.message ?? "Login failed";
     } finally { oauthSubmitting = false; }
   }
 
-  function cancelOAuth() { oauthTrackerId = null; oauthCallbackInput = ""; }
+  function cancelOAuth() { oauthTrackerId = null; oauthCallbackInput = ""; oauthError = null; }
 
   function startCredentials(tracker: Tracker) { credsTrackerId = tracker.id; credsUsername = ""; credsPassword = ""; }
 
@@ -66,11 +68,11 @@
       await loadTrackers();
       credsTrackerId = null; credsUsername = ""; credsPassword = "";
     } catch (e: any) {
-      trackersError = e?.message ?? "Login failed";
+      credsError = e?.message ?? "Login failed";
     } finally { credsSubmitting = false; }
   }
 
-  function cancelCredentials() { credsTrackerId = null; credsUsername = ""; credsPassword = ""; }
+  function cancelCredentials() { credsTrackerId = null; credsUsername = ""; credsPassword = ""; credsError = null; }
 
   async function logoutTracker(trackerId: number) {
     loggingOut = trackerId;
@@ -127,7 +129,7 @@
     <p class="s-section-title">Connected Trackers</p>
     <div class="s-section-body">
       {#if trackersError}
-        <div class="s-banner s-banner-error">{trackersError}</div>
+        <div class="s-banner s-banner-error" onclick={() => trackersError = null} role="button" tabindex="0" onkeydown={(e) => e.key === "Enter" && (trackersError = null)}>{trackersError}</div>
       {/if}
       {#if trackersLoading}
         <p class="s-empty">Loading trackers…</p>
@@ -168,6 +170,9 @@
             </div>
             {#if oauthTrackerId === tracker.id}
               <div class="s-tracker-expand">
+                {#if oauthError}
+                  <div class="s-banner s-banner-error s-banner-dismissible" onclick={() => oauthError = null} role="button" tabindex="0" onkeydown={(e) => e.key === "Enter" && (oauthError = null)}>{oauthError}</div>
+                {/if}
                 <p class="s-oauth-hint">Browser opened {tracker.name} login — authorise then paste the callback URL below.</p>
                 <input class="s-input full" placeholder="https://suwayomi.org/tracker-oauth#access_token=…"
                   bind:value={oauthCallbackInput}
@@ -183,6 +188,9 @@
             {/if}
             {#if credsTrackerId === tracker.id}
               <div class="s-tracker-expand">
+                {#if credsError}
+                  <div class="s-banner s-banner-error s-banner-dismissible" onclick={() => credsError = null} role="button" tabindex="0" onkeydown={(e) => e.key === "Enter" && (credsError = null)}>{credsError}</div>
+                {/if}
                 <input class="s-input full" placeholder="Username / Email" bind:value={credsUsername}
                   onkeydown={(e) => e.key === "Escape" && cancelCredentials()} use:focusEl />
                 <input class="s-input full" type="password" placeholder="Password" bind:value={credsPassword}
@@ -266,4 +274,6 @@
 <style>
   .s-tracker-status-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .s-pill-warn { background: color-mix(in srgb, var(--color-warn, #c97c2b) 15%, transparent); color: var(--color-warn, #c97c2b); border-color: color-mix(in srgb, var(--color-warn, #c97c2b) 35%, transparent); }
+  .s-banner-dismissible { cursor: pointer; max-height: 8rem; overflow-y: auto; }
+  .s-banner-dismissible:hover { opacity: 0.85; }
 </style>
