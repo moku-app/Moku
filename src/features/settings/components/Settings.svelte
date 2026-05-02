@@ -61,7 +61,6 @@
 
   function close() { setSettingsOpen(false); }
 
-  // Keybind capture
   let listeningKey: keyof Keybinds | null = $state(null);
 
   $effect(() => {
@@ -83,7 +82,6 @@
     return () => window.removeEventListener("keydown", capture, true);
   });
 
-  // Shared select dropdown state (passed to sections that need it)
   let selectOpen: string | null = $state(null);
   let closingSelect: string | null = $state(null);
 
@@ -105,9 +103,7 @@
     const handler = (e: MouseEvent) => {
       if (!selectOpen) return;
       const t = e.target as HTMLElement;
-      // Keep open if click is inside the trigger wrapper (.s-select)
       if (t.closest(".s-select")) return;
-      // Keep open if click landed inside the portalled menu (appended to <body>)
       if (t.closest(".s-select-menu")) return;
       closeSelect();
     };

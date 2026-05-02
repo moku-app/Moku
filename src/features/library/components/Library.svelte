@@ -179,7 +179,7 @@
     if (!store.categories.some(c => c.id === id)) untrack(() => { store.libraryFilter = "library"; });
   });
   $effect(() => { tab; untrack(() => exitSelectMode()); });
-  $effect(() => { tab; counts; requestAnimationFrame(updateTabIndicator); });
+  $effect(() => { tab; counts; });
 
   let prevChapterId: number | null = null;
   $effect(() => {
@@ -187,13 +187,6 @@
     prevChapterId = store.activeChapter?.id ?? null;
     if (wasOpen && !store.activeChapter) { cache.clear(CACHE_KEYS.LIBRARY); untrack(() => loadData()); }
   });
-
-  function updateTabIndicator() {
-    if (!tabsEl) return;
-    const active = tabsEl.querySelector<HTMLElement>(".tab.active");
-    if (!active) return;
-    tabIndicator = { left: active.offsetLeft, width: active.offsetWidth };
-  }
 
   function enterSelectMode(id?: number) { selectMode = true; if (id !== undefined) selectedIds = new Set([id]); }
   function exitSelectMode()              { selectMode = false; selectedIds = new Set(); }
@@ -541,7 +534,6 @@
 
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("mousedown", onDocMouseDown, true);
-    requestAnimationFrame(updateTabIndicator);
 
     return () => {
       ro.disconnect(); unsub();
@@ -600,7 +592,6 @@
       {tabFilters}
       {hasActiveFilters}
       {anims}
-      {tabIndicator}
       {visibleCategories}
       {counts}
       {search}

@@ -15,7 +15,6 @@
     tabFilters:       Partial<Record<LibraryContentFilter, boolean>>;
     hasActiveFilters: boolean;
     anims:            boolean;
-    tabIndicator:     { left: number; width: number };
     visibleCategories: Category[];
     counts:           Record<string, number>;
     search:           string;
@@ -45,7 +44,7 @@
 
   let {
     tab, tabSortMode, tabSortDir, tabStatus, tabFilters, hasActiveFilters,
-    anims, tabIndicator, visibleCategories, counts, search, refreshing,
+    anims, visibleCategories, counts, search, refreshing,
     refreshProgress, refreshDone, activeDragKind, dragInsertIdx,
     dragTabId, dragOverTabId, sortPanelOpen, filterPanelOpen,
     tabsEl = $bindable(),
@@ -78,9 +77,6 @@
   <span class="heading">Library</span>
 
   <div class="tabs" class:tabs-anims={anims} bind:this={tabsEl}>
-    {#if anims && tabIndicator.width > 0}
-      <div class="tab-slide-indicator" style="left:{tabIndicator.left}px;width:{tabIndicator.width}px" aria-hidden="true"></div>
-    {/if}
     {#each [["library", "Saved"], ["downloaded", "Downloaded"]] as [f, label]}
       <button class="tab" class:active={tab === f} onclick={() => onTabChange(f)}>
         {#if f === "library"}<Books size={11} weight="bold" />
@@ -208,15 +204,13 @@
   .header { position: relative; z-index: 100; display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; min-width: 0; }
   .header-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
-  .tabs { display: flex; align-items: center; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; flex-shrink: 1; min-width: 0; }
+  .tabs { display: flex; align-items: center; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; flex-shrink: 1; min-width: 0; overflow: hidden; }
   .tabs-scroll { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex-shrink: 1; }
   .tabs-scroll::-webkit-scrollbar { display: none; }
   .tab-separator { width: 1px; height: 16px; background: var(--border-dim); flex-shrink: 0; margin: 0 2px; }
-  .tab-slide-indicator { position: absolute; top: 2px; bottom: 2px; border-radius: var(--radius-sm); background: var(--accent-muted); border: 1px solid var(--accent-dim); pointer-events: none; z-index: 0; transition: left 0.22s cubic-bezier(0.16,1,0.3,1), width 0.22s cubic-bezier(0.16,1,0.3,1); }
-  .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base); cursor: grab; flex-shrink: 0; }
+  .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid transparent; color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base), border-color var(--t-base); cursor: grab; flex-shrink: 0; }
   .tab:hover { color: var(--text-muted); }
-  .tab.active { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid transparent; }
-  .tabs-anims .tab.active { background: transparent; }
+  .tab.active { background: var(--accent-muted); color: var(--accent-fg); border-color: var(--accent-dim); }
   .tab-dragging { opacity: 0.4; cursor: grabbing; }
   .tab-insert-bar { width: 2px; height: 22px; background: var(--accent); border-radius: 2px; flex-shrink: 0; box-shadow: 0 0 6px var(--accent); pointer-events: none; }
   .tab-count { font-size: var(--text-2xs); opacity: 0.6; }
