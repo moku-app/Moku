@@ -2,6 +2,7 @@ import { store }                           from "@store/state.svelte";
 import { probeServer, loginBasic, loginUI } from "@core/auth";
 import { trackingState }                   from "@features/tracking/store/trackingState.svelte";
 import { loadAllStores }                   from "@core/persistence/persist";
+import { notifyReauthSuccess }             from "@api/client";
 
 const MAX_ATTEMPTS = 40;
 
@@ -107,6 +108,7 @@ export async function submitLogin(onSuccess: () => void): Promise<void> {
     boot.skipped        = false;
     boot.loginPass      = "";
     boot.loginError     = null;
+    notifyReauthSuccess();
     trackingState.bootSync().catch(() => {});
     onSuccess();
   } catch (e: any) {

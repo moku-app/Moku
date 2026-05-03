@@ -4,6 +4,19 @@ import { boot } from "@store/boot.svelte";
 
 const DEFAULT_URL = "http://127.0.0.1:4567";
 
+type ReauthResolver = () => void;
+let _reauthQueue: ReauthResolver[] = [];
+
+export function notifyReauthSuccess() {
+  const queue = _reauthQueue;
+  _reauthQueue = [];
+  queue.forEach(resolve => resolve());
+}
+
+function waitForReauth(): Promise<void> {
+  return new Promise(resolve => { _reauthQueue.push(resolve); });
+}
+
 export function getServerUrl(): string {
   const url = store.settings.serverUrl;
   return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : DEFAULT_URL;
@@ -95,24 +108,30 @@ export async function gql<T>(
   variables?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const res = await fetchWithRetry(
-    `${getServerUrl()}/api/graphql`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) },
-    signal,
-  );
-  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-  if (!res.ok) throw new Error(`Suwayomi HTTP ${res.status}`);
-  const json: GQLResponse<T> = await res.json();
-  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-  if (json.errors?.length) {
-    const isAuthError = json.errors.some(e => /unauthorized|unauthenticated/i.test(e.message));
-    if (isAuthError && !boot.skipped) {
-      boot.sessionExpired = true;
-      boot.loginRequired  = true;
-      boot.loginUser      = store.settings.serverAuthUser ?? "";
-      throw new AuthRequiredError(json.errors[0].message);
+  const attempt = async (): Promise<T> => {
+    const res = await fetchWithRetry(
+      `${getServerUrl()}/api/graphql`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) },
+      signal,
+    );
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (!res.ok) throw new Error(`Suwayomi HTTP ${res.status}`);
+    const json: GQLResponse<T> = await res.json();
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (json.errors?.length) {
+      const isAuthError = json.errors.some(e => /unauthorized|unauthenticated/i.test(e.message));
+      if (isAuthError && !boot.skipped) {
+        boot.sessionExpired = true;
+        boot.loginRequired  = true;
+        boot.loginUser      = store.settings.serverAuthUser ?? "";
+        await waitForReauth();
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        return attempt();
+      }
+      throw new Error(json.errors[0].message);
     }
-    throw new Error(json.errors[0].message);
-  }
-  return json.data;
+    return json.data;
+  };
+
+  return attempt();
 }
