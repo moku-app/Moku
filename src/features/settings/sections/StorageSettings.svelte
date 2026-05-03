@@ -159,7 +159,6 @@
   let multiStorageInfos = $state<(StorageInfo & { label: string })[]>([]);
   let advStorageOpen    = $state(false);
   let backupSectionOpen = $state(false);
-  let appDataSectionOpen = $state(false);
   let resetSectionOpen  = $state(false);
 
   async function fetchStorage() {
@@ -661,6 +660,9 @@
     </button>
     {#if backupSectionOpen}
       <div class="s-collapsible-body">
+
+        <p class="s-subsection-title">Library backup</p>
+
         <div class="s-row">
           <div class="s-row-info">
             <span class="s-label">Create backup</span>
@@ -768,17 +770,8 @@
             {/if}
           </div>
         {/if}
-      </div>
-    {/if}
-  </div>
 
-  <div class="s-section">
-    <button class="s-collapsible-trigger" onclick={() => appDataSectionOpen = !appDataSectionOpen}>
-      <span class="s-label">App-Data Backup</span>
-      <svg class="s-collapsible-caret" class:open={appDataSectionOpen} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
-    </button>
-    {#if appDataSectionOpen}
-      <div class="s-collapsible-body">
+        <p class="s-subsection-title">App data backup</p>
 
         <div class="s-row">
           <div class="s-row-info">

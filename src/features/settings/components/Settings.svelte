@@ -60,7 +60,7 @@
   }
 
   function close() { setSettingsOpen(false); }
-
+1
   let listeningKey: keyof Keybinds | null = $state(null);
 
   $effect(() => {

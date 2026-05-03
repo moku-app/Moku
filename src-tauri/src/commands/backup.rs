@@ -77,7 +77,9 @@ pub fn auto_backup_app_data(app: tauri::AppHandle, bytes: Vec<u8>) -> Result<(),
 
 #[tauri::command]
 pub fn get_auto_backup_dir(app: tauri::AppHandle) -> String {
-    backup_dir(&app).to_string_lossy().into_owned()
+    let dir = backup_dir(&app);
+    let _ = std::fs::create_dir_all(&dir);
+    dir.to_string_lossy().into_owned()
 }
 
 #[tauri::command]

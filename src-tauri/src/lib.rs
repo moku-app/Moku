@@ -11,7 +11,6 @@ pub struct ServerState(pub Mutex<Option<CommandChild>>);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_discord_rpc::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
@@ -39,6 +38,7 @@ pub fn run() {
             commands::backup::import_app_data,
             commands::backup::auto_backup_app_data,
             commands::backup::get_auto_backup_dir,
+            commands::backup::read_store_files,
             commands::updater::list_releases,
             commands::updater::download_and_install_update,
             commands::biometric::windows_hello_authenticate,
