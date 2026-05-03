@@ -224,11 +224,19 @@
   {#if style === "longstrip"}
     {#each stripToRender as chunk}
       {#each chunk.urls as url, i}
-        {#await resolveUrl(url, chunk.urls.length - i)}
-          <img src="" alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading={i < 5 ? "eager" : "lazy"} decoding="async" />
-        {:then src}
-          <img {src} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading={i < 5 ? "eager" : "lazy"} decoding="async" />
-        {/await}
+        {#if i < 8}
+          {#await resolveUrl(url, 8 - i)}
+            <img src="" alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="eager" decoding="async" />
+          {:then src}
+            <img {src} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="eager" decoding="async" />
+          {/await}
+        {:else}
+          {#await resolveUrl(url, 0)}
+            <img src="" alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="lazy" decoding="async" />
+          {:then src}
+            <img {src} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="lazy" decoding="async" />
+          {/await}
+        {/if}
       {/each}
     {/each}
     <div style="height:1px;flex-shrink:0"></div>

@@ -1,6 +1,7 @@
 import { store } from "@store/state.svelte";
 import { fetchAuthenticated, AuthRequiredError, uiAuth } from "../core/auth";
 import { boot } from "@store/boot.svelte";
+import { getBlobUrl } from "@core/cache/imageCache";
 
 const DEFAULT_URL = "http://127.0.0.1:4567";
 
@@ -25,20 +26,15 @@ export function getServerUrl(): string {
 export function plainThumbUrl(path: string): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
-  
-  const base = `${getServerUrl()}${path}`;
+  return `${getServerUrl()}${path}`;
+}
+
+export async function resolveImageUrl(path: string): Promise<string> {
+  if (!path) return "";
+  const url = path.startsWith("http") ? path : `${getServerUrl()}${path}`;
   const mode = store.settings.serverAuthMode ?? "NONE";
-  
-  if (mode === "UI_LOGIN") {
-    const token = uiAuth.getToken();
-    if (token) {
-      const url = new URL(base);
-      url.searchParams.set("authorization", token);
-      return url.toString();
-    }
-  }
-  
-  return base;
+  if (mode === "NONE") return url;
+  return getBlobUrl(url);
 }
 
 export const thumbUrl = plainThumbUrl;

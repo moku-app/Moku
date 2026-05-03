@@ -56,7 +56,7 @@ function drain() {
     active++;
     doFetch(entry.url)
       .then(entry.resolve, entry.reject)
-      .finally(() => { inflight.delete(entry.url); active--; drain(); });
+      .finally(() => { active--; drain(); });
   }
 }
 
@@ -67,7 +67,12 @@ function scheduleDrain() {
 }
 
 function enqueue(url: string, priority: number): Promise<string> {
-  const promise = new Promise<string>((resolve, reject) => { insertSorted({ url, priority, resolve, reject }); });
+  const promise = new Promise<string>((resolve, reject) => {
+    insertSorted({ url, priority, resolve, reject });
+  }).catch(err => {
+    inflight.delete(url);
+    return Promise.reject(err);
+  });
   inflight.set(url, promise);
   scheduleDrain();
   return promise;

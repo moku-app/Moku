@@ -1,5 +1,5 @@
 import { gql, getServerUrl }           from "@api/client";
-import { getBlobUrl, preloadBlobUrls } from "@core/cache/imageCache";
+import { getBlobUrl }                  from "@core/cache/imageCache";
 import { dedupeRequest }               from "@core/async/batchRequests";
 import { FETCH_CHAPTER_PAGES }         from "@api/mutations/chapters";
 
@@ -11,8 +11,14 @@ const aspectCache      = new Map<string, number>();
 
 export function resolveUrl(url: string, useBlob: boolean, priority = 0): Promise<string> {
   if (!useBlob) return Promise.resolve(url);
-  if (!resolvedUrlCache.has(url)) resolvedUrlCache.set(url, getBlobUrl(url, priority));
-  return resolvedUrlCache.get(url)!;
+  const cached = resolvedUrlCache.get(url);
+  if (cached) return cached;
+  const p = getBlobUrl(url, priority).catch(err => {
+    resolvedUrlCache.delete(url);
+    return Promise.reject(err);
+  });
+  resolvedUrlCache.set(url, p);
+  return p;
 }
 
 export function fetchPages(
@@ -30,10 +36,7 @@ export function fetchPages(
       gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId })
         .then(d => {
           const urls = d.fetchChapterPages.pages.map(p => p.startsWith("http") ? p : `${getServerUrl()}${p}`);
-          if (useBlob) {
-            if (urls[priorityPage]) getBlobUrl(urls[priorityPage], urls.length + 999);
-            preloadBlobUrls(urls.filter((_, i) => i !== priorityPage), urls.length);
-          }
+          if (useBlob && urls[priorityPage]) getBlobUrl(urls[priorityPage], 999);
           pageCache.set(chapterId, urls);
           return urls;
         })

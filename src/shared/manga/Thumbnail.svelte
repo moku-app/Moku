@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { thumbUrl, getServerUrl } from "@api/client";
+  import { plainThumbUrl, getServerUrl } from "@api/client";
   import { store } from "@store/state.svelte";
   import { getBlobUrl } from "@core/cache/imageCache";
 
@@ -23,10 +23,7 @@
     [key: string]: any;
   } = $props();
 
-  const isAuth = $derived(
-    store.settings.serverAuthMode === "BASIC_AUTH" ||
-    store.settings.serverAuthMode === "UI_LOGIN"
-  );
+  const isAuth = $derived((store.settings.serverAuthMode ?? "NONE") !== "NONE");
 
   let blobUrl = $state("");
   let reqId   = 0;
@@ -48,7 +45,7 @@
   const resolved = $derived(
     isAuth
       ? (blobUrl || undefined)
-      : (src ? thumbUrl(src) : undefined)
+      : (src ? plainThumbUrl(src) : undefined)
   );
 </script>
 

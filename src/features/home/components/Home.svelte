@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { gql, thumbUrl } from "@api/client";
-  import { getBlobUrl } from "@core/cache/imageCache";
+  import { gql, resolveImageUrl } from "@api/client";
   import { GET_CHAPTERS } from "@api/queries/chapters";
   import { GET_LIBRARY } from "@api/queries/manga";
   import { cache, CACHE_KEYS } from "@core/cache";
@@ -95,13 +94,8 @@
   let heroThumb = $state("");
   $effect(() => {
     const path = heroThumbSrc;
-    const mode = store.settings.serverAuthMode ?? "NONE";
     if (!path) { heroThumb = ""; return; }
-
-    const needsBlob = mode === "BASIC_AUTH" || mode === "UI_LOGIN";
-    if (!needsBlob) { heroThumb = thumbUrl(path); return; }
-
-    getBlobUrl(thumbUrl(path))
+    resolveImageUrl(path)
       .then(url => { heroThumb = url; })
       .catch(() => { heroThumb = ""; });
   });

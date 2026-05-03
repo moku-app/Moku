@@ -159,3 +159,16 @@ export function getTopSources<T extends { id: string }>(sources: T[]): T[] {
   }
   return sources.slice(0, MAX_FRECENCY_SOURCES);
 }
+
+export async function refreshMangaCache(mangaId: number, thumbnailUrl?: string): Promise<void> {
+  cache.clear(CACHE_KEYS.MANGA(mangaId));
+  cache.clear(CACHE_KEYS.CHAPTERS(mangaId));
+  cache.clear(CACHE_KEYS.LIBRARY);
+  cache.clear(CACHE_KEYS.ALL_MANGA);
+
+  if (thumbnailUrl) {
+    const { revokeBlobUrl, getBlobUrl } = await import("@core/cache/imageCache");
+    revokeBlobUrl(thumbnailUrl);
+    getBlobUrl(thumbnailUrl, 999).catch(() => {});
+  }
+}

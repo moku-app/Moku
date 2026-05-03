@@ -25,7 +25,7 @@
   import ReaderPresetPanel            from "./ReaderPresetPanel.svelte";
 
   const win       = getCurrentWindow();
-  const useBlob   = $derived((store.settings.serverAuthMode ?? "NONE") === "BASIC_AUTH");
+  const useBlob   = $derived((store.settings.serverAuthMode ?? "NONE") !== "NONE");
 
   const effectiveReaderSettings = $derived.by(() => {
     const mangaId  = store.activeManga?.id;
