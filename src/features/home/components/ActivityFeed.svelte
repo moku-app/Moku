@@ -2,19 +2,26 @@
   import { Play, ArrowRight, BookOpen, Clock } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
   import type { HistoryEntry } from "@store/state.svelte";
+  import type { Manga } from "@types";
   import { timeAgo } from "../lib/homeHelpers";
 
   let {
     entries,
+    libraryManga,
     onresume,
     onviewhistory,
     onopenlibrary,
   }: {
     entries: HistoryEntry[];
+    libraryManga: Manga[];
     onresume: (entry: HistoryEntry) => void;
     onviewhistory: () => void;
     onopenlibrary: () => void;
   } = $props();
+
+  function thumbFor(entry: HistoryEntry): string {
+    return libraryManga.find(m => m.id === entry.mangaId)?.thumbnailUrl ?? entry.thumbnailUrl ?? "";
+  }
 </script>
 
 <div class="section">
@@ -31,7 +38,7 @@
     {#if entries.length > 0}
       {#each entries as entry (entry.chapterId)}
         <button class="row" onclick={() => onresume(entry)}>
-          <Thumbnail src={entry.thumbnailUrl} alt={entry.mangaTitle} class="row-thumb" />
+          <Thumbnail src={thumbFor(entry)} alt={entry.mangaTitle} class="row-thumb" />
           <div class="row-info">
             <span class="row-title">{entry.mangaTitle}</span>
             <span class="row-sub">

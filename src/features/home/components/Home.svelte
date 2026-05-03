@@ -86,11 +86,22 @@
 
   let activeIdx = $state(0);
 
-  const activeSlot  = $derived(resolvedSlots[activeIdx]);
-  const heroThumbSrc = $derived(
-    activeSlot?.kind === "pinned"   ? (activeSlot.manga?.thumbnailUrl ?? "") :
-    activeSlot?.kind === "continue" ? (activeSlot.entry?.thumbnailUrl ?? "") : ""
+  const activeSlot = $derived(resolvedSlots[activeIdx]);
+
+  const heroManga = $derived(
+    activeSlot?.kind === "pinned"   ? activeSlot.manga :
+    activeSlot?.kind === "continue" ? libraryManga.find(m => m.id === activeSlot.entry?.mangaId) : null
   );
+  const heroEntry   = $derived(activeSlot?.kind === "continue" ? activeSlot.entry : null);
+  const heroMangaId = $derived(heroManga?.id ?? heroEntry?.mangaId ?? null);
+  const heroTitle   = $derived(heroManga?.title ?? heroEntry?.mangaTitle ?? "");
+
+  const heroThumbSrc = $derived(
+    heroManga?.thumbnailUrl
+      ?? (activeSlot?.kind === "continue" ? activeSlot.entry?.thumbnailUrl : undefined)
+      ?? ""
+  );
+
   let heroThumb = $state("");
   $effect(() => {
     const path = heroThumbSrc;
@@ -100,21 +111,8 @@
       .catch(() => { heroThumb = ""; });
   });
 
-  const heroTitle   = $derived(
-    activeSlot?.kind === "pinned"   ? (activeSlot.manga?.title ?? "") :
-    activeSlot?.kind === "continue" ? (activeSlot.entry?.mangaTitle ?? "") : ""
-  );
-  const heroManga   = $derived(
-    activeSlot?.kind === "pinned"   ? activeSlot.manga :
-    activeSlot?.kind === "continue" ? libraryManga.find(m => m.id === activeSlot.entry?.mangaId) : null
-  );
-  const heroEntry   = $derived(activeSlot?.kind === "continue" ? activeSlot.entry : null);
-  const heroMangaId = $derived(heroEntry?.mangaId ?? heroManga?.id ?? null);
-
   const heroNewChapter = $derived(
-    heroManga
-      ? (libraryManga.find(m => m.id === heroManga!.id) as any)?.latestUploadedChapter ?? null
-      : null
+    heroManga ? (libraryManga.find(m => m.id === heroManga!.id) as any)?.latestUploadedChapter ?? null : null
   );
 
   function cycleNext() { activeIdx = (activeIdx + 1) % TOTAL_SLOTS; heroChapters = []; heroAllChapters = []; }
@@ -158,6 +156,10 @@
 
   let resuming = $state(false);
 
+  function liveMangaStub(): Manga {
+    return heroManga ?? { id: heroMangaId!, title: heroTitle, thumbnailUrl: heroThumbSrc } as any;
+  }
+
   async function openChapter(chapter: Chapter) {
     if (!heroMangaId) return;
     resuming = true;
@@ -168,13 +170,12 @@
         all = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
       }
       if (all.length) {
-        const manga = heroManga ?? { id: heroMangaId, title: heroTitle, thumbnailUrl: heroManga?.thumbnailUrl ?? "" } as any;
-        store.activeManga = manga;
+        store.activeManga = liveMangaStub();
         const list = buildReaderChapterList(all, store.settings.mangaPrefs?.[heroMangaId]);
         const target = list.find(c => c.id === chapter.id) ?? list[0];
         if (target) openReader(target, list);
       }
-    } catch { store.activeManga = { id: heroMangaId, title: heroTitle, thumbnailUrl: heroManga?.thumbnailUrl ?? "" } as any; }
+    } catch { store.activeManga = liveMangaStub(); }
     finally { resuming = false; }
   }
 
@@ -190,24 +191,24 @@
       const list = buildReaderChapterList(raw, store.settings.mangaPrefs?.[heroEntry.mangaId]);
       const ch = list.find(c => c.id === heroEntry!.chapterId) ?? list[0];
       if (ch) {
-        store.activeManga = heroManga ?? { id: heroEntry.mangaId, title: heroEntry.mangaTitle, thumbnailUrl: heroEntry.thumbnailUrl } as any;
+        store.activeManga = liveMangaStub();
         openReader(ch, list);
       }
-    } catch { store.activeManga = { id: heroEntry.mangaId, title: heroEntry.mangaTitle, thumbnailUrl: heroEntry.thumbnailUrl } as any; }
+    } catch { store.activeManga = liveMangaStub(); }
     finally { resuming = false; }
   }
 
   async function resumeEntry(entry: HistoryEntry) {
+    const liveManga = libraryManga.find(m => m.id === entry.mangaId);
+    const stub = liveManga ?? { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: liveManga?.thumbnailUrl ?? entry.thumbnailUrl } as any;
     try {
       const d = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: entry.mangaId });
       const raw = [...d.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
       const list = buildReaderChapterList(raw, store.settings.mangaPrefs?.[entry.mangaId]);
       const ch = list.find(c => c.id === entry.chapterId) ?? list[0];
-      if (ch) {
-        store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any;
-        openReader(ch, list);
-      } else store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any;
-    } catch { store.activeManga = { id: entry.mangaId, title: entry.mangaTitle, thumbnailUrl: entry.thumbnailUrl } as any; }
+      store.activeManga = stub;
+      if (ch) openReader(ch, list);
+    } catch { store.activeManga = stub; }
   }
 
   let pickerOpen      = $state(false);
@@ -256,6 +257,7 @@
       <div class="mid-left">
         <ActivityFeed
           entries={recentHistory}
+          {libraryManga}
           onresume={resumeEntry}
           onviewhistory={() => setNavPage("history")}
           onopenlibrary={() => setNavPage("library")}

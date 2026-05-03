@@ -1,9 +1,28 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { ClockCounterClockwise, Trash, MagnifyingGlass, Books, Fire, BookOpen, Clock, TrendUp } from "phosphor-svelte";
   import Thumbnail from "@shared/manga/Thumbnail.svelte";
   import { store, clearHistory, setPreviewManga } from "@store/state.svelte";
+  import { gql } from "@api/client";
+  import { GET_LIBRARY } from "@api/queries/manga";
+  import { cache, CACHE_KEYS } from "@core/cache";
   import type { HistoryEntry } from "@store/state.svelte";
+  import type { Manga } from "@types";
   import { timeAgo, dayLabel, formatReadTime } from "@core/util";
+
+  let libraryManga = $state<Manga[]>([]);
+
+  onMount(() => {
+    cache.get(CACHE_KEYS.LIBRARY, () =>
+      gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then(d => d.mangas.nodes)
+    )
+      .then(m => { libraryManga = m; })
+      .catch(() => {});
+  });
+
+  function thumbFor(mangaId: number, fallback: string): string {
+    return libraryManga.find(m => m.id === mangaId)?.thumbnailUrl ?? fallback ?? "";
+  }
 
   let search       = $state("");
   let confirmClear = $state(false);
@@ -173,9 +192,9 @@
           </div>
           <div class="session-list">
             {#each items as session (session.latestChapterId)}
-              <button class="session-row" onclick={() => setPreviewManga({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: session.thumbnailUrl } as any)}>
+              <button class="session-row" onclick={() => setPreviewManga({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: thumbFor(session.mangaId, session.thumbnailUrl) } as any)}>
                 <div class="thumb-wrap">
-                  <Thumbnail src={session.thumbnailUrl} alt={session.mangaTitle} class="thumb" />
+                  <Thumbnail src={thumbFor(session.mangaId, session.thumbnailUrl)} alt={session.mangaTitle} class="thumb" />
                   {#if session.chapterCount > 1}
                     <span class="session-count">{session.chapterCount}</span>
                   {/if}
