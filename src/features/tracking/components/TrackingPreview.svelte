@@ -115,7 +115,7 @@
   function openManga() {
     if (!record.manga) return;
     setActiveManga(record.manga as any);
-    setNavPage("library");
+    setNavPage(store.navPage);
     onClose();
   }
 

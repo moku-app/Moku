@@ -17,6 +17,7 @@
     addBookmark, acknowledgeUpdate,
     checkAndMarkCompleted as storeCheckAndMarkCompleted,
     clearMarkersForManga,
+    saveScroll, getScroll,
   } from "@store/state.svelte";
   import { trackingState } from "@features/tracking/store/trackingState.svelte";
   import type { MangaPrefs } from "@store/state.svelte";
@@ -583,6 +584,20 @@
     } catch (e) { console.error(e); }
   }
 
+  let chapterListEl: HTMLDivElement | null = $state(null);
+  let prevMangaId: number | null = null;
+
+  $effect(() => {
+    const mangaId = store.activeManga?.id ?? null;
+    if (mangaId === prevMangaId) return;
+    if (chapterListEl && prevMangaId !== null) saveScroll(`series:${prevMangaId}`, chapterListEl.scrollTop);
+    prevMangaId = mangaId;
+    if (chapterListEl && mangaId !== null) {
+      const saved = getScroll(`series:${mangaId}`);
+      chapterListEl.scrollTo({ top: saved });
+    }
+  });
+
   onMount(() => () => { mangaAbort?.abort(); chapterAbort?.abort(); });
 </script>
 
@@ -665,6 +680,7 @@
       {enqueueing}
       {chapterPage}
       {totalPages}
+      bind:scrollEl={chapterListEl}
       onOpen={openReaderWithAhead}
       onToggleSelect={toggleSelect}
       onEnqueue={enqueue}

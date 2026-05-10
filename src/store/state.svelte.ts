@@ -43,7 +43,6 @@ function mergeSettings(saved: any): Settings {
     mangaPrefs:           saved?.settings?.mangaPrefs           ?? {},
     customThemes:         saved?.settings?.customThemes         ?? [],
     hiddenCategoryIds:    saved?.settings?.hiddenCategoryIds    ?? [],
-    nsfwFilteredTags:     saved?.settings?.nsfwFilteredTags     ?? DEFAULT_SETTINGS.nsfwFilteredTags,
     nsfwAllowedSourceIds: saved?.settings?.nsfwAllowedSourceIds ?? [],
     nsfwBlockedSourceIds: saved?.settings?.nsfwBlockedSourceIds ?? [],
     libraryTabSort:       saved?.settings?.libraryTabSort       ?? {},
@@ -94,6 +93,8 @@ class Store {
   set settingsOpen(v)   { app.setSettingsOpen(v); }
   get searchPrefill()   { return app.searchPrefill; }
   set searchPrefill(v)  { app.setSearchPrefill(v); }
+  get searchQuery()     { return app.searchQuery; }
+  set searchQuery(v)    { app.setSearchQuery(v); }
   get genreFilter()     { return app.genreFilter; }
   set genreFilter(v)    { app.setGenreFilter(v); }
 
@@ -401,4 +402,4 @@ export async function checkAndMarkCompleted(
 ): Promise<void> { return store.checkAndMarkCompleted(mangaId, chaps, categories, gqlFn, UPDATE_MANGA_CATEGORIES, UPDATE_MANGA, mangaStatus); }
 
 export { addToast, dismissToast, setActiveDownloads } from "./notifications.svelte";
-export { setNavPage, setSettingsOpen, setSearchPrefill, setGenreFilter } from "./app.svelte";
+export { setNavPage, setSettingsOpen, setSearchPrefill, setSearchQuery, setGenreFilter, saveScroll, getScroll } from "./app.svelte";

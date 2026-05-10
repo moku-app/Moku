@@ -42,6 +42,8 @@
   let loadingLinkList          = $state(false);
   let coverPickerOpen          = $state(false);
 
+  let originNavPage = store.navPage;
+
   const linkedIds = $derived(
     store.previewManga ? (store.settings.mangaLinks?.[store.previewManga.id] ?? []) : [],
   );
@@ -152,6 +154,7 @@
     const shouldAutoLink = store.settings.autoLinkOnOpen;
     const focal = store.previewManga;
     if (focal) {
+      originNavPage = store.navPage;
       load(focal.id);
       loadCategories(focal.id);
       if (shouldAutoLink) {
@@ -256,7 +259,7 @@
   function openSeriesDetail() {
     if (!displayManga) return;
     setActiveManga(displayManga);
-    setNavPage("library");
+    setNavPage(originNavPage);
     close();
   }
 

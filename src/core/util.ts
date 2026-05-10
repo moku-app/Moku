@@ -31,13 +31,13 @@ export function formatReadTime(m: number): string {
 
 const STRICT_TAGS: string[] = [
   "adult", "mature", "hentai", "ecchi", "erotic", "pornograph",
-  "18+", "smut", "lemon", "explicit", "sexual violence",
+  "18+", "smut", "explicit", "sexual violence",
   "gore", "guro", "graphic violence", "torture", "body horror",
 ];
 
 const MODERATE_TAGS: string[] = [
   "adult", "mature", "hentai", "ecchi", "erotic", "pornograph",
-  "18+", "smut", "lemon", "explicit", "sexual violence",
+  "18+", "smut", "explicit", "sexual violence",
 ];
 
 type ContentFilterSettings = Pick<
@@ -53,7 +53,16 @@ function blockedTagsForSettings(settings: ContentFilterSettings): string[] {
 
 function genreMatchesBlocklist(genre: string[], blockedTags: string[]): boolean {
   if (!blockedTags.length) return false;
-  return genre.some(g => blockedTags.some(tag => g.toLowerCase().trim().includes(tag)));
+  return genre.some(g => {
+    const norm = g.toLowerCase().trim();
+    return blockedTags.some(tag => {
+      const idx = norm.indexOf(tag);
+      if (idx === -1) return false;
+      const before = idx === 0 || /\W/.test(norm[idx - 1]);
+      const after  = idx + tag.length === norm.length || /\W/.test(norm[idx + tag.length]);
+      return before && after;
+    });
+  });
 }
 
 export function shouldHideNsfw(
@@ -69,10 +78,10 @@ export function shouldHideNsfw(
   if (srcId && blocked.includes(srcId)) return true;
 
   const sourceAllowed = !!(srcId && allowed.includes(srcId));
-  const blockedTags   = blockedTagsForSettings(settings);
 
-  if (!sourceAllowed && manga.source?.isNsfw && settings.contentLevel === "strict") return true;
-  return genreMatchesBlocklist(manga.genre ?? [], blockedTags);
+  if (!sourceAllowed && manga.source?.isNsfw) return true;
+
+  return genreMatchesBlocklist(manga.genre ?? [], blockedTagsForSettings(settings));
 }
 
 export function shouldHideSource(
@@ -83,10 +92,10 @@ export function shouldHideSource(
 
   if (settings.sourceOverridesEnabled) {
     if ((settings.nsfwBlockedSourceIds ?? []).includes(source.id)) return true;
-    if ((settings.nsfwAllowedSourceIds ?? []).includes(source.id)) return settings.contentLevel === "strict";
+    if ((settings.nsfwAllowedSourceIds ?? []).includes(source.id)) return false;
   }
 
-  return source.isNsfw && settings.contentLevel === "strict";
+  return source.isNsfw;
 }
 
 export function dedupeSourcesByLang(

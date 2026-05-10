@@ -76,7 +76,7 @@
     let filtered = allSources;
     if (kw_selectedLangs.size > 0)
       filtered = filtered.filter((s) => kw_selectedLangs.has(s.lang));
-    if (!store.settings.showNsfw)
+    if (store.settings.contentLevel !== "unrestricted")
       filtered = filtered.filter((s) => !shouldHideSource(s, store.settings));
     return filtered;
   }

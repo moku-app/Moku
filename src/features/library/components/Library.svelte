@@ -18,6 +18,7 @@
     store, setCategories, setLibraryUpdates, addToast,
     setTabSort, toggleTabSortDir, setTabStatus, toggleTabFilter, clearTabFilters,
   } from "../store/libraryState.svelte";
+  import { saveScroll, getScroll } from "@store/state.svelte";
   import type { LibrarySortMode, LibrarySortDir, LibraryStatusFilter, LibraryContentFilter, LibraryUpdateEntry } from "@store/state.svelte";
   import type { Manga, Category, Chapter } from "@types";
   import { checkAndMarkCompleted as storeCheckAndMarkCompleted, updateSettings } from "@store/state.svelte";
@@ -171,7 +172,18 @@
 
   $effect(() => { filtered; untrack(() => { renderVisible = paginator.reset(); }); });
   $effect(() => { retryCount; loading = true; error = null; if (retryCount > 0) cache.clear(CACHE_KEYS.LIBRARY); untrack(() => loadData()); });
-  $effect(() => { if (scrollEl) scrollEl.scrollTo({ top: 0 }); });
+  let prevTab = tab;
+  $effect(() => {
+    const nextTab = tab;
+    if (scrollEl && nextTab !== prevTab) {
+      saveScroll(`library:${prevTab}`, scrollEl.scrollTop);
+      const saved = getScroll(`library:${nextTab}`);
+      untrack(() => { scrollEl.scrollTo({ top: saved }); });
+      prevTab = nextTab;
+    } else if (scrollEl && nextTab === prevTab) {
+      scrollEl.scrollTo({ top: 0 });
+    }
+  });
   $effect(() => {
     const f = tab;
     if (f === "library" || f === "downloaded") return;

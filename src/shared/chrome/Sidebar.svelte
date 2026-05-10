@@ -25,6 +25,7 @@
     store.activeManga  = null;
     store.activeSource = null;
     store.genreFilter  = "";
+    store.searchQuery  = "";
   }
 
   function goHome() {
@@ -33,6 +34,7 @@
     store.activeManga   = null;
     store.libraryFilter = "library";
     store.genreFilter   = "";
+    store.searchQuery  = "";
   }
 </script>
 

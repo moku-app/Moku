@@ -14,6 +14,7 @@
     enqueueing:      Set<number>;
     chapterPage:     number;
     totalPages:      number;
+    scrollEl?:       HTMLDivElement | null;
     onOpen:          (ch: Chapter, inProgress: boolean) => void;
     onToggleSelect:  (id: number, e: MouseEvent | KeyboardEvent) => void;
     onEnqueue:       (ch: Chapter, e: MouseEvent) => void;
@@ -25,6 +26,7 @@
   let {
     pageChapters, sortedChapters, viewMode, loadingChapters,
     selectedIds, enqueueing, chapterPage, totalPages,
+    scrollEl = $bindable(null),
     onOpen, onToggleSelect, onEnqueue, onDeleteDownload,
     onPageChange, buildCtxItems,
   }: Props = $props();
@@ -48,7 +50,7 @@
   }
 </script>
 
-<div class={viewMode === "grid" ? "ch-grid" : "ch-list"}>
+<div class={viewMode === "grid" ? "ch-grid" : "ch-list"} bind:this={scrollEl}>
   {#if loadingChapters && sortedChapters.length === 0}
     {#if viewMode === "grid"}
       {#each Array(24) as _}<div class="grid-cell-skeleton skeleton"></div>{/each}

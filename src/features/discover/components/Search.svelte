@@ -8,7 +8,7 @@
   import { deprioritizeQueue }  from "@core/cache/imageCache";
   import { dedupeSourcesByLang }from "@core/algorithms/filter";
   import { shouldHideNsfw }     from "@core/util";
-  import { store, setSearchPrefill, setPreviewManga } from "@store/state.svelte";
+  import { store, setSearchPrefill, setPreviewManga, setSearchQuery } from "@store/state.svelte";
   import {
     toCachedManga,
     type CachedManga,
@@ -288,6 +288,8 @@
       popularResults={popular_results}
       popularLoading={popular_loading}
       {sourceCache}
+      query={store.searchQuery}
+      onQueryChange={setSearchQuery}
       onPrefillConsumed={() => (pendingPrefill = "")}
       onPreview={setPreviewManga}
     />
