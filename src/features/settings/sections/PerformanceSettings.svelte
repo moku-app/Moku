@@ -56,7 +56,7 @@
   <div class="s-section">
     <p class="s-section-title">Render Limit</p>
     <div class="s-section-body">
-      <div class="s-row">
+      <div class="s-slider-row">
         <div class="s-row-info">
           <span class="s-label">Items per page</span>
           <span class="s-desc">Lower = faster on large libraries</span>
@@ -91,16 +91,6 @@
       <label class="s-row">
         <div class="s-row-info"><span class="s-label">Animated card background</span><span class="s-desc">Shows cover art cards floating in the background on the idle screen</span></div>
         <button role="switch" aria-checked={store.settings.splashCards ?? true} aria-label="Animated card background" class="s-toggle" class:on={store.settings.splashCards ?? true} onclick={() => updateSettings({ splashCards: !(store.settings.splashCards ?? true) })}><span class="s-toggle-thumb"></span></button>
-      </label>
-    </div>
-  </div>
-
-  <div class="s-section">
-    <p class="s-section-title">Interface</p>
-    <div class="s-section-body">
-      <label class="s-row">
-        <div class="s-row-info"><span class="s-label">Compact sidebar</span><span class="s-desc">Collapses the sidebar to icons only</span></div>
-        <button role="switch" aria-checked={store.settings.compactSidebar} aria-label="Compact sidebar" class="s-toggle" class:on={store.settings.compactSidebar} onclick={() => updateSettings({ compactSidebar: !store.settings.compactSidebar })}><span class="s-toggle-thumb"></span></button>
       </label>
     </div>
   </div>

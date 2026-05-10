@@ -318,6 +318,12 @@
   text-align: center;
 }
 
+.s-presets {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+}
+
 
 /* ── Select Dropdown ──────────────────────────────────────────────── */
 .s-select { position: relative; flex-shrink: 0; }
