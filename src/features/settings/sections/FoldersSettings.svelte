@@ -1,10 +1,19 @@
 <script lang="ts">
-  import { FolderSimple, Plus, Trash, Star, Eye, EyeSlash, ArrowsClockwise, ArrowsCounterClockwise, DownloadSimple, DotsSixVertical } from "phosphor-svelte";
+  import { FolderSimple, Plus, Trash, Star, Eye, EyeSlash, ArrowsClockwise, ArrowsCounterClockwise, DownloadSimple, DotsSixVertical, BookmarkSimple, Lock, CheckSquare } from "phosphor-svelte";
   import { gql } from "@api/client";
   import { GET_CATEGORIES } from "@api/queries/manga";
   import { CREATE_CATEGORY, UPDATE_CATEGORY, UPDATE_CATEGORIES, DELETE_CATEGORY, UPDATE_CATEGORY_ORDER } from "@api/mutations/manga";
   import type { Category } from "@types";
-  import { store, updateSettings, toggleHiddenCategory, setCategories } from "@store/state.svelte";
+  import { store, updateSettings, setCategories } from "@store/state.svelte";
+
+  const completedCat   = $derived(store.categories.find(c => c.name === "Completed" && c.id !== 0) ?? null);
+  const completedId    = $derived(completedCat ? String(completedCat.id) : null);
+  const sortedCatIds   = $derived(store.categories.filter(c => c.id !== 0).map(c => String(c.id)));
+  const orderedCatIds  = $derived.by(() => {
+    const order = store.settings.libraryPinnedTabOrder ?? [];
+    const known = new Set(sortedCatIds);
+    return [...order.filter(id => known.has(id)), ...sortedCatIds.filter(id => !order.includes(id))];
+  });
 
   let catsLoading   = $state(false);
   let catsError     = $state<string | null>(null);
@@ -15,6 +24,15 @@
   let dragId       = $state<number | null>(null);
   let dragOverId   = $state<number | null>(null);
   let dropPosition = $state<"above" | "below" | null>(null);
+
+  function isHidden(id: string) {
+    return (store.settings.hiddenLibraryTabs ?? []).includes(id);
+  }
+
+  function toggleHidden(id: string) {
+    const current = store.settings.hiddenLibraryTabs ?? [];
+    updateSettings({ hiddenLibraryTabs: current.includes(id) ? current.filter(x => x !== id) : [...current, id] });
+  }
 
   async function loadCategories() {
     catsLoading = true; catsError = null;
@@ -84,6 +102,10 @@
     const [moved]   = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
     setCategories([...zeroCat, ...reordered.map((c, i) => ({ ...c, order: i + 1 }))]);
+
+    const catIds = reordered.map(c => String(c.id));
+    updateSettings({ libraryPinnedTabOrder: ["library", "downloaded", ...catIds] });
+
     try {
       const res = await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id: fromId, position: toIdx + 1 });
       const updated = res.updateCategoryOrder.categories.filter(c => c.id !== 0);
@@ -136,9 +158,115 @@
       <div class="s-row">
         <span class="s-desc">Folders are stored as Suwayomi categories. Changes sync across all clients.</span>
       </div>
+
       {#if catsError}
         <div class="s-banner s-banner-error">{catsError}</div>
       {/if}
+
+      {#if catsLoading}
+        <p class="s-empty">Loading folders…</p>
+      {:else}
+        <div class="s-folder-row s-folder-row-static">
+          <span class="s-folder-icon-static"><BookmarkSimple size={14} weight="light" /></span>
+          <span class="s-folder-name s-folder-name-static">Saved</span>
+          <span class="s-folder-badge">built-in</span>
+          <div class="s-folder-actions">
+            <button class="s-btn-icon" class:muted={isHidden("library")} onclick={() => toggleHidden("library")} title={isHidden("library") ? "Show tab in library" : "Hide tab from library"}>
+              {#if isHidden("library")}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
+            </button>
+            <button class="s-btn-icon s-btn-icon-lock" disabled title="Built-in tab — cannot be deleted"><Lock size={12} weight="light" /></button>
+          </div>
+        </div>
+
+        <div class="s-folder-row s-folder-row-static">
+          <span class="s-folder-icon-static"><DownloadSimple size={14} weight="light" /></span>
+          <span class="s-folder-name s-folder-name-static">Downloaded</span>
+          <span class="s-folder-badge">built-in</span>
+          <div class="s-folder-actions">
+            <button class="s-btn-icon" class:muted={isHidden("downloaded")} onclick={() => toggleHidden("downloaded")} title={isHidden("downloaded") ? "Show tab in library" : "Hide tab from library"}>
+              {#if isHidden("downloaded")}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
+            </button>
+            <button class="s-btn-icon s-btn-icon-lock" disabled title="Built-in tab — cannot be deleted"><Lock size={12} weight="light" /></button>
+          </div>
+        </div>
+
+        {#if completedCat}
+          <div class="s-folder-row s-folder-row-static">
+            <span class="s-folder-icon-static"><CheckSquare size={14} weight="light" /></span>
+            <span class="s-folder-name s-folder-name-static">{completedCat.name}</span>
+            <span class="s-folder-count">{completedCat.mangas?.nodes.length ?? 0} manga</span>
+            <span class="s-folder-badge">built-in</span>
+            <div class="s-folder-actions">
+              <button class="s-btn-icon" class:muted={isHidden(String(completedCat.id))} onclick={() => toggleHidden(String(completedCat!.id))} title={isHidden(String(completedCat.id)) ? "Show tab in library" : "Hide tab from library"}>
+                {#if isHidden(String(completedCat.id))}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
+              </button>
+              <button class="s-btn-icon s-btn-icon-lock" disabled title="Built-in tab — cannot be deleted"><Lock size={12} weight="light" /></button>
+            </div>
+          </div>
+        {/if}
+
+        <div class="s-folder-divider" aria-hidden="true"></div>
+
+        <div class="s-folder-list" class:is-dragging={dragId !== null}>
+          {#each orderedCatIds.filter(id => id !== completedId) as id}
+            {@const cat    = store.categories.find(c => String(c.id) === id) ?? null}
+            {@const hidden = isHidden(id)}
+            {#if cat}
+              <div
+                class="s-folder-row"
+                class:dragging={dragId === cat.id}
+                class:drop-above={dragOverId === cat.id && dragId !== cat.id && dropPosition === "above"}
+                class:drop-below={dragOverId === cat.id && dragId !== cat.id && dropPosition === "below"}
+                ondragover={(e) => onDragOver(e, cat.id)}
+                ondrop={(e) => onDrop(e, cat.id)}
+                ondragleave={() => { if (dragOverId === cat.id) { dragOverId = null; dropPosition = null; } }}
+              >
+                {#if editingId === cat.id}
+                  <input class="s-input full" bind:value={editingName}
+                    onkeydown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") { editingId = null; } }}
+                    onblur={commitEdit} use:focusInput />
+                  <button class="s-btn-icon" onclick={commitEdit} title="Save">✓</button>
+                {:else}
+                  <div class="s-folder-identity" draggable="true"
+                    ondragstart={(e) => onDragStart(e, cat.id)}
+                    ondragend={onDragEnd}>
+                    <span class="s-folder-icon">
+                      <FolderSimple size={14} weight="light" />
+                      <DotsSixVertical size={14} weight="bold" />
+                    </span>
+                    <span class="s-folder-name" onclick={(e) => { e.stopPropagation(); startEdit(cat.id, cat.name); }} title="Click to rename">{cat.name}</span>
+                  </div>
+
+                  <span class="s-folder-count">{cat.mangas?.nodes.length ?? 0} manga</span>
+
+                  <div class="s-folder-actions">
+                    <button class="s-btn-icon" class:active={(store.settings.defaultLibraryCategoryId ?? null) === cat.id} onclick={() => updateSettings({ defaultLibraryCategoryId: (store.settings.defaultLibraryCategoryId ?? null) === cat.id ? null : cat.id })} title={(store.settings.defaultLibraryCategoryId ?? null) === cat.id ? "Remove as default folder" : "Set as default folder"}>
+                      <Star size={13} weight={(store.settings.defaultLibraryCategoryId ?? null) === cat.id ? "fill" : "light"} />
+                    </button>
+                    <button class="s-btn-icon" class:muted={hidden} onclick={() => toggleHidden(id)} title={hidden ? "Show in library" : "Hide from library"}>
+                      {#if hidden}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
+                    </button>
+                    <button class="s-btn-icon" class:active={cat.includeInUpdate !== false} class:inactive={cat.includeInUpdate === false} onclick={() => toggleCategoryFlag(cat.id, "includeInUpdate")} title={cat.includeInUpdate !== false ? "Included in updates — click to exclude" : "Excluded from updates — click to include"}>
+                      {#if cat.includeInUpdate !== false}<ArrowsClockwise size={13} weight="bold" />{:else}<ArrowsCounterClockwise size={13} weight="light" />{/if}
+                    </button>
+                    <button class="s-btn-icon" class:active={cat.includeInDownload !== false} class:inactive={cat.includeInDownload === false} onclick={() => toggleCategoryFlag(cat.id, "includeInDownload")} title={cat.includeInDownload !== false ? "Included in auto-downloads — click to exclude" : "Excluded from auto-downloads — click to include"}>
+                      <DownloadSimple size={13} weight={cat.includeInDownload !== false ? "bold" : "light"} />
+                    </button>
+                    <button class="s-btn-icon danger" onclick={() => deleteFolder(cat.id)} title="Delete folder">
+                      <Trash size={12} weight="light" />
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          {/each}
+        </div>
+
+        {#if store.categories.filter(c => c.id !== 0 && c.name !== "Completed").length === 0}
+          <p class="s-empty">No custom folders yet. Create one below.</p>
+        {/if}
+      {/if}
+
       <div class="s-folder-create">
         <input class="s-input full" placeholder="New folder name…" bind:value={newFolderName}
           onkeydown={(e) => e.key === "Enter" && createFolder()} />
@@ -146,97 +274,6 @@
           <Plus size={13} weight="bold" /> Create
         </button>
       </div>
-      {#if catsLoading}
-        <p class="s-empty">Loading folders…</p>
-      {:else if store.categories.filter(c => c.id !== 0).length === 0}
-        <p class="s-empty">No folders yet. Create one above.</p>
-      {:else}
-        {@const displayCats = store.categories
-            .filter(c => c.id !== 0)
-            .sort((a, b) => {
-              const defaultId = store.settings.defaultLibraryCategoryId ?? null;
-              if (a.id === defaultId) return -1;
-              if (b.id === defaultId) return  1;
-              return a.order - b.order;
-            })}
-        <div class="s-folder-list" class:is-dragging={dragId !== null}>
-          {#each displayCats as cat}
-            <div
-              class="s-folder-row"
-              class:dragging={dragId === cat.id}
-              class:drop-above={dragOverId === cat.id && dragId !== cat.id && dropPosition === "above"}
-              class:drop-below={dragOverId === cat.id && dragId !== cat.id && dropPosition === "below"}
-              ondragover={(e) => onDragOver(e, cat.id)}
-              ondrop={(e) => onDrop(e, cat.id)}
-              ondragleave={() => { if (dragOverId === cat.id) { dragOverId = null; dropPosition = null; } }}
-            >
-              {#if editingId === cat.id}
-                <input class="s-input full" bind:value={editingName}
-                  onkeydown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") { editingId = null; } }}
-                  onblur={commitEdit} use:focusInput />
-                <button class="s-btn-icon" onclick={commitEdit} title="Save">✓</button>
-              {:else}
-                {@const isDefault = (store.settings.defaultLibraryCategoryId ?? null) === cat.id}
-                {@const isHidden  = (store.settings.hiddenCategoryIds ?? []).includes(cat.id)}
-                {@const inUpdate  = cat.includeInUpdate !== false}
-                {@const inDl      = cat.includeInDownload !== false}
-
-                <div class="s-folder-identity" draggable="true"
-                  ondragstart={(e) => onDragStart(e, cat.id)}
-                  ondragend={onDragEnd}>
-                  <span class="s-folder-icon">
-                    <FolderSimple size={14} weight="light" />
-                    <DotsSixVertical size={14} weight="bold" />
-                  </span>
-                  <span class="s-folder-name" onclick={(e) => { e.stopPropagation(); startEdit(cat.id, cat.name); }} title="Click to rename">
-                    {cat.name}
-                  </span>
-                </div>
-
-                <span class="s-folder-count">{cat.mangas?.nodes.length ?? 0} manga</span>
-
-                <div class="s-folder-actions">
-                  <button class="s-btn-icon" class:active={isDefault}
-                    onclick={() => updateSettings({ defaultLibraryCategoryId: isDefault ? null : cat.id })}
-                    title={isDefault ? "Remove as default folder" : "Set as default folder"}>
-                    <Star size={13} weight={isDefault ? "fill" : "light"} />
-                  </button>
-
-                  <button class="s-btn-icon" class:muted={isHidden}
-                    onclick={() => toggleHiddenCategory(cat.id)}
-                    title={isHidden ? "Show in library" : "Hide from library"}>
-                    {#if isHidden}
-                      <EyeSlash size={13} weight="light" />
-                    {:else}
-                      <Eye size={13} weight="light" />
-                    {/if}
-                  </button>
-
-                  <button class="s-btn-icon" class:active={inUpdate} class:inactive={!inUpdate}
-                    onclick={() => toggleCategoryFlag(cat.id, "includeInUpdate")}
-                    title={inUpdate ? "Included in updates — click to exclude" : "Excluded from updates — click to include"}>
-                    {#if inUpdate}
-                      <ArrowsClockwise size={13} weight="bold" />
-                    {:else}
-                      <ArrowsCounterClockwise size={13} weight="light" />
-                    {/if}
-                  </button>
-
-                  <button class="s-btn-icon" class:active={inDl} class:inactive={!inDl}
-                    onclick={() => toggleCategoryFlag(cat.id, "includeInDownload")}
-                    title={inDl ? "Included in auto-downloads — click to exclude" : "Excluded from auto-downloads — click to include"}>
-                    <DownloadSimple size={13} weight={inDl ? "bold" : "light"} />
-                  </button>
-
-                  <button class="s-btn-icon danger" onclick={() => deleteFolder(cat.id)} title="Delete folder">
-                    <Trash size={12} weight="light" />
-                  </button>
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
     </div>
   </div>
 </div>
@@ -287,8 +324,16 @@
     cursor: grab;
   }
 
-  .s-folder-identity:active {
-    cursor: grabbing;
+  .s-folder-row-static {
+    cursor: default;
+  }
+
+  .s-folder-icon-static {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--text-faint);
+    width: 14px;
   }
 
   .s-folder-icon {
@@ -326,12 +371,39 @@
     text-underline-offset: 3px;
   }
 
+  .s-folder-name-static {
+    cursor: default;
+    color: var(--text-secondary);
+  }
+
+  .s-folder-name-static:hover {
+    text-decoration: none;
+  }
+
   .s-folder-actions {
     display: flex;
     align-items: center;
     gap: 2px;
     margin-left: auto;
     flex-shrink: 0;
+  }
+
+  .s-folder-badge {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-dim);
+    border-radius: 3px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+    margin-left: 6px;
+  }
+
+  .s-folder-divider {
+    height: 1px;
+    background: var(--border-dim);
+    margin: 2px 0;
   }
 
   .s-btn-icon.active {
@@ -350,5 +422,15 @@
   .s-btn-icon.muted {
     color: var(--text-faint);
     opacity: 0.5;
+  }
+
+  .s-btn-icon-lock {
+    opacity: 0.25;
+    cursor: not-allowed;
+  }
+
+  .s-btn-icon-lock:hover {
+    opacity: 0.25;
+    color: inherit;
   }
 </style>

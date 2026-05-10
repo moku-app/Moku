@@ -43,6 +43,7 @@ function mergeSettings(saved: any): Settings {
     mangaPrefs:           saved?.settings?.mangaPrefs           ?? {},
     customThemes:         saved?.settings?.customThemes         ?? [],
     hiddenCategoryIds:    saved?.settings?.hiddenCategoryIds    ?? [],
+    nsfwFilteredTags:     saved?.settings?.nsfwFilteredTags     ?? DEFAULT_SETTINGS.nsfwFilteredTags,
     nsfwAllowedSourceIds: saved?.settings?.nsfwAllowedSourceIds ?? [],
     nsfwBlockedSourceIds: saved?.settings?.nsfwBlockedSourceIds ?? [],
     libraryTabSort:       saved?.settings?.libraryTabSort       ?? {},
@@ -53,6 +54,8 @@ function mergeSettings(saved: any): Settings {
     readerPresets:        saved?.settings?.readerPresets        ?? [],
     mangaReaderSettings:  saved?.settings?.mangaReaderSettings  ?? {},
     categoryFrecency:     saved?.settings?.categoryFrecency     ?? {},
+    hiddenLibraryTabs:    saved?.settings?.hiddenLibraryTabs    ?? [],
+    libraryPinnedTabOrder: saved?.settings?.libraryPinnedTabOrder ?? [],
   };
 }
 

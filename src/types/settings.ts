@@ -126,6 +126,8 @@ export interface Settings {
   autoLinkOnOpen: boolean;
   downloadToastsEnabled: boolean;
   downloadAutoRetry: boolean;
+  hiddenLibraryTabs: string[];
+  libraryPinnedTabOrder: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -167,4 +169,6 @@ export const DEFAULT_SETTINGS: Settings = {
   autoLinkOnOpen: false,
   downloadToastsEnabled: true,
   downloadAutoRetry: false,
+  hiddenLibraryTabs: [],
+  libraryPinnedTabOrder: [],
 };

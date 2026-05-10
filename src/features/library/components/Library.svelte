@@ -85,10 +85,40 @@
   const hasActiveFilters = $derived(tabStatus !== "ALL" || Object.values(tabFilters).some(Boolean));
   const cols = $derived(Math.max(1, Math.floor((containerWidth + CARD_GAP) / (CARD_MIN_W + CARD_GAP))));
 
+  const BUILTIN_TABS = ["library", "downloaded"] as const;
+
+  const completedCatId = $derived(
+    store.categories.find(c => c.name === COMPLETED_NAME && c.id !== 0)?.id ?? null
+  );
+
+  const allTabIds = $derived((() => {
+    const catIds  = store.categories.filter(c => c.id !== 0).map(c => String(c.id));
+    const pinned  = store.settings.libraryPinnedTabOrder ?? [];
+    const known   = new Set([...BUILTIN_TABS, ...catIds]);
+    const ordered = [...pinned.filter(id => known.has(id))];
+    const inOrder = new Set(ordered);
+    for (const id of [...BUILTIN_TABS, ...catIds]) {
+      if (!inOrder.has(id)) ordered.push(id);
+    }
+    return ordered;
+  })());
+
+  const hiddenTabs = $derived(new Set(store.settings.hiddenLibraryTabs ?? []));
+
+  const visibleTabIds = $derived(allTabIds.filter(id => !hiddenTabs.has(id)));
+
+  const virtualTabIds = $derived(visibleTabIds.filter(id =>
+    id === "library" || id === "downloaded" || (completedCatId !== null && id === String(completedCatId))
+  ));
+
+  const folderTabIds = $derived(visibleTabIds.filter(id =>
+    id !== "library" && id !== "downloaded" && (completedCatId === null || id !== String(completedCatId))
+  ));
+
   const visibleCategories = $derived((() => {
     const defaultId = store.settings.defaultLibraryCategoryId ?? null;
     return store.categories
-      .filter(c => c.id !== 0 && !(store.settings.hiddenCategoryIds ?? []).includes(c.id))
+      .filter(c => c.id !== 0 && !hiddenTabs.has(String(c.id)))
       .sort((a, b) => {
         if (a.id === defaultId) return -1;
         if (b.id === defaultId) return  1;
@@ -172,7 +202,7 @@
 
   $effect(() => { filtered; untrack(() => { renderVisible = paginator.reset(); }); });
   $effect(() => { retryCount; loading = true; error = null; if (retryCount > 0) cache.clear(CACHE_KEYS.LIBRARY); untrack(() => loadData()); });
-  let prevTab = tab;
+  let prevTab = $state(tab);
   $effect(() => {
     const nextTab = tab;
     if (scrollEl && nextTab !== prevTab) {
@@ -605,6 +635,10 @@
       {hasActiveFilters}
       {anims}
       {visibleCategories}
+      {visibleTabIds}
+      {virtualTabIds}
+      {folderTabIds}
+      {completedCatId}
       {counts}
       {search}
       {refreshing}
