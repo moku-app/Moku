@@ -420,23 +420,28 @@
   $effect(() => {
     const ahead   = store.settings.preloadPages ?? 3;
     const current = store.pageUrls[store.pageNumber - 1];
+    const pageNum = store.pageNumber;
+    const urls    = store.pageUrls;
     if (!current) return;
-    if (useBlob) {
-      import("@core/cache/imageCache").then(({ getBlobUrl, preloadBlobUrls }) => {
-        getBlobUrl(current, 999);
-        const upcoming = Array.from({ length: ahead }, (_, i) => store.pageUrls[store.pageNumber + i]).filter(Boolean) as string[];
-        const behind   = store.pageUrls[store.pageNumber - 2];
-        preloadBlobUrls(upcoming, ahead);
-        if (behind) preloadBlobUrls([behind], 0);
-      });
-    } else {
-      for (let i = 1; i <= ahead; i++) {
-        const url = store.pageUrls[store.pageNumber - 1 + i];
-        if (url) preloadImage(url, useBlob);
+    const t = setTimeout(() => {
+      if (useBlob) {
+        import("@core/cache/imageCache").then(({ getBlobUrl, preloadBlobUrls }) => {
+          getBlobUrl(current, 999);
+          const upcoming = Array.from({ length: ahead }, (_, i) => urls[pageNum + i]).filter(Boolean) as string[];
+          const behind   = urls[pageNum - 2];
+          preloadBlobUrls(upcoming, ahead);
+          if (behind) preloadBlobUrls([behind], 0);
+        });
+      } else {
+        for (let i = 1; i <= ahead; i++) {
+          const url = urls[pageNum - 1 + i];
+          if (url) preloadImage(url, useBlob);
+        }
+        const behind = urls[pageNum - 2];
+        if (behind) preloadImage(behind, useBlob);
       }
-      const behind = store.pageUrls[store.pageNumber - 2];
-      if (behind) preloadImage(behind, useBlob);
-    }
+    }, 150);
+    return () => clearTimeout(t);
   });
 
   $effect(() => {

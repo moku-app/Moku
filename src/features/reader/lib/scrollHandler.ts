@@ -25,57 +25,58 @@ export function setupScrollTracking(
     onAppend, getStripChapters, getPageUrls, shouldAutoMark,
   } = callbacks;
 
-  function onScroll() {
+  let rafId: number | null = null;
+
+  function tick() {
+    rafId = null;
+
     const imgs = containerEl.querySelectorAll<HTMLElement>("img[data-local-page]");
     if (!imgs.length) return;
 
     const containerTop = containerEl.getBoundingClientRect().top;
     const readLineY    = containerTop + containerEl.clientHeight * READ_LINE_PCT;
 
-    let activePage: number | null = null;
-    let activeChId: number | null = null;
-
-    for (const img of imgs) {
-      if (img.getBoundingClientRect().top <= readLineY) {
-        activePage = Number(img.dataset.localPage);
-        activeChId = Number(img.dataset.chapter);
-      } else break;
+    let lo = 0, hi = imgs.length - 1, best = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      if (imgs[mid].getBoundingClientRect().top <= readLineY) { best = mid; lo = mid + 1; }
+      else hi = mid - 1;
     }
 
-    if (activePage === null) {
-      activePage = Number(imgs[0].dataset.localPage);
-      activeChId = Number(imgs[0].dataset.chapter);
-    }
+    const active   = imgs[best];
+    const activePage = Number(active.dataset.localPage);
+    const activeChId = Number(active.dataset.chapter);
 
-    if (activePage !== null) onPageChange(activePage);
-    if (activeChId)          onChapterChange(activeChId);
+    onPageChange(activePage);
+    if (activeChId) onChapterChange(activeChId);
 
-    if (shouldAutoMark() && activePage !== null && activeChId) {
+    if (shouldAutoMark() && activeChId) {
       const chunks = getStripChapters();
       const chunk  = chunks.find(c => c.chapterId === activeChId);
       const total  = chunk ? chunk.urls.length : getPageUrls().length;
       if (total > 0 && activePage >= total) onMarkRead(activeChId);
+
+      const atBottom = containerEl.scrollTop + containerEl.clientHeight >= containerEl.scrollHeight - 40;
+      if (atBottom) {
+        const last = chunks[chunks.length - 1];
+        if (last) onMarkRead(last.chapterId);
+      }
     }
 
-    const atBottom = containerEl.scrollTop + containerEl.clientHeight >= containerEl.scrollHeight - 40;
-    if (atBottom && shouldAutoMark()) {
-      const chunks = getStripChapters();
-      const last   = chunks[chunks.length - 1];
-      if (last) onMarkRead(last.chapterId);
-    }
-  }
-
-  function onScrollAppend() {
     const pct = (containerEl.scrollTop + containerEl.clientHeight) / containerEl.scrollHeight;
     if (pct >= 0.80) onAppend();
   }
 
-  containerEl.addEventListener("scroll", onScroll,       { passive: true });
-  containerEl.addEventListener("scroll", onScrollAppend, { passive: true });
+  function onScroll() {
+    if (rafId !== null) return;
+    rafId = requestAnimationFrame(tick);
+  }
+
+  containerEl.addEventListener("scroll", onScroll, { passive: true });
 
   return () => {
     containerEl.removeEventListener("scroll", onScroll);
-    containerEl.removeEventListener("scroll", onScrollAppend);
+    if (rafId !== null) cancelAnimationFrame(rafId);
   };
 }
 

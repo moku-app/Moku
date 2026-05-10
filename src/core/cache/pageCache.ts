@@ -1,12 +1,11 @@
 import { gql, getServerUrl }           from "@api/client";
-import { getBlobUrl }                  from "@core/cache/imageCache";
-import { dedupeRequest }               from "@core/async/batchRequests";
-import { FETCH_CHAPTER_PAGES }         from "@api/mutations/chapters";
+import { getBlobUrl, preloadBlobUrls }  from "@core/cache/imageCache";
+import { dedupeRequest }                from "@core/async/batchRequests";
+import { FETCH_CHAPTER_PAGES }          from "@api/mutations/chapters";
 
 const pageCache        = new Map<number, string[]>();
 const inflight         = new Map<number, Promise<string[]>>();
 const resolvedUrlCache = new Map<string, Promise<string>>();
-const preloadedUrls    = new Set<string>();
 const aspectCache      = new Map<string, number>();
 
 export function resolveUrl(url: string, useBlob: boolean, priority = 0): Promise<string> {
@@ -63,9 +62,16 @@ export function measureAspect(url: string, useBlob: boolean): Promise<number> {
 }
 
 export function preloadImage(url: string, useBlob: boolean): void {
-  if (preloadedUrls.has(url)) return;
-  preloadedUrls.add(url);
+  if (useBlob) {
+    preloadBlobUrls([url], 0);
+    return;
+  }
   resolveUrl(url, useBlob).then(src => { new Image().src = src; }).catch(() => {});
+}
+
+export function clearResolvedUrlCache(): void {
+  resolvedUrlCache.clear();
+  aspectCache.clear();
 }
 
 export function clearPageCache(chapterId?: number): void {
@@ -76,7 +82,6 @@ export function clearPageCache(chapterId?: number): void {
     pageCache.clear();
     inflight.clear();
     resolvedUrlCache.clear();
-    preloadedUrls.clear();
     aspectCache.clear();
   }
 }

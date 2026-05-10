@@ -112,7 +112,17 @@ export function deprioritizeQueue(): void {
   queue.sort((a, b) => b.priority - a.priority);
 }
 
+export function cancelQueuedFetches(): void {
+  const dropped = queue.splice(0);
+  for (const entry of dropped) {
+    inflight.delete(entry.url);
+    entry.reject(new DOMException("Cancelled", "AbortError"));
+  }
+}
+
 export function clearBlobCache(): void {
+  cancelQueuedFetches();
   cache.forEach(blob => URL.revokeObjectURL(blob));
   cache.clear();
+  inflight.clear();
 }

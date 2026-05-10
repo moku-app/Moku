@@ -1,7 +1,9 @@
-import { store, openReader } from "@store/state.svelte";
-import { readerState }       from "../store/readerState.svelte";
-import { fetchPages }        from "./pageLoader";
-import { trackingState }     from "@features/tracking/store/trackingState.svelte";
+import { store }           from "@store/state.svelte";
+import { readerState }     from "../store/readerState.svelte";
+import { fetchPages }      from "./pageLoader";
+import { trackingState }   from "@features/tracking/store/trackingState.svelte";
+import { cancelQueuedFetches } from "@core/cache/imageCache";
+import { clearResolvedUrlCache } from "@core/cache/pageCache";
 
 export function scheduleResumeDismiss() {
   setTimeout(() => { readerState.resumeFading = true; }, 1500);
@@ -19,6 +21,10 @@ export async function loadChapter(
   abortCtrl.current?.abort();
   const ctrl = new AbortController();
   abortCtrl.current = ctrl;
+
+  cancelQueuedFetches();
+  if (useBlob) clearResolvedUrlCache();
+
   startAtLastPage.current = false;
   markedRead.clear();
   readerState.resetForChapter();
@@ -43,7 +49,7 @@ export async function loadChapter(
     else if (resumeTo > 1)        store.pageNumber = Math.min(resumeTo, urls.length || resumeTo);
     readerState.pageReady = true;
     readerState.loading   = false;
-    if (adjacent.next) fetchPages(adjacent.next.id, useBlob).catch(() => {});
+    if (adjacent.next) fetchPages(adjacent.next.id, useBlob, ctrl.signal).catch(() => {});
   } catch (e: any) {
     if (ctrl.signal.aborted) return;
     readerState.error   = e instanceof Error ? e.message : String(e);

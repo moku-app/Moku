@@ -19,6 +19,7 @@
     fadingOut:       boolean;
     tapToToggleBar:  boolean;
     pinchZoomEnabled: boolean;
+    chapterEpoch:    number;
     onGetZoom:       () => number;
     onSetZoom:       (z: number) => void;
     resolveUrl:      (url: string, priority?: number) => Promise<string>;
@@ -31,9 +32,151 @@
   const {
     style, imgCls, effectiveWidth, loading, error, pageReady,
     pageGroups, currentGroup, stripToRender, fadingOut,
-    tapToToggleBar, pinchZoomEnabled, onGetZoom, onSetZoom,
+    tapToToggleBar, pinchZoomEnabled, chapterEpoch, onGetZoom, onSetZoom,
     resolveUrl, onTap, onWheel, onToggleUi, bindContainer,
   }: Props = $props();
+
+  const LOAD_RADIUS   = 5;
+  const UNLOAD_RADIUS = 10;
+
+  type FlatPage = { chapterId: number; chapterName: string; localIndex: number; url: string; total: number };
+
+  const flatPages = $derived.by<FlatPage[]>(() => {
+    const out: FlatPage[] = [];
+    for (const chunk of stripToRender) {
+      for (let i = 0; i < chunk.urls.length; i++) {
+        out.push({ chapterId: chunk.chapterId, chapterName: chunk.chapterName, localIndex: i, url: chunk.urls[i], total: chunk.urls.length });
+      }
+    }
+    return out;
+  });
+
+  let loadedSet   = $state(new Set<number>());
+  let resolvedSrc = $state<Record<number, string>>({});
+  let revokeQueue: string[] = [];
+
+  let observer: IntersectionObserver | null = null;
+  const elementIndex = new Map<Element, number>();
+
+  let viewportCenter = $state(0);
+
+  function scheduleRevoke(src: string) {
+    if (!src || !src.startsWith("blob:")) return;
+    revokeQueue.push(src);
+    requestAnimationFrame(() => {
+      const url = revokeQueue.shift();
+      if (url) {
+        try { URL.revokeObjectURL(url); } catch { }
+      }
+    });
+  }
+
+  function loadPage(idx: number) {
+    if (loadedSet.has(idx)) return;
+    const page = flatPages[idx];
+    if (!page) return;
+    const newSet = new Set(loadedSet);
+    newSet.add(idx);
+    loadedSet = newSet;
+    const priority = (page.localIndex < 8 && page.chapterId === flatPages[0]?.chapterId) ? 8 - page.localIndex : 0;
+    resolveUrl(page.url, priority).then(src => {
+      if (loadedSet.has(idx)) {
+        resolvedSrc = { ...resolvedSrc, [idx]: src };
+      } else {
+        scheduleRevoke(src);
+      }
+    });
+  }
+
+  function unloadPage(idx: number) {
+    if (!loadedSet.has(idx)) return;
+    const newSet = new Set(loadedSet);
+    newSet.delete(idx);
+    loadedSet = newSet;
+    const oldSrc = resolvedSrc[idx];
+    if (oldSrc) {
+      const next = { ...resolvedSrc };
+      delete next[idx];
+      resolvedSrc = next;
+      scheduleRevoke(oldSrc);
+    }
+  }
+
+  function recalcWindow() {
+    const center = viewportCenter;
+    const lo = center - LOAD_RADIUS;
+    const hi = center + LOAD_RADIUS;
+    const evictLo = center - UNLOAD_RADIUS;
+    const evictHi = center + UNLOAD_RADIUS;
+
+    for (let i = 0; i < flatPages.length; i++) {
+      if (i >= lo && i <= hi) {
+        loadPage(i);
+      } else if (i < evictLo || i > evictHi) {
+        unloadPage(i);
+      }
+    }
+  }
+
+  $effect(() => {
+    void viewportCenter;
+    recalcWindow();
+  });
+
+  $effect(() => {
+    void flatPages.length;
+    recalcWindow();
+  });
+
+  function setupObserver(containerEl: HTMLElement) {
+    observer?.disconnect();
+    elementIndex.clear();
+
+    observer = new IntersectionObserver(
+      (entries) => {
+        let best = -1;
+        let bestRatio = -1;
+        for (const entry of entries) {
+          const idx = elementIndex.get(entry.target);
+          if (idx === undefined) continue;
+          if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
+            bestRatio = entry.intersectionRatio;
+            best = idx;
+          }
+        }
+        if (best >= 0 && best !== viewportCenter) {
+          viewportCenter = best;
+        }
+      },
+      {
+        root: containerEl,
+        rootMargin: "0px",
+        threshold: [0, 0.1, 0.5, 1.0],
+      }
+    );
+  }
+
+  function observePage(el: HTMLDivElement, idx: number) {
+    elementIndex.set(el, idx);
+    observer?.observe(el);
+    return {
+      update(newIdx: number) {
+        elementIndex.set(el, newIdx);
+      },
+      destroy() {
+        observer?.unobserve(el);
+        elementIndex.delete(el);
+      }
+    };
+  }
+
+  $effect(() => {
+    void chapterEpoch;
+    loadedSet   = new Set<number>();
+    resolvedSrc = {};
+    const resume = readerState.resumePage;
+    viewportCenter = resume > 1 ? resume - 1 : 0;
+  });
 
   const INSPECT_ZOOM_STEP = 0.15;
   const INSPECT_ZOOM_MAX  = 8;
@@ -194,7 +337,17 @@
   function setContainer(el: HTMLDivElement) {
     containerEl = el;
     bindContainer(el);
+    if (style === "longstrip") setupObserver(el);
   }
+
+  $effect(() => {
+    if (style === "longstrip" && containerEl) {
+      setupObserver(containerEl);
+    } else if (style !== "longstrip") {
+      observer?.disconnect();
+      observer = null;
+    }
+  });
 </script>
 
 <div
@@ -221,61 +374,77 @@
     <div class="center-overlay"><p class="error-msg">{error}</p></div>
   {/if}
 
-  {#if style === "longstrip"}
-    {#each stripToRender as chunk}
-      {#each chunk.urls as url, i}
-        {#if i < 8}
-          {#await resolveUrl(url, 8 - i)}
-            <img src="" alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="eager" decoding="async" />
-          {:then src}
-            <img {src} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="eager" decoding="async" />
-          {/await}
-        {:else}
-          {#await resolveUrl(url, 0)}
-            <img src="" alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="lazy" decoding="async" />
-          {:then src}
-            <img {src} alt="{chunk.chapterName} – Page {i + 1}" data-local-page={i + 1} data-chapter={chunk.chapterId} data-total={chunk.urls.length} class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}" loading="lazy" decoding="async" />
-          {/await}
-        {/if}
-      {/each}
-    {/each}
-    <div style="height:1px;flex-shrink:0"></div>
-
-  {:else if style === "fade" && pageReady}
-    <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
-      {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
-        <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity:0" />
-      {:then src}
-        <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" />
-      {/await}
-    </div>
-
-  {:else if style === "double" && pageReady}
-    <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
-      {#if pageGroups.length}
-        <div class="double-wrap">
-          {#each currentGroup as pg, i}
-            {#await resolveUrl(store.pageUrls[pg - 1], 999)}
-              <img src="" alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
-            {:then src}
-              <img {src} alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
-            {/await}
-          {/each}
+  {#key chapterEpoch}
+    {#if style === "longstrip"}
+      {#each flatPages as page, gi}
+        {@const src = resolvedSrc[gi]}
+        {@const isLoaded = loadedSet.has(gi)}
+        <div
+          class="strip-slot"
+          use:observePage={gi}
+          data-gi={gi}
+        >
+          {#if isLoaded}
+            <img
+              src={src ?? ""}
+              alt="{page.chapterName} – Page {page.localIndex + 1}"
+              data-local-page={page.localIndex + 1}
+              data-chapter={page.chapterId}
+              data-total={page.total}
+              class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}"
+              loading="eager"
+              decoding="async"
+              onload={(e) => {
+                const img = e.currentTarget as HTMLImageElement;
+                const slot = img.closest<HTMLElement>(".strip-slot");
+                if (slot && img.naturalWidth > 0) {
+                  slot.style.setProperty("--aspect", String(img.naturalWidth / img.naturalHeight));
+                }
+              }}
+            />
+          {:else}
+            <div class="strip-placeholder"></div>
+          {/if}
         </div>
-      {:else}
-        <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
-      {/if}
-    </div>
+      {/each}
+      <div style="height:1px;flex-shrink:0"></div>
 
-  {:else if pageReady}
-    <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
-      {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
-        <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
-      {:then src}
-        <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
-      {/await}
-    </div>
-  {/if}
+    {:else if style === "fade" && pageReady}
+      <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
+        {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
+          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity:0" />
+        {:then src}
+          <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" />
+        {/await}
+      </div>
+
+    {:else if style === "double" && pageReady}
+      <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
+        {#if pageGroups.length}
+          <div class="double-wrap">
+            {#each currentGroup as pg, i}
+              {#await resolveUrl(store.pageUrls[pg - 1], 999)}
+                <img src="" alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
+              {:then src}
+                <img {src} alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
+              {/await}
+            {/each}
+          </div>
+        {:else}
+          <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
+        {/if}
+      </div>
+
+    {:else if pageReady}
+      <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
+        {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
+          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
+        {:then src}
+          <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
+        {/await}
+      </div>
+    {/if}
+  {/key}
 
 </div>
 
@@ -289,6 +458,20 @@
   :global(.pinch-active) .viewer { touch-action: none; }
 
   .inspect-wrap { display: flex; align-items: center; justify-content: center; transform-origin: center center; will-change: transform; }
+
+  .strip-slot {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .strip-placeholder {
+    width: var(--effective-width, 100%);
+    max-width: var(--effective-width, 100%);
+    aspect-ratio: var(--aspect, 0.667);
+    background: transparent;
+  }
 
   .img { display: block; user-select: none; image-rendering: auto; }
   .img:global(.optimize-contrast) { image-rendering: -webkit-optimize-contrast; }
