@@ -47,12 +47,22 @@ mod windows_hello {
     }
 
     pub fn authenticate(reason: &str) -> Result<(), String> {
-        nudge_focus(5, 250);
-        let result = UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(reason))
-            .and_then(|op| {
-                nudge_focus(5, 250);
-                op.get()
-            })
+        let reason = reason.to_owned();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            nudge_focus(5, 250);
+            let outcome = UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(reason.as_str()))
+                .and_then(|op| {
+                    nudge_focus(5, 250);
+                    op.get()
+                });
+            let _ = tx.send(outcome);
+        });
+
+        let result = rx
+            .recv()
+            .map_err(|e| format!("internalError:{e:?}"))?
             .map_err(|e| format!("internalError:{e:?}"))?;
 
         match result {
