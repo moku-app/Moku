@@ -80,7 +80,7 @@
     {#each visibleTabIds as id, idx}
       {@const cat = visibleCategories.find(c => String(c.id) === id)}
       {#if id === "library" || id === "downloaded" || cat}
-        {#if cat && dragInsertIdx === idx && activeDragKind === "tab"}
+        {#if activeDragKind === "tab" && dragInsertIdx === idx}
           <div class="tab-insert-bar" aria-hidden="true"></div>
         {/if}
         <button
@@ -103,7 +103,7 @@
           {id === "library" ? "Saved" : id === "downloaded" ? "Downloaded" : (cat?.name ?? id)}
           <span class="tab-count">{counts[id] ?? 0}</span>
         </button>
-        {#if cat && id !== String(completedCatId) && dragInsertIdx === idx + 1 && activeDragKind === "tab" && idx === visibleTabIds.length - 1}
+        {#if activeDragKind === "tab" && dragInsertIdx === idx + 1}
           <div class="tab-insert-bar" aria-hidden="true"></div>
         {/if}
       {/if}

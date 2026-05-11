@@ -117,13 +117,15 @@
 
   const visibleCategories = $derived((() => {
     const defaultId = store.settings.defaultLibraryCategoryId ?? null;
-    return store.categories
-      .filter(c => c.id !== 0 && !hiddenTabs.has(String(c.id)))
-      .sort((a, b) => {
-        if (a.id === defaultId) return -1;
-        if (b.id === defaultId) return  1;
-        return a.order - b.order;
-      });
+    const pinned    = store.settings.libraryPinnedTabOrder ?? [];
+    const cats      = store.categories.filter(c => c.id !== 0 && !hiddenTabs.has(String(c.id)));
+    const pinOrder  = (id: number) => { const i = pinned.indexOf(String(id)); return i === -1 ? Infinity : i; };
+    return cats.sort((a, b) => {
+      if (a.id === defaultId) return -1;
+      if (b.id === defaultId) return  1;
+      const pd = pinOrder(a.id) - pinOrder(b.id);
+      return pd !== 0 ? pd : a.order - b.order;
+    });
   })());
 
   const categoryMangaMap = $derived((() => {
@@ -538,17 +540,21 @@
     dragInsertIdx = -1;
     if (activeDragKind !== "tab" || dragTabId === null || dragTabId === dropCat.id) { dragTabId = null; return; }
     const dragId = dragTabId; dragTabId = null; activeDragKind = null;
-    const sorted  = [...store.categories].filter(c => c.id !== 0).sort((a, b) => a.order - b.order);
-    const fromIdx = sorted.findIndex(c => c.id === dragId);
+    const dragStrId = String(dragId);
+    const tabs    = [...visibleTabIds];
+    const fromIdx = tabs.indexOf(dragStrId);
     if (fromIdx < 0) return;
-    const reordered = [...sorted];
-    const [moved]   = reordered.splice(fromIdx, 1);
-    const dest      = Math.max(0, Math.min(insertAt > fromIdx ? insertAt - 1 : insertAt, reordered.length));
-    reordered.splice(dest, 0, moved);
-    const withNewOrder = reordered.map((c, i) => ({ ...c, order: i + 1 }));
-    setCategories(store.categories.map(c => withNewOrder.find(u => u.id === c.id) ?? c));
+    tabs.splice(fromIdx, 1);
+    const dest = Math.max(0, Math.min(insertAt > fromIdx ? insertAt - 1 : insertAt, tabs.length));
+    tabs.splice(dest, 0, dragStrId);
+    updateSettings({ libraryPinnedTabOrder: tabs });
+    const catIds    = tabs.filter(id => id !== "library" && id !== "downloaded");
+    const zeroCat   = store.categories.filter(c => c.id === 0);
+    const reordered = catIds.map((id, i) => { const c = store.categories.find(x => String(x.id) === id)!; return { ...c, order: i + 1 }; });
+    setCategories([...zeroCat, ...reordered]);
+    const serverPos = catIds.indexOf(dragStrId) + 1;
     try {
-      await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id: dragId, position: dest + 1 });
+      await gql<{ updateCategoryOrder: { categories: Category[] } }>(UPDATE_CATEGORY_ORDER, { id: dragId, position: serverPos });
     } catch (err) { console.error("Tab reorder failed:", err); await reloadCategories(); }
   }
 
