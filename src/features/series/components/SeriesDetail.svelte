@@ -103,8 +103,8 @@
 
   const totalPages      = $derived(Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE));
   const pageChapters    = $derived(sortedChapters.slice((chapterPage - 1) * CHAPTERS_PER_PAGE, chapterPage * CHAPTERS_PER_PAGE));
-  const readCount       = $derived(chapters.filter(c => c.isRead).length);
-  const totalCount      = $derived(chapters.length);
+  const readCount       = $derived(sortedChapters.filter(c => c.isRead).length);
+  const totalCount      = $derived(sortedChapters.length);
   const progressPct     = $derived(totalCount > 0 ? (readCount / totalCount) * 100 : 0);
   const downloadedCount = $derived(chapters.filter(c => c.isDownloaded).length);
 

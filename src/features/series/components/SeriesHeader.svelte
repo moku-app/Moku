@@ -55,6 +55,7 @@
 
   let manageOpen:     boolean = $state(false);
   let genresExpanded: boolean = $state(false);
+  let altOpen:        boolean = $state(false);
 
   const statusLabel = $derived(
     manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null
@@ -68,7 +69,9 @@
     !!store.settings.mangaPrefs?.[store.activeManga!.id]?.coverUrl
   );
 
-  function focusOnMount(node: HTMLElement) { node.focus(); }
+  const altTitles = $derived(
+    (manga as any)?.alternativeTitles ?? (manga as any)?.altTitles ?? []
+  );
 </script>
 
 <div class="sidebar">
@@ -76,9 +79,9 @@
     <ArrowLeft size={13} weight="light" /> Back
   </button>
 
-  <div class="cover-wrap">
+  <button class="cover-wrap" onclick={() => setPreviewManga(manga)}>
     <Thumbnail src={resolvedCover(store.activeManga!.id, store.activeManga!.thumbnailUrl)} alt={store.activeManga!.title} class="cover" />
-  </div>
+  </button>
 
   {#if loadingManga}
     <div class="meta-skeleton">
@@ -88,12 +91,36 @@
   {:else}
     <div class="meta">
       <p class="title">{manga?.title}</p>
+
       {#if manga?.author || manga?.artist}
         <p class="byline">{[manga?.author, manga?.artist].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(" · ")}</p>
       {/if}
-      {#if statusLabel}
-        <span class="status-badge" class:ongoing={manga?.status === "ONGOING"} class:ended={manga?.status !== "ONGOING"}>{statusLabel}</span>
+
+      <div class="badges">
+        {#if statusLabel}
+          <span class="badge" class:badge-ongoing={manga?.status === "ONGOING"} class:badge-ended={manga?.status !== "ONGOING"}>{statusLabel}</span>
+        {/if}
+        {#if manga?.source?.displayName ?? (manga as any)?.source?.name}
+          <span class="badge badge-source">{manga?.source?.displayName ?? (manga as any)?.source?.name}</span>
+        {/if}
+      </div>
+
+      {#if altTitles.length > 0}
+        <div class="alttitles-section">
+          <button class="row-toggle" onclick={() => altOpen = !altOpen}>
+            <span>Also known as</span>
+            <CaretDown size={10} weight="light" style="transform:{altOpen ? 'rotate(180deg)' : 'rotate(0)'};transition:transform 0.15s ease;flex-shrink:0" />
+          </button>
+          {#if altOpen}
+            <div class="alttitles-list">
+              {#each altTitles as t}
+                <p class="alttitle">{t}</p>
+              {/each}
+            </div>
+          {/if}
+        </div>
       {/if}
+
       {#if manga?.genre?.length}
         <div class="genres">
           {#each (genresExpanded ? manga.genre : manga.genre.slice(0, 3)) as g}
@@ -106,8 +133,12 @@
           {/if}
         </div>
       {/if}
+
       {#if manga?.description}
-        <p class="desc">{manga.description}</p>
+        <div class="desc-wrap">
+          <p class="desc">{manga.description}</p>
+          <button class="expand-toggle" onclick={() => setPreviewManga(manga)}>Read more</button>
+        </div>
       {/if}
     </div>
   {/if}
@@ -197,11 +228,13 @@
     padding: var(--sp-5);
     border-right: 1px solid var(--border-dim);
     overflow-y: auto;
+    scrollbar-width: none;
     display: flex;
     flex-direction: column;
     gap: var(--sp-4);
     background: var(--bg-base);
   }
+  .sidebar::-webkit-scrollbar { display: none; }
 
   .back {
     display: flex; align-items: center; gap: var(--sp-2);
@@ -215,13 +248,17 @@
     width: 100%; aspect-ratio: 2/3; border-radius: var(--radius-md);
     overflow: hidden; background: var(--bg-raised);
     border: 1px solid var(--border-dim); flex-shrink: 0;
+    cursor: pointer; transition: opacity var(--t-base);
+    padding: 0;
   }
+  .cover-wrap:hover { opacity: 0.88; }
   :global(.cover) { width: 100%; height: 100%; object-fit: cover; }
 
   .meta-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); }
   .sk-line { border-radius: var(--radius-sm); }
 
   .meta { display: flex; flex-direction: column; gap: var(--sp-3); }
+
   .title {
     font-size: var(--text-base); font-weight: var(--weight-medium);
     color: var(--text-primary); line-height: var(--leading-snug);
@@ -229,13 +266,33 @@
   }
   .byline { font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-ui); }
 
-  .status-badge {
+  .badges { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+  .badge {
     display: inline-block; font-family: var(--font-ui); font-size: var(--text-2xs);
     letter-spacing: var(--tracking-wider); text-transform: uppercase;
     padding: 2px 7px; border-radius: var(--radius-sm); width: fit-content;
   }
-  .status-badge.ongoing { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); }
-  .status-badge.ended   { background: var(--bg-raised); color: var(--text-faint); border: 1px solid var(--border-dim); }
+  .badge-ongoing { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); }
+  .badge-ended   { background: var(--bg-raised); color: var(--text-faint); border: 1px solid var(--border-dim); }
+  .badge-source  {
+    background: var(--bg-raised); color: var(--text-faint); border: 1px solid var(--border-dim);
+    text-transform: none; letter-spacing: var(--tracking-normal);
+  }
+
+  .alttitles-section { display: flex; flex-direction: column; gap: var(--sp-1); }
+  .row-toggle {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint);
+    letter-spacing: var(--tracking-wide); padding: 2px 0;
+    transition: color var(--t-base);
+  }
+  .row-toggle:hover { color: var(--text-muted); }
+  .alttitles-list { display: flex; flex-direction: column; gap: 3px; padding-top: var(--sp-1); }
+  .alttitle {
+    font-size: var(--text-2xs); color: var(--text-faint); font-family: var(--font-ui);
+    line-height: var(--leading-snug); padding-left: var(--sp-1);
+    border-left: 1px solid var(--border-dim);
+  }
 
   .genres { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
   .genre {
@@ -253,10 +310,17 @@
   }
   .genre-toggle:hover { color: var(--accent-fg); border-color: var(--accent-dim); }
 
+  .desc-wrap { display: flex; flex-direction: column; gap: var(--sp-1); }
   .desc {
     font-size: var(--text-xs); color: var(--text-muted); line-height: var(--leading-base);
     display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
   }
+  .expand-toggle {
+    font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint);
+    letter-spacing: var(--tracking-wide); align-self: flex-start;
+    transition: color var(--t-base);
+  }
+  .expand-toggle:hover { color: var(--accent-fg); }
 
   .cta-section { display: flex; flex-direction: column; gap: var(--sp-2); }
   .read-btn {

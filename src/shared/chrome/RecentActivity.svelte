@@ -234,7 +234,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--sp-3) var(--sp-5);
+    padding: var(--sp-4) var(--sp-6);
     border-bottom: 1px solid var(--border-dim);
     flex-shrink: 0;
   }
@@ -311,33 +311,16 @@
   .search-clear:hover { color: var(--text-muted); }
 
   .clear-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 26px;
-    padding: 0 var(--sp-2);
-    border-radius: var(--radius-md);
-    color: var(--text-faint);
-    background: none;
-    border: 1px solid transparent;
-    cursor: pointer;
-    font-family: var(--font-ui);
-    font-size: var(--text-2xs);
-    letter-spacing: var(--tracking-wide);
+    display: flex; align-items: center; gap: 4px;
+    height: 30px; padding: 0 var(--sp-2);
+    border-radius: var(--radius-md); border: 1px solid var(--border-dim);
+    background: var(--bg-raised); color: var(--text-faint);
+    cursor: pointer; font-family: var(--font-ui); font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-wide); flex-shrink: 0;
     transition: color var(--t-base), background var(--t-base), border-color var(--t-base);
   }
-
-  .clear-btn:hover {
-    color: var(--color-error);
-    background: var(--color-error-bg);
-    border-color: color-mix(in srgb, var(--color-error) 20%, transparent);
-  }
-
-  .clear-btn.confirm {
-    color: var(--color-error);
-    background: var(--color-error-bg);
-    border-color: var(--color-error);
-  }
+  .clear-btn:hover { color: var(--color-error); background: var(--color-error-bg); border-color: color-mix(in srgb, var(--color-error) 30%, transparent); }
+  .clear-btn.confirm { color: var(--color-error); background: var(--color-error-bg); border-color: var(--color-error); }
 
   .clear-label { font-size: var(--text-2xs); }
 

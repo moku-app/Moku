@@ -323,8 +323,9 @@
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
   .list { flex: 1; overflow-y: auto; padding: 0 var(--sp-4) var(--sp-4); display: flex; flex-direction: column; gap: 1px; }
   .empty { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); }
-  :global(.icon-btn) { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-muted); transition: color var(--t-base), background var(--t-base); }
-  :global(.icon-btn:hover:not(:disabled)) { color: var(--text-primary); background: var(--bg-raised); }
+  :global(.icon-btn) { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  :global(.icon-btn:hover:not(:disabled)) { color: var(--text-primary); border-color: var(--border-strong); }
+  :global(.icon-btn-active) { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
   .ext-panel { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-6); flex-shrink: 0; border-bottom: 1px solid var(--border-dim); background: var(--bg-raised); opacity: 1; }
   .ext-panel-anim { animation: panelSlide 0.18s cubic-bezier(0.16,1,0.3,1) both; }
   .panel-header { display: flex; align-items: center; padding-bottom: var(--sp-1); }

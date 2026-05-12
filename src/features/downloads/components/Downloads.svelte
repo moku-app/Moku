@@ -211,8 +211,8 @@
 
   .content { flex: 1; overflow-y: auto; padding: 0 var(--sp-6) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4); }
 
-  .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); color: var(--text-muted); background: none; cursor: pointer; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
-  .icon-btn:hover:not(:disabled):not(.active) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
+  .icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .icon-btn:hover:not(:disabled):not(.active) { color: var(--text-primary); border-color: var(--border-strong); }
   .icon-btn.active:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-muted); }
   .icon-btn:disabled { opacity: 0.3; cursor: default; }
   .icon-btn.loading { border-color: var(--accent-dim); color: var(--accent-fg); background: var(--accent-muted); }

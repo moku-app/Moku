@@ -61,7 +61,7 @@
 </aside>
 
 <style>
-  .root { width: var(--sidebar-width); flex-shrink: 0; background: transparent; display: flex; flex-direction: column; align-items: center; padding: var(--sp-4) 0; overflow: hidden; min-height: 0; height: 100%; }
+  .root { width: var(--sidebar-width); flex-shrink: 0; background: transparent; display: flex; flex-direction: column; align-items: center; padding: var(--sp-4) 0; overflow: hidden; min-height: 0; height: 100%; border-right: 1px solid var(--border-dim); }
 
   .logo { width: 56px; height: 56px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-bottom: var(--sp-4); background: none; border: none; outline: none; cursor: pointer; border-radius: var(--radius-lg); padding: 0; appearance: none; -webkit-appearance: none; }
   .logo:hover { opacity: 0.8; }
