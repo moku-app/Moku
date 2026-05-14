@@ -394,6 +394,7 @@
               class="{imgCls}{store.settings.pageGap ? ' strip-gap' : ''}"
               loading="eager"
               decoding="async"
+              draggable="false"
               onload={(e) => {
                 const img = e.currentTarget as HTMLImageElement;
                 const slot = img.closest<HTMLElement>(".strip-slot");
@@ -412,9 +413,9 @@
     {:else if style === "fade" && pageReady}
       <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
         {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
-          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity:0" />
+          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity:0" draggable="false" />
         {:then src}
-          <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" />
+          <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" draggable="false" />
         {/await}
       </div>
 
@@ -424,9 +425,9 @@
           <div class="double-wrap">
             {#each currentGroup as pg, i}
               {#await resolveUrl(store.pageUrls[pg - 1], 999)}
-                <img src="" alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
+                <img src="" alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" draggable="false" />
               {:then src}
-                <img {src} alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" />
+                <img {src} alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" draggable="false" />
               {/await}
             {/each}
           </div>
@@ -438,9 +439,9 @@
     {:else if pageReady}
       <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
         {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
-          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
+          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" draggable="false" />
         {:then src}
-          <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" />
+          <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" draggable="false" />
         {/await}
       </div>
     {/if}

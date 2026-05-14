@@ -118,6 +118,7 @@
   class:bar-left={barPosition === "left"}
   class:bar-right={barPosition === "right"}
   class:hidden={!uiVisible}
+  data-tauri-drag-region={barPosition === "top" ? true : undefined}
 >
   <div class="bar-start">
     <button class="icon-btn" onclick={closeReader} title="Close reader"><X size={15} weight="light" /></button>
@@ -366,6 +367,7 @@
     z-index: 2;
     transition: opacity 0.25s ease;
     overflow: visible;
+    user-select: none;
   }
   .bar.hidden { opacity: 0; pointer-events: none; }
 
