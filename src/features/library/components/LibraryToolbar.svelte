@@ -58,6 +58,26 @@
     onTabDragStart, onTabDragOver, onTabDragLeave, onTabDrop, onTabDragEnd,
   }: Props = $props();
 
+  function onTabsWheel(e: WheelEvent) {
+    const ids = visibleTabIds.filter(id => id === "library" || id === "downloaded" || visibleCategories.some(c => String(c.id) === id));
+    const idx = ids.indexOf(tab);
+    if (e.deltaY > 0 && idx < ids.length - 1) onTabChange(ids[idx + 1]);
+    else if (e.deltaY < 0 && idx > 0) onTabChange(ids[idx - 1]);
+  }
+
+  $effect(() => {
+    tab;
+    if (!tabsEl) return;
+    const active = tabsEl.querySelector<HTMLElement>(".tab.active");
+    if (!active) return;
+    const pl = tabsEl.scrollLeft;
+    const cw = tabsEl.clientWidth;
+    const ol = active.offsetLeft;
+    const ow = active.offsetWidth;
+    if (ol < pl) tabsEl.scrollTo({ left: ol, behavior: "smooth" });
+    else if (ol + ow > pl + cw) tabsEl.scrollTo({ left: ol + ow - cw, behavior: "smooth" });
+  });
+
   const SORT_LABELS: Record<LibrarySortMode, string> = {
     az:             "A–Z",
     unreadCount:    "Unread chapters",
@@ -76,7 +96,7 @@
 <div class="header">
   <span class="heading">Library</span>
 
-  <div class="tabs" class:tabs-anims={anims} bind:this={tabsEl}>
+  <div class="tabs" class:tabs-anims={anims} bind:this={tabsEl} onwheel={onTabsWheel}>
     {#each visibleTabIds as id, idx}
       {@const cat = visibleCategories.find(c => String(c.id) === id)}
       {#if id === "library" || id === "downloaded" || cat}
@@ -198,7 +218,7 @@
   .header { position: relative; z-index: 100; display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; min-width: 0; }
   .header-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0; }
   .heading { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
-  .tabs { display: flex; align-items: center; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; flex-shrink: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .tabs { display: flex; align-items: center; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-md); padding: 2px; position: relative; flex-shrink: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { position: relative; z-index: 1; display: flex; align-items: center; gap: 5px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid transparent; color: var(--text-faint); white-space: nowrap; transition: background var(--t-base), color var(--t-base), border-color var(--t-base); cursor: grab; flex-shrink: 0; }
   .tab:hover { color: var(--text-muted); }
