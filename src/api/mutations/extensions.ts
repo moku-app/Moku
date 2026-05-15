@@ -41,6 +41,48 @@ export const UPDATE_SOURCE_PREFERENCE = `
   }
 `;
 
+export const SET_SOURCE_METAS = `
+  mutation SetSourceMetas($input: SetSourceMetasInput!) {
+    setSourceMetas(input: $input) {
+      metas { sourceId key value }
+    }
+  }
+`;
+
+export const DELETE_SOURCE_METAS = `
+  mutation DeleteSourceMetas($input: DeleteSourceMetasInput!) {
+    deleteSourceMetas(input: $input) {
+      metas { sourceId key value }
+    }
+  }
+`;
+
+export const UPDATE_SOURCE_METADATA = `
+  mutation UpdateSourceMetadata(
+    $preUpdateDeleteInput: DeleteSourceMetasInput!
+    $hasPreUpdateDeletions: Boolean!
+    $updateInput: SetSourceMetasInput!
+    $hasUpdates: Boolean!
+    $postUpdateDeleteInput: DeleteSourceMetasInput!
+    $hasPostUpdateDeletions: Boolean!
+    $migrateInput: SetSourceMetasInput!
+    $isMigration: Boolean!
+  ) {
+    preUpdateDeletedMeta: deleteSourceMetas(input: $preUpdateDeleteInput) @include(if: $hasPreUpdateDeletions) {
+      metas { sourceId key value }
+    }
+    updatedMeta: setSourceMetas(input: $updateInput) @include(if: $hasUpdates) {
+      metas { sourceId key value }
+    }
+    postUpdateDeletedMeta: deleteSourceMetas(input: $postUpdateDeleteInput) @include(if: $hasPostUpdateDeletions) {
+      metas { sourceId key value }
+    }
+    migrationMeta: setSourceMetas(input: $migrateInput) @include(if: $isMigration) {
+      metas { sourceId key value }
+    }
+  }
+`;
+
 export const SET_SOURCE_META = `
   mutation SetSourceMeta($sourceId: LongString!, $key: String!, $value: String!) {
     setSourceMeta(input: { meta: { sourceId: $sourceId, key: $key, value: $value } }) {

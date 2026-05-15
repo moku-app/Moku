@@ -3,14 +3,21 @@
   import { CircleNotch, X, Check, HardDrives } from "phosphor-svelte";
   import { gql }         from "@api/client";
   import { store, addToast } from "@store/state.svelte";
-  import { GET_EXTENSIONS, GET_SETTINGS, GET_LOCAL_MANGA } from "@api/queries";
+  import { GET_EXTENSIONS, GET_SOURCES, GET_SETTINGS, GET_LOCAL_MANGA, GET_LIBRARY } from "@api/queries";
   import { SET_EXTENSION_REPOS, INSTALL_EXTERNAL_EXTENSION, FETCH_EXTENSIONS, UPDATE_EXTENSION } from "@api/mutations";
   import type { Extension } from "@types/index";
   import { matchesFilter, groupExtensions, validateUrl, type Filter, type Panel } from "../lib/extensionHelpers";
-  import ExtensionFilters from "./ExtensionFilters.svelte";
-  import ExtensionCard    from "./ExtensionCard.svelte";
+  import { libraryCountByPkg, type LibraryManga, type SourceNode } from "../lib/extensionLibrary";
+  import ExtensionFilters       from "./ExtensionFilters.svelte";
+  import ExtensionCard          from "./ExtensionCard.svelte";
+  import ExtensionSettingsPanel from "../panels/ExtensionSettingsPanel.svelte";
+  import ExtensionLibraryPanel  from "../panels/ExtensionLibraryPanel.svelte";
 
-  const anims = $derived(store.settings.qolAnimations ?? true);
+  const anims      = $derived(store.settings.qolAnimations ?? true);
+  const cols       = $derived(store.settings.libraryCols   ?? 5);
+  const cropCovers = $derived(store.settings.cropCovers    ?? true);
+  const statsAlways = $derived(store.settings.statsAlways  ?? false);
+
   let tabsEl       = $state<HTMLDivElement | undefined>(undefined);
   let tabIndicator = $state({ left: 0, width: 0 });
 
@@ -33,6 +40,15 @@
   let expanded     = $state(new Set<string>());
   let panel        = $state<Panel>(null);
 
+  type SourceEntry  = { id: string; displayName: string };
+  type SettingsTarget = { extensionName: string; iconUrl: string; sources: SourceEntry[] };
+  type LibraryTarget  = { pkgName: string; extensionName: string; iconUrl: string };
+
+  let settingsTarget = $state<SettingsTarget | null>(null);
+  let libraryTarget  = $state<LibraryTarget | null>(null);
+  let sourcesByPkg   = $state<Record<string, SourceEntry[]>>({});
+  let libCountByPkg  = $state<Record<string, number>>({});
+
   $effect(() => { filter; extensions; if (anims) requestAnimationFrame(() => requestAnimationFrame(updateIndicator)); });
 
   let externalUrl    = $state("");
@@ -47,8 +63,25 @@
   let savingRepos  = $state(false);
 
   async function load() {
-    const d = await gql<{ extensions: { nodes: Extension[] } }>(GET_EXTENSIONS).catch(console.error);
-    if (d) extensions = d.extensions.nodes;
+    const [extData, srcData, libData] = await Promise.all([
+      gql<{ extensions: { nodes: Extension[] } }>(GET_EXTENSIONS).catch(console.error),
+      gql<{ sources: { nodes: SourceNode[] } }>(GET_SOURCES).catch(console.error),
+      gql<{ mangas: { nodes: LibraryManga[] } }>(GET_LIBRARY).catch(console.error),
+    ]);
+    if (extData) extensions = extData.extensions.nodes;
+    if (srcData) {
+      const map: Record<string, SourceEntry[]> = {};
+      for (const s of srcData.sources.nodes) {
+        if (!s.isConfigurable || !s.extension?.pkgName) continue;
+        const pkg = s.extension.pkgName;
+        if (!map[pkg]) map[pkg] = [];
+        map[pkg].push({ id: s.id, displayName: s.displayName });
+      }
+      sourcesByPkg = map;
+    }
+    if (libData && srcData) {
+      libCountByPkg = libraryCountByPkg(libData.mangas.nodes, srcData.sources.nodes);
+    }
   }
 
   async function loadLocalManga() {
@@ -213,111 +246,135 @@
   function focusOnMount(node: HTMLElement) { node.focus(); }
 </script>
 
-<div class="root anim-fade-in">
-  <ExtensionFilters
-    {filter} {search} {panel} {refreshing} {updateCount} {availableLangs} {langFilter}
-    {anims} {tabIndicator} {updatingAll}
-    bind:tabsEl
-    onFilter={setFilter}
-    onSearch={(q) => search = q}
-    onLang={(l) => langFilter = l}
-    onPanel={openPanel}
-    onRefresh={fetchFromRepo}
-    onUpdateAll={updateAll}
+{#if libraryTarget}
+  <ExtensionLibraryPanel
+    pkgName={libraryTarget.pkgName}
+    extensionName={libraryTarget.extensionName}
+    iconUrl={libraryTarget.iconUrl}
+    {cols} {cropCovers} {statsAlways} {anims}
+    sources={sourcesByPkg[libraryTarget.pkgName] ?? []}
+    onBack={() => libraryTarget = null}
+    onSettings={() => { settingsTarget = { extensionName: libraryTarget!.extensionName, iconUrl: libraryTarget!.iconUrl, sources: sourcesByPkg[libraryTarget!.pkgName] ?? [] }; }}
   />
+{:else}
+  <div class="root anim-fade-in">
+    <ExtensionFilters
+      {filter} {search} {panel} {refreshing} {updateCount} {availableLangs} {langFilter}
+      {anims} {tabIndicator} {updatingAll}
+      bind:tabsEl
+      onFilter={setFilter}
+      onSearch={(q) => search = q}
+      onLang={(l) => langFilter = l}
+      onPanel={openPanel}
+      onRefresh={fetchFromRepo}
+      onUpdateAll={updateAll}
+    />
 
-  {#if panel === "apk"}
-    <div class="ext-panel" class:ext-panel-anim={anims}>
-      <div class="panel-header">
-        <span class="panel-title-wrap"><span class="panel-title">Install from APK URL</span></span>
-      </div>
-      <div class="ext-row">
-        <input
-          class="ext-input" class:error={installError}
-          placeholder="https://example.com/extension.apk"
-          bind:value={externalUrl} disabled={installing}
-          oninput={() => installError = null}
-          onkeydown={(e) => e.key === "Enter" && !installing && installExternal()}
-          use:focusOnMount
-        />
-        <button class="install-btn" class:success={installSuccess}
-          onclick={installExternal} disabled={installing || !externalUrl.trim()}>
-          {#if installing}<CircleNotch size={13} weight="light" class="anim-spin" />
-          {:else if installSuccess}<Check size={13} weight="bold" /> Done
-          {:else}Install{/if}
-        </button>
-      </div>
-      {#if installError}<div class="panel-error">{installError}</div>{/if}
-    </div>
-  {/if}
-
-  {#if panel === "repos"}
-    <div class="ext-panel" class:ext-panel-anim={anims}>
-      <div class="panel-header">
-        <span class="panel-title-wrap"><span class="panel-title">Extension Repositories</span></span>
-      </div>
-      {#if reposLoading}
-        <div class="repo-loading"><CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
-      {:else}
-        {#if repos.length === 0}
-          <div class="repo-empty">No repos configured.</div>
-        {:else}
-          <div class="repo-list">
-            {#each repos as url}
-              <div class="repo-row">
-                <span class="repo-url">{url}</span>
-                <button class="repo-remove" onclick={() => removeRepo(url)} disabled={savingRepos} title="Remove repo">
-                  {#if savingRepos}<CircleNotch size={12} weight="light" class="anim-spin" />{:else}<X size={12} weight="bold" />{/if}
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
+    {#if panel === "apk"}
+      <div class="ext-panel" class:ext-panel-anim={anims}>
+        <div class="panel-header">
+          <span class="panel-title-wrap"><span class="panel-title">Install from APK URL</span></span>
+        </div>
         <div class="ext-row">
           <input
-            class="ext-input" class:error={repoError}
-            placeholder="https://example.com/index.min.json"
-            bind:value={newRepoUrl} disabled={savingRepos}
-            oninput={() => repoError = null}
-            onkeydown={(e) => e.key === "Enter" && !savingRepos && addRepo()}
+            class="ext-input" class:error={installError}
+            placeholder="https://example.com/extension.apk"
+            bind:value={externalUrl} disabled={installing}
+            oninput={() => installError = null}
+            onkeydown={(e) => e.key === "Enter" && !installing && installExternal()}
+            use:focusOnMount
           />
-          <button class="install-btn" onclick={addRepo} disabled={savingRepos || !newRepoUrl.trim()}>
-            {#if savingRepos}<CircleNotch size={13} weight="light" class="anim-spin" />{:else}Add{/if}
+          <button class="install-btn" class:success={installSuccess}
+            onclick={installExternal} disabled={installing || !externalUrl.trim()}>
+            {#if installing}<CircleNotch size={13} weight="light" class="anim-spin" />
+            {:else if installSuccess}<Check size={13} weight="bold" /> Done
+            {:else}Install{/if}
           </button>
         </div>
-        {#if repoError}<div class="panel-error">{repoError}</div>{/if}
-      {/if}
-    </div>
-  {/if}
+        {#if installError}<div class="panel-error">{installError}</div>{/if}
+      </div>
+    {/if}
 
-  {#if loading}
-    <div class="empty"><CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
-  {:else}
-    <div class="list">
-      {#if showLocal}
-        <div class="local-row">
-          <div class="local-icon"><HardDrives size={18} weight="bold" /></div>
-          <div class="info">
-            <span class="name">Local Source</span>
-            <span class="meta">Built-in · {localMangaCount} {localMangaCount === 1 ? "manga" : "manga"}</span>
-          </div>
-          <span class="local-badge">Built-in</span>
+    {#if panel === "repos"}
+      <div class="ext-panel" class:ext-panel-anim={anims}>
+        <div class="panel-header">
+          <span class="panel-title-wrap"><span class="panel-title">Extension Repositories</span></span>
         </div>
-      {/if}
-      {#each groups as { base, primary, variants }}
-        <ExtensionCard
-          {base} {primary} {variants} {working} {anims}
-          expanded={expanded.has(base)}
-          onToggle={toggleExpand}
-          onMutate={mutate}
-        />
-      {/each}
-      {#if !showLocal && groups.length === 0}
-        <div class="empty" style="flex:1">No extensions found.</div>
-      {/if}
-    </div>
-  {/if}
-</div>
+        {#if reposLoading}
+          <div class="repo-loading"><CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
+        {:else}
+          {#if repos.length === 0}
+            <div class="repo-empty">No repos configured.</div>
+          {:else}
+            <div class="repo-list">
+              {#each repos as url}
+                <div class="repo-row">
+                  <span class="repo-url">{url}</span>
+                  <button class="repo-remove" onclick={() => removeRepo(url)} disabled={savingRepos} title="Remove repo">
+                    {#if savingRepos}<CircleNotch size={12} weight="light" class="anim-spin" />{:else}<X size={12} weight="bold" />{/if}
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <div class="ext-row">
+            <input
+              class="ext-input" class:error={repoError}
+              placeholder="https://example.com/index.min.json"
+              bind:value={newRepoUrl} disabled={savingRepos}
+              oninput={() => repoError = null}
+              onkeydown={(e) => e.key === "Enter" && !savingRepos && addRepo()}
+            />
+            <button class="install-btn" onclick={addRepo} disabled={savingRepos || !newRepoUrl.trim()}>
+              {#if savingRepos}<CircleNotch size={13} weight="light" class="anim-spin" />{:else}Add{/if}
+            </button>
+          </div>
+          {#if repoError}<div class="panel-error">{repoError}</div>{/if}
+        {/if}
+      </div>
+    {/if}
+
+    {#if loading}
+      <div class="empty"><CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
+    {:else}
+      <div class="list">
+        {#if showLocal}
+          <div class="local-row">
+            <div class="local-icon"><HardDrives size={18} weight="bold" /></div>
+            <div class="info">
+              <span class="name">Local Source</span>
+              <span class="meta">Built-in · {localMangaCount} {localMangaCount === 1 ? "manga" : "manga"}</span>
+            </div>
+            <span class="local-badge">Built-in</span>
+          </div>
+        {/if}
+        {#each groups as { base, primary, variants }}
+          <ExtensionCard
+            {base} {primary} {variants} {working} {anims}
+            sources={sourcesByPkg[primary.pkgName] ?? []}
+            libraryCount={libCountByPkg[primary.pkgName] ?? 0}
+            expanded={expanded.has(base)}
+            onToggle={toggleExpand}
+            onMutate={mutate}
+            onLibrary={(pkgName, extensionName, iconUrl) => libraryTarget = { pkgName, extensionName, iconUrl }}
+          />
+        {/each}
+        {#if !showLocal && groups.length === 0}
+          <div class="empty" style="flex:1">No extensions found.</div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+{/if}
+
+{#if settingsTarget}
+  <ExtensionSettingsPanel
+    extensionName={settingsTarget.extensionName}
+    iconUrl={settingsTarget.iconUrl}
+    sources={settingsTarget.sources}
+    onClose={() => settingsTarget = null}
+  />
+{/if}
 
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
