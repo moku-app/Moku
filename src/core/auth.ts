@@ -9,8 +9,7 @@ export class AuthRequiredError extends Error {
   }
 }
 
-const TOKEN_KEY = "moku_access_token_v2";
-const LEGACY_TOKEN_KEY = "moku_access_token";
+const TOKEN_KEY = "moku_access_token";
 
 interface StoredAccessToken {
   base: string;
@@ -41,13 +40,11 @@ export const uiAuth = {
     _accessToken = t;
     _accessTokenBase = base;
     sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ base, token: t }));
-    sessionStorage.removeItem(LEGACY_TOKEN_KEY);
   },
   clearToken: () => {
     _accessToken = null;
     _accessTokenBase = null;
     sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(LEGACY_TOKEN_KEY);
   },
 };
 
@@ -67,17 +64,18 @@ function getServerBase(): string {
 
 function readStoredToken(): StoredAccessToken | null {
   const raw = sessionStorage.getItem(TOKEN_KEY);
-  if (raw) {
+  if (raw?.trim()) {
     try {
       const parsed = JSON.parse(raw);
       if (typeof parsed?.base === "string" && typeof parsed?.token === "string")
         return { base: parsed.base, token: parsed.token };
     } catch {}
+
+    const migrated = { base: getServerBase(), token: raw.trim() };
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify(migrated));
+    return migrated;
   }
-  const legacy = sessionStorage.getItem(LEGACY_TOKEN_KEY);
-  if (legacy && legacy.trim()) {
-    return { base: getServerBase(), token: legacy.trim() };
-  }
+
   return null;
 }
 
