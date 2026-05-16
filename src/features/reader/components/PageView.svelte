@@ -214,6 +214,30 @@
   let autoScrollPaused      = false;
   let autoScrollPauseTimer: ReturnType<typeof setTimeout> | null = null;
 
+  let midScrollActive = $state(false);
+  let midScrollOriginY = 0;
+  let midScrollRaf: number | null = null;
+
+  function startMidScroll(originY: number) {
+    midScrollActive  = true;
+    midScrollOriginY = originY;
+    if (midScrollRaf) cancelAnimationFrame(midScrollRaf);
+    const tick = () => {
+      if (!midScrollActive || !containerEl) return;
+      const dy       = (window as any)._midScrollCurrentY - midScrollOriginY;
+      const deadZone = 24;
+      const speed    = Math.sign(dy) * Math.max(0, Math.abs(dy) - deadZone) * 0.12;
+      containerEl.scrollTop += speed;
+      midScrollRaf = requestAnimationFrame(tick);
+    };
+    midScrollRaf = requestAnimationFrame(tick);
+  }
+
+  function stopMidScroll() {
+    midScrollActive = false;
+    if (midScrollRaf) { cancelAnimationFrame(midScrollRaf); midScrollRaf = null; }
+  }
+
   function pauseAutoScroll() {
     autoScrollPaused = true;
     if (autoScrollPauseTimer) clearTimeout(autoScrollPauseTimer);
@@ -250,6 +274,11 @@
 
   export function onInspectMouseDown(e: MouseEvent) {
     if ((e.target as Element).closest(".bar")) return;
+    if (e.button === 1 && style === "longstrip") {
+      e.preventDefault();
+      if (midScrollActive) { stopMidScroll(); } else { startMidScroll(e.clientY); }
+      return;
+    }
     if (style === "longstrip") {
       stripDragging    = true;
       stripDragMoved   = false;
@@ -270,6 +299,7 @@
   }
 
   export function onInspectMouseMove(e: MouseEvent) {
+    (window as any)._midScrollCurrentY = e.clientY;
     if (stripDragging) {
       const dy = e.clientY - stripDragStartY;
       if (!stripDragMoved && Math.abs(dy) > 4) stripDragMoved = true;
@@ -371,7 +401,12 @@
     } else if (style !== "longstrip") {
       observer?.disconnect();
       observer = null;
+      stopMidScroll();
     }
+  });
+
+  $effect(() => {
+    (window as any)._midScrollCurrentY = 0;
   });
 </script>
 
@@ -380,17 +415,22 @@
   class="viewer"
   class:strip={style === "longstrip"}
   class:inspect-active={readerState.inspectScale > 1}
+  class:midscroll-active={midScrollActive}
   style={effectiveWidth != null ? `--effective-width:${effectiveWidth}px` : ""}
   role="presentation"
   tabindex="-1"
   onclick={handleTap}
+  onauxclick={(e) => { if (e.button === 1 && style === "longstrip") e.preventDefault(); }}
   ondblclick={() => { if (tapToToggleBar) onToggleUi(); }}
   onmousedown={onInspectMouseDown}
   onpointerdown={pinchZoomEnabled ? onPointerDown : undefined}
   onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
-  style:cursor={style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
+  style:cursor={midScrollActive ? "none" : style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
   onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); store.settings.autoScroll = !store.settings.autoScroll; } }}
 >
+  {#if midScrollActive}
+    <div class="midscroll-cursor" style="top:{midScrollOriginY}px"></div>
+  {/if}
 
   {#if loading}
     <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
@@ -514,4 +554,35 @@
 
   .center-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
   .error-msg      { color: var(--color-error); font-size: var(--text-base); }
+
+  .midscroll-cursor {
+    position: fixed;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--accent-fg);
+    background: transparent;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.85;
+  }
+  .midscroll-cursor::before,
+  .midscroll-cursor::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+  }
+  .midscroll-cursor::before {
+    top: -10px;
+    border-bottom: 6px solid var(--accent-fg);
+  }
+  .midscroll-cursor::after {
+    bottom: -10px;
+    border-top: 6px solid var(--accent-fg);
+  }
 </style>
