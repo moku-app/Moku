@@ -292,6 +292,7 @@ class Store {
     gqlFn: (query: string, vars: Record<string, unknown>) => Promise<unknown>,
     UPDATE_MANGA_CATEGORIES: string, UPDATE_MANGA?: string, mangaStatus?: string,
   ): Promise<void> {
+    if (this.settings.disableAutoComplete) return;
     if (!chaps.length || mangaStatus === "ONGOING") return;
     const completed = categories.find(c => c.name === "Completed");
     if (!completed) return;

@@ -69,6 +69,10 @@
         <div class="s-row-info"><span class="s-label">Auto-link on open</span><span class="s-desc">When opening a manga, automatically link it to similarly-titled entries and notify you of new matches</span></div>
         <button role="switch" aria-checked={store.settings.autoLinkOnOpen ?? false} aria-label="Auto-link on open" class="s-toggle" class:on={store.settings.autoLinkOnOpen ?? false} onclick={() => updateSettings({ autoLinkOnOpen: !(store.settings.autoLinkOnOpen ?? false) })}><span class="s-toggle-thumb"></span></button>
       </label>
+      <label class="s-row">
+        <div class="s-row-info"><span class="s-label">Disable auto-complete</span><span class="s-desc">Don't move manga to the Completed folder when all chapters are read</span></div>
+        <button role="switch" aria-checked={store.settings.disableAutoComplete} aria-label="Disable auto-complete" class="s-toggle" class:on={store.settings.disableAutoComplete} onclick={() => updateSettings({ disableAutoComplete: !store.settings.disableAutoComplete })}><span class="s-toggle-thumb"></span></button>
+      </label>
     </div>
   </div>
 

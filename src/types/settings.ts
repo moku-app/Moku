@@ -130,6 +130,7 @@ export interface Settings {
   libraryPinnedTabOrder: string[];
   autoScroll?: boolean;
   autoScrollSpeed?: number;
+  disableAutoComplete: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -175,4 +176,5 @@ export const DEFAULT_SETTINGS: Settings = {
   libraryPinnedTabOrder: [],
   autoScroll: false,
   autoScrollSpeed: 5,
+  disableAutoComplete: false,
 };
