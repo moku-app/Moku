@@ -1,7 +1,7 @@
 <script lang="ts">
   import { store, updateSettings } from "@store/state.svelte";
   import { gql } from "@api/client";
-  import { authSession } from "@core/auth";
+  import { authSession, loginUI } from "@core/auth";
   import { GET_SERVER_SECURITY } from "@api/queries/extensions";
   import { SET_SERVER_AUTH, SET_SOCKS_PROXY, SET_FLARESOLVERR } from "@api/mutations/extensions";
 
@@ -33,6 +33,11 @@
   let flareTtl      = $state(store.settings.flareSolverrSessionTtl ?? 15);
   let flareFallback = $state(store.settings.flareSolverrAsResponseFallback ?? false);
 
+  function normalizeAuthMode(mode: string): "NONE" | "BASIC_AUTH" | "UI_LOGIN" {
+    if (mode === "BASIC_AUTH" || mode === "UI_LOGIN" || mode === "NONE") return mode;
+    return "NONE";
+  }
+
   function showSaved(key: string) {
     secSaved = key; secError = null;
     setTimeout(() => { if (secSaved === key) secSaved = null; }, 2000);
@@ -53,9 +58,10 @@
         flareSolverrAsResponseFallback: boolean;
       }}>(GET_SERVER_SECURITY);
       const s = res.settings;
-      authMode = store.settings.serverAuthMode ?? "NONE";
-      authUsername = s.authUsername || store.settings.serverAuthUser || "";
-      updateSettings({ serverAuthUser: authUsername });
+      const serverMode = normalizeAuthMode(s.authMode);
+      authMode = serverMode;
+      authUsername = s.authUsername || "";
+      updateSettings({ serverAuthMode: serverMode, serverAuthUser: authUsername });
       socksEnabled = s.socksProxyEnabled; socksHost = s.socksProxyHost;
       socksPort = s.socksProxyPort; socksVersion = s.socksProxyVersion;
       socksUsername = s.socksProxyUsername;
@@ -82,23 +88,30 @@
     try {
       const newUser = authMode !== "NONE" ? authUsername.trim() : "";
       const newPass = authMode !== "NONE" ? authPassword.trim() : "";
-      await gql(SET_SERVER_AUTH, { authMode, authUsername: newUser, authPassword: newPass });
-
+      authSession.clearTokens();
       if (authMode === "UI_LOGIN") {
-        authSession.clearTokens();
+        await loginUI(newUser, newPass);
         updateSettings({ serverAuthMode: "UI_LOGIN", serverAuthUser: newUser, serverAuthPass: "" });
       } else if (authMode === "BASIC_AUTH") {
         updateSettings({ serverAuthMode: "BASIC_AUTH", serverAuthUser: newUser, serverAuthPass: newPass });
       } else {
-        authSession.clearTokens();
         updateSettings({ serverAuthMode: "NONE", serverAuthUser: "", serverAuthPass: "" });
       }
+
+      await gql(SET_SERVER_AUTH, { authMode, authUsername: newUser, authPassword: newPass });
 
       authPassword = "";
       showSaved("auth");
     } catch (e: any) {
-      updateSettings({ serverAuthMode: prev.mode, serverAuthUser: prev.user, serverAuthPass: prev.pass });
-      secError = e?.message ?? "Failed to save authentication settings";
+      const msg = e?.message ?? "Failed to save authentication settings";
+      const authMismatch = /unauthorized|unauthenticated|authentication|401/i.test(msg);
+      if (!authMismatch) {
+        authSession.clearTokens();
+        updateSettings({ serverAuthMode: prev.mode, serverAuthUser: prev.user, serverAuthPass: prev.pass });
+      }
+      secError = authMismatch
+        ? "Saved local auth settings, but the server rejected the update. Verify your new credentials with the current server configuration."
+        : msg;
     } finally { secLoading = false; }
   }
 
@@ -223,7 +236,7 @@
             </button>
           {/if}
           <button class="s-btn s-btn-accent" onclick={saveAuth}
-            disabled={secLoading || (authMode === "BASIC_AUTH" && (!authUsername.trim() || !authPassword.trim()))}>
+            disabled={secLoading || ((authMode === "BASIC_AUTH" || authMode === "UI_LOGIN") && (!authUsername.trim() || !authPassword.trim()))}>
             {secLoading ? "Saving…" : secSaved === "auth" ? "Saved ✓" : store.settings.serverAuthMode === "BASIC_AUTH" ? "Update" : authMode === "NONE" ? "Save" : "Enable"}
           </button>
         </div>

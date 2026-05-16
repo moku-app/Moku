@@ -10,19 +10,49 @@ export class AuthRequiredError extends Error {
 }
 
 const TOKEN_KEY = "moku_access_token";
-let _accessToken: string | null = sessionStorage.getItem(TOKEN_KEY);
+
+interface StoredAccessToken {
+  base: string;
+  token: string;
+}
+
+let _accessToken: string | null = null;
+let _accessTokenBase: string | null = null;
 
 export const uiAuth = {
-  getToken:   () => _accessToken,
-  setToken:   (t: string) => { _accessToken = t; sessionStorage.setItem(TOKEN_KEY, t); },
-  clearToken: () => { _accessToken = null; sessionStorage.removeItem(TOKEN_KEY); },
+  getToken:   () => {
+    const base = getServerBase();
+    if (_accessToken && _accessTokenBase === base) return _accessToken;
+    const stored = readStoredToken();
+    if (!stored) return null;
+    if (stored.base !== base) {
+      sessionStorage.removeItem(TOKEN_KEY);
+      _accessToken = null;
+      _accessTokenBase = null;
+      return null;
+    }
+    _accessToken = stored.token;
+    _accessTokenBase = stored.base;
+    return _accessToken;
+  },
+  setToken:   (t: string) => {
+    const base = getServerBase();
+    _accessToken = t;
+    _accessTokenBase = base;
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ base, token: t }));
+  },
+  clearToken: () => {
+    _accessToken = null;
+    _accessTokenBase = null;
+    sessionStorage.removeItem(TOKEN_KEY);
+  },
 };
 
 export const authSession = {
   clearTokens() { uiAuth.clearToken(); },
   hasSession(): boolean {
     const mode = store.settings.serverAuthMode ?? "NONE";
-    if (mode === "UI_LOGIN") return _accessToken !== null;
+    if (mode === "UI_LOGIN") return uiAuth.getToken() !== null;
     return true;
   },
 };
@@ -30,6 +60,23 @@ export const authSession = {
 function getServerBase(): string {
   const url = store.settings.serverUrl;
   return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : "http://127.0.0.1:4567";
+}
+
+function readStoredToken(): StoredAccessToken | null {
+  const raw = sessionStorage.getItem(TOKEN_KEY);
+  if (raw?.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.base === "string" && typeof parsed?.token === "string")
+        return { base: parsed.base, token: parsed.token };
+    } catch {}
+
+    const migrated = { base: getServerBase(), token: raw.trim() };
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify(migrated));
+    return migrated;
+  }
+
+  return null;
 }
 
 function timeoutSignal(ms: number): AbortSignal {
@@ -100,7 +147,7 @@ export async function loginUI(user: string, pass: string): Promise<void> {
   const token: string | undefined = json?.data?.login?.accessToken;
   if (!token) throw new Error(json?.errors?.[0]?.message ?? "Login failed");
   uiAuth.setToken(token);
-  updateSettings({ serverAuthMode: "UI_LOGIN" });
+  updateSettings({ serverAuthMode: "UI_LOGIN", serverAuthUser: user, serverAuthPass: "" });
 }
 
 export async function loginBasic(user: string, pass: string): Promise<void> {
@@ -123,8 +170,9 @@ export async function probeServer(): Promise<"ok" | "auth_required" | "unreachab
   const base = getServerBase();
   const mode = store.settings.serverAuthMode ?? "NONE";
   const s    = store.settings;
+  const token = uiAuth.getToken();
 
-  if (mode === "UI_LOGIN" && !_accessToken) return "auth_required";
+  if (mode === "UI_LOGIN" && !token) return "auth_required";
 
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -132,8 +180,8 @@ export async function probeServer(): Promise<"ok" | "auth_required" | "unreachab
       const user = s.serverAuthUser?.trim() ?? "";
       const pass = s.serverAuthPass?.trim() ?? "";
       if (user && pass) Object.assign(headers, basicHeader(user, pass));
-    } else if (mode === "UI_LOGIN" && _accessToken) {
-      Object.assign(headers, bearerHeader(_accessToken));
+    } else if (mode === "UI_LOGIN" && token) {
+      Object.assign(headers, bearerHeader(token));
     }
 
     const res = await fetch(`${base}/api/graphql`, {

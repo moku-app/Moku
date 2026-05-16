@@ -3,6 +3,7 @@ use crate::server::resolve::strip_unc;
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 use tauri::Manager;
+use std::path::PathBuf;
 
 #[tauri::command]
 pub fn get_platform_ui_scale(window: tauri::Window) -> f64 {
