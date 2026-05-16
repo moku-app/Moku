@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { ArrowLeft, MagnifyingGlass, GearSix } from "phosphor-svelte";
-  import Thumbnail         from "@shared/manga/Thumbnail.svelte";
-  import { resolvedCover } from "@core/cover/coverResolver";
-  import { gql }           from "@api/client";
+  import { ArrowLeft, MagnifyingGlass, GearSix, Swap } from "phosphor-svelte";
+  import Thumbnail           from "@shared/manga/Thumbnail.svelte";
+  import { resolvedCover }   from "@core/cover/coverResolver";
+  import { gql }             from "@api/client";
   import { setPreviewManga } from "@store/state.svelte";
   import { GET_LIBRARY, GET_SOURCES } from "@api/queries";
   import { libraryByExtension, type LibraryManga, type SourceNode, type SourceLibrary } from "../lib/extensionLibrary";
+  import SourceMigrateModal  from "../panels/SourceMigrateModal.svelte";
 
   type SourceEntry = { id: string; displayName: string };
 
@@ -28,12 +29,16 @@
   let loading  = $state(true);
   let search   = $state("");
 
-  const allManga  = $derived(groups.flatMap(g => g.manga));
-  const filtered  = $derived(
+  let migrateTarget: { sourceId: string; sourceName: string; iconUrl: string; manga: LibraryManga[] } | null = $state(null);
+
+  const allManga = $derived(groups.flatMap(g => g.manga));
+  const filtered = $derived(
     search.trim()
       ? allManga.filter(m => m.title.toLowerCase().includes(search.toLowerCase()))
       : allManga
   );
+
+  let sourceNodes: SourceNode[] = $state([]);
 
   $effect(() => { load(); });
 
@@ -44,16 +49,27 @@
         gql<{ mangas: { nodes: LibraryManga[] } }>(GET_LIBRARY),
         gql<{ sources: { nodes: SourceNode[] } }>(GET_SOURCES),
       ]);
+      sourceNodes = srcData.sources.nodes;
       groups = libraryByExtension(libData.mangas.nodes, srcData.sources.nodes, pkgName);
     } finally {
       loading = false;
     }
   }
+
+  function openMigrate(group: SourceLibrary) {
+    const node = sourceNodes.find(s => s.id === group.sourceId);
+    migrateTarget = {
+      sourceId:   group.sourceId,
+      sourceName: group.displayName,
+      iconUrl:    (node as any)?.iconUrl ?? iconUrl,
+      manga:      group.manga,
+    };
+  }
 </script>
 
 <div class="root">
   <div class="header">
-    <button class="back-btn" onclick={onBack}>
+    <button class="header-btn" onclick={onBack}>
       <ArrowLeft size={14} weight="bold" />
     </button>
     {#if iconUrl}
@@ -71,7 +87,7 @@
       <input class="search" placeholder="Search" bind:value={search} autocomplete="off" />
     </div>
     {#if sources.length > 0}
-      <button class="settings-btn" onclick={onSettings} title="Extension settings">
+      <button class="header-btn" onclick={onSettings} title="Extension settings">
         <GearSix size={14} weight="bold" />
       </button>
     {/if}
@@ -92,9 +108,32 @@
         {allManga.length === 0 ? "Nothing from this extension is in your library." : "No matches."}
       </div>
     {:else}
+      {#if groups.length > 1}
+        <div class="source-groups">
+          {#each groups as group}
+            <div class="source-group-header">
+              <span class="source-group-name">{group.displayName}</span>
+              <span class="source-group-count">{group.manga.length}</span>
+              <button class="migrate-btn" onclick={() => openMigrate(group)} title="Migrate this source">
+                <Swap size={12} weight="bold" />
+                Migrate source
+              </button>
+            </div>
+          {/each}
+        </div>
+      {:else if groups.length === 1}
+        <div class="single-source-bar">
+          <span class="source-group-name">{groups[0].displayName}</span>
+          <button class="migrate-btn" onclick={() => openMigrate(groups[0])} title="Migrate this source">
+            <Swap size={12} weight="bold" />
+            Migrate source
+          </button>
+        </div>
+      {/if}
+
       <div class="grid" style="--cols:{cols}">
         {#each filtered as m (m.id)}
-          {@const isCompleted = !m.unreadCount && (m.downloadCount > 0)}
+          {@const isCompleted = !m.unreadCount && m.downloadCount > 0}
           <button class="card" class:anims onclick={() => setPreviewManga(m as any)}>
             <div class="cover-wrap" class:completed={isCompleted}>
               <Thumbnail
@@ -125,6 +164,17 @@
   </div>
 </div>
 
+{#if migrateTarget}
+  <SourceMigrateModal
+    sourceId={migrateTarget.sourceId}
+    sourceName={migrateTarget.sourceName}
+    sourceIconUrl={migrateTarget.iconUrl}
+    manga={migrateTarget.manga}
+    onClose={() => migrateTarget = null}
+    onDone={() => { migrateTarget = null; load(); }}
+  />
+{/if}
+
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
@@ -132,8 +182,8 @@
 
   .header { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
 
-  .back-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
-  .back-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
+  .header-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
+  .header-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
 
   .title-block { display: flex; flex-direction: column; gap: 1px; }
   .eyebrow { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
@@ -147,10 +197,15 @@
   .search::placeholder { color: var(--text-faint); }
   .search:focus { border-color: var(--border-strong); }
 
-  .settings-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-md); color: var(--text-faint); flex-shrink: 0; transition: color var(--t-base), background var(--t-base); }
-  .settings-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
+  .content { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-6) var(--sp-6); will-change: scroll-position; display: flex; flex-direction: column; gap: var(--sp-3); }
 
-  .content { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6) var(--sp-6); will-change: scroll-position; }
+  .source-groups { display: flex; flex-direction: column; gap: var(--sp-1); }
+  .source-group-header { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border-dim); }
+  .single-source-bar { display: flex; align-items: center; gap: var(--sp-2); padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border-dim); }
+  .source-group-name { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: var(--tracking-wide); font-weight: var(--weight-medium); }
+  .source-group-count { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: 1px 6px; border-radius: var(--radius-sm); background: var(--bg-overlay); border: 1px solid var(--border-dim); }
+  .migrate-btn { display: flex; align-items: center; gap: 5px; margin-left: auto; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 3px 9px; border-radius: var(--radius-sm); background: none; color: var(--text-faint); border: 1px solid var(--border-dim); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
+  .migrate-btn:hover { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }
 
   .grid { display: grid; grid-template-columns: repeat(var(--cols, auto-fill), minmax(130px, 1fr)); gap: var(--sp-4); }
 

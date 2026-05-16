@@ -11,7 +11,7 @@
   import ExtensionFilters       from "./ExtensionFilters.svelte";
   import ExtensionCard          from "./ExtensionCard.svelte";
   import ExtensionSettingsPanel from "../panels/ExtensionSettingsPanel.svelte";
-  import ExtensionLibraryPanel  from "../panels/ExtensionLibraryPanel.svelte";
+  import ExtensionLibrary from "./ExtensionLibrary.svelte";
 
   const anims      = $derived(store.settings.qolAnimations ?? true);
   const cols       = $derived(store.settings.libraryCols   ?? 5);
@@ -247,7 +247,7 @@
 </script>
 
 {#if libraryTarget}
-  <ExtensionLibraryPanel
+  <ExtensionLibrary
     pkgName={libraryTarget.pkgName}
     extensionName={libraryTarget.extensionName}
     iconUrl={libraryTarget.iconUrl}
