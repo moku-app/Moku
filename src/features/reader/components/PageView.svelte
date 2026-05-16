@@ -376,7 +376,7 @@
 
   {#key chapterEpoch}
     {#if style === "longstrip"}
-      {#each flatPages as page, gi}
+      {#each flatPages as page, gi (page.chapterId + ":" + page.localIndex)}
         {@const src = resolvedSrc[gi]}
         {@const isLoaded = loadedSet.has(gi)}
         <div
@@ -384,9 +384,9 @@
           use:observePage={gi}
           data-gi={gi}
         >
-          {#if isLoaded}
+          {#if isLoaded && src}
             <img
-              src={src ?? ""}
+              src={src}
               alt="{page.chapterName} – Page {page.localIndex + 1}"
               data-local-page={page.localIndex + 1}
               data-chapter={page.chapterId}
@@ -404,7 +404,9 @@
               }}
             />
           {:else}
-            <div class="strip-placeholder"></div>
+            <div class="strip-placeholder page-loader" aria-hidden="true">
+              <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+            </div>
           {/if}
         </div>
       {/each}
@@ -413,7 +415,9 @@
     {:else if style === "fade" && pageReady}
       <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
         {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
-          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity:0" draggable="false" />
+          <div class="page-loader page-loader-single" aria-hidden="true">
+            <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+          </div>
         {:then src}
           <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" draggable="false" />
         {/await}
@@ -423,9 +427,11 @@
       <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
         {#if pageGroups.length}
           <div class="double-wrap">
-            {#each currentGroup as pg, i}
+            {#each currentGroup as pg, i (pg)}
               {#await resolveUrl(store.pageUrls[pg - 1], 999)}
-                <img src="" alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" draggable="false" />
+                <div class="page-loader page-half {i === 0 ? 'gap-left' : 'gap-right'}" aria-hidden="true">
+                  <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+                </div>
               {:then src}
                 <img {src} alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" draggable="false" />
               {/await}
@@ -439,7 +445,9 @@
     {:else if pageReady}
       <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
         {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
-          <img src="" alt="Page {store.pageNumber}" class={imgCls} decoding="async" draggable="false" />
+          <div class="page-loader page-loader-single" aria-hidden="true">
+            <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+          </div>
         {:then src}
           <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" draggable="false" />
         {/await}
@@ -471,7 +479,23 @@
     width: var(--effective-width, 100%);
     max-width: var(--effective-width, 100%);
     aspect-ratio: var(--aspect, 0.667);
-    background: transparent;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-raised) 90%, transparent);
+  }
+
+  .page-loader {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--bg-raised) 90%, transparent);
+    border-radius: var(--radius-sm);
+  }
+
+  .page-loader-single {
+    width: min(100%, var(--effective-width, 100%));
+    max-width: var(--effective-width, 100%);
+    max-height: calc(100vh - 80px);
+    aspect-ratio: 2 / 3;
   }
 
   .img { display: block; user-select: none; image-rendering: auto; }
