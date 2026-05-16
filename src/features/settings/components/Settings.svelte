@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Wrench, PaintBrush, ListChecks, Lock, ShieldCheck } from "phosphor-svelte";
+  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Wrench, PaintBrush, ListChecks, Lock, ShieldCheck, Robot } from "phosphor-svelte";
   import { store, setSettingsOpen, updateSettings } from "@store/state.svelte";
   import { eventToKeybind } from "@core/keybinds/keybindEngine";
   import type { Keybinds } from "@types/settings";
@@ -19,16 +19,18 @@
   import ContentSettings     from "../sections/ContentSettings.svelte";
   import AboutSettings       from "../sections/AboutSettings.svelte";
   import DevtoolsSettings    from "../sections/DevtoolsSettings.svelte";
+  import AutomationSettings  from "../sections/AutomationSettings.svelte";
 
   interface Props { onOpenThemeEditor?: (id?: string | null) => void; }
   let { onOpenThemeEditor }: Props = $props();
 
-  type Tab = "general"|"appearance"|"reader"|"library"|"performance"|"keybinds"|"storage"|"folders"|"tracking"|"security"|"content"|"about"|"devtools";
+  type Tab = "general"|"appearance"|"reader"|"library"|"automation"|"performance"|"keybinds"|"storage"|"folders"|"tracking"|"security"|"content"|"about"|"devtools";
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: "general",     label: "General",     icon: Gear        },
     { id: "appearance",  label: "Appearance",  icon: PaintBrush  },
     { id: "reader",      label: "Reader",      icon: Book        },
     { id: "library",     label: "Library",     icon: Image       },
+    { id: "automation",  label: "Automation",  icon: Robot       },
     { id: "performance", label: "Performance", icon: Sliders     },
     { id: "keybinds",    label: "Keybinds",    icon: Keyboard    },
     { id: "storage",     label: "Storage",     icon: HardDrives  },
@@ -60,7 +62,7 @@
   }
 
   function close() { setSettingsOpen(false); }
-1
+
   let listeningKey: keyof Keybinds | null = $state(null);
 
   $effect(() => {
@@ -163,6 +165,8 @@
           <ReaderSettings {selectOpen} {closingSelect} {toggleSelect} {anims} />
         {:else if tab === "library"}
           <LibrarySettings {selectOpen} {closingSelect} {toggleSelect} {anims} />
+        {:else if tab === "automation"}
+          <AutomationSettings />
         {:else if tab === "performance"}
           <PerformanceSettings />
         {:else if tab === "keybinds"}

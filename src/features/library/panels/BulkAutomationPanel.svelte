@@ -1,9 +1,9 @@
 <script lang="ts">
   import { X } from "phosphor-svelte";
-  import { setPref }          from "@features/series/lib/mangaPrefs";
-  import { store }            from "@store/state.svelte";
-  import { DEFAULT_MANGA_PREFS } from "@store/state.svelte";
-  import type { MangaPrefs }  from "@store/state.svelte";
+  import { setPref }             from "@features/series/lib/mangaPrefs";
+  import { store, DEFAULT_MANGA_PREFS } from "@store/state.svelte";
+  import { resolvedCover }       from "@core/cover/coverResolver";
+  import type { MangaPrefs }     from "@store/state.svelte";
 
   let { ids, onClose }: {
     ids:     Set<number>;
@@ -42,6 +42,14 @@
   const get = <K extends keyof MangaPrefs>(key: K): MangaPrefs[K] => draft[key];
   const set = <K extends keyof MangaPrefs>(key: K, value: MangaPrefs[K]) => { draft = { ...draft, [key]: value }; };
 
+  const mosaicCovers = $derived.by(() => {
+    const idArr = [...ids].slice(0, 9);
+    return idArr
+      .map(id => store.library?.find(m => m.id === id))
+      .filter(Boolean)
+      .map(m => resolvedCover(m!.id, m!.thumbnailUrl));
+  });
+
   function apply() {
     for (const id of ids) {
       for (const key of Object.keys(draft) as (keyof MangaPrefs)[]) {
@@ -60,11 +68,25 @@
   <div class="modal" role="dialog" aria-modal="true" aria-label="Bulk Automation">
 
     <div class="modal-header">
-      <div class="header-left">
-        <span class="modal-title">Automation</span>
-        <span class="modal-subtitle">{ids.size} series selected</span>
+      <div class="header-inner">
+        <div class="header-left">
+          {#if mosaicCovers.length > 0}
+            <div class="mosaic" aria-hidden="true">
+              {#each mosaicCovers.slice(0, 5) as src}
+                <img class="mosaic-tile" {src} alt="" />
+              {/each}
+              {#if ids.size > 5}
+                <span class="mosaic-overflow">+{ids.size - 5}</span>
+              {/if}
+            </div>
+          {/if}
+          <div class="header-text">
+            <span class="modal-title">Automation</span>
+            <span class="modal-subtitle">{ids.size} series selected</span>
+          </div>
+        </div>
+        <button class="close-btn" onclick={onClose} aria-label="Close"><X size={16} weight="light" /></button>
       </div>
-      <button class="close-btn" onclick={onClose} aria-label="Close"><X size={16} weight="light" /></button>
     </div>
 
     <div class="modal-body">
@@ -214,13 +236,37 @@
     animation: scaleIn 0.15s ease both;
   }
 
-  .modal-header {
+  .modal-header { border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
+
+  .header-inner {
     display: flex; align-items: center; justify-content: space-between;
-    padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border-dim); flex-shrink: 0;
+    padding: var(--sp-4) var(--sp-5); gap: var(--sp-3);
   }
-  .header-left { display: flex; flex-direction: column; gap: 2px; }
+
+  .header-left { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+
+  .mosaic {
+    display: flex; align-items: center; flex-shrink: 0;
+  }
+
+  .mosaic-tile {
+    width: 28px; height: 38px;
+    object-fit: cover; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-dim);
+    margin-left: -6px; box-shadow: -1px 0 0 var(--bg-surface);
+  }
+  .mosaic-tile:first-child { margin-left: 0; }
+
+  .mosaic-overflow {
+    font-family: var(--font-ui); font-size: var(--text-2xs);
+    color: var(--text-faint); letter-spacing: var(--tracking-wide);
+    margin-left: var(--sp-1); flex-shrink: 0;
+  }
+
+  .header-text { display: flex; flex-direction: column; gap: 2px; }
   .modal-title { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-primary); letter-spacing: var(--tracking-tight); }
   .modal-subtitle { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+
   .close-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--text-faint); background: none; border: none; cursor: pointer; transition: color var(--t-base), background var(--t-base); flex-shrink: 0; }
   .close-btn:hover { color: var(--text-muted); background: var(--bg-raised); }
 

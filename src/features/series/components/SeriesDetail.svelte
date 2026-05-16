@@ -705,7 +705,7 @@
 {/if}
 
 {#if autoOpen && store.activeManga}
-  <AutomationPanel mangaId={store.activeManga.id} onClose={() => autoOpen = false} />
+  <AutomationPanel mangaId={store.activeManga.id} manga={store.activeManga} onClose={() => autoOpen = false} />
 {/if}
 
 {#if markersOpen && store.activeManga}
