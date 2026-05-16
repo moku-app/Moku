@@ -2,6 +2,8 @@ mod commands;
 mod server;
 
 use std::sync::Mutex;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -11,13 +13,70 @@ use tauri_plugin_shell::process::CommandChild;
 
 pub struct ServerState(pub Mutex<Option<CommandChild>>);
 
+const IPC_PORT: u16 = 47823;
+const HANDSHAKE: &[u8] = b"MOKU:1\n";
+const FOCUS_CMD: &[u8] = b"focus\n";
+
 fn do_quit(app: &tauri::AppHandle) {
     server::kill_tachidesk(app);
     app.exit(0);
 }
 
+fn start_instance_listener(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let Ok(listener) = TcpListener::bind(("127.0.0.1", IPC_PORT)) else {
+            return;
+        };
+        for stream in listener.incoming().flatten() {
+            handle_ipc_connection(stream, &app);
+        }
+    });
+}
+
+fn handle_ipc_connection(mut stream: TcpStream, app: &tauri::AppHandle) {
+    let mut buf = [0u8; 32];
+    let Ok(n) = stream.read(&mut buf) else { return };
+    let msg = &buf[..n];
+
+    if !msg.starts_with(HANDSHAKE) {
+        return;
+    }
+
+    let cmd = &msg[HANDSHAKE.len()..];
+    if cmd.starts_with(b"focus") {
+        let _ = stream.write_all(b"ok\n");
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.show();
+            let _ = win.unminimize();
+            let _ = win.set_focus();
+        }
+    }
+}
+
+fn signal_existing_instance() -> bool {
+    let Ok(mut stream) = TcpStream::connect(("127.0.0.1", IPC_PORT)) else {
+        return false;
+    };
+    stream.set_read_timeout(Some(std::time::Duration::from_millis(500))).ok();
+
+    let mut msg = Vec::new();
+    msg.extend_from_slice(HANDSHAKE);
+    msg.extend_from_slice(FOCUS_CMD);
+
+    if stream.write_all(&msg).is_err() {
+        return false;
+    }
+
+    let mut resp = [0u8; 4];
+    matches!(stream.read(&mut resp), Ok(n) if resp[..n].starts_with(b"ok"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if signal_existing_instance() {
+        std::process::exit(0);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_discord_rpc::init())
@@ -54,47 +113,7 @@ pub fn run() {
             commands::biometric::windows_hello_available,
         ])
         .setup(|app| {
-            let lock_path = app
-                .path()
-                .app_data_dir()
-                .unwrap_or_default()
-                .join(".moku.lock");
-
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .open(&lock_path)
-                .ok();
-
-            let already_running = lock_file.as_ref().map(|f| {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::io::AsRawFd;
-                    unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
-                }
-                #[cfg(windows)]
-                {
-                    use std::os::windows::io::AsRawHandle;
-                    use windows::Win32::Foundation::HANDLE;
-                    use windows::Win32::Storage::FileSystem::{
-                        LockFileEx, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY,
-                    };
-                    let handle = HANDLE(f.as_raw_handle() as isize);
-                    let mut overlapped = windows::Win32::System::IO::OVERLAPPED::default();
-                    !unsafe {
-                        LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &mut overlapped)
-                    }.as_bool()
-                }
-                #[cfg(not(any(unix, windows)))]
-                { false }
-            }).unwrap_or(false);
-
-            if already_running {
-                app.handle().exit(0);
-                return Ok(());
-            }
-
-            std::mem::forget(lock_file);
+            start_instance_listener(app.handle().clone());
 
             let show = MenuItem::with_id(app, "show", "Show Moku", true, None::<&str>)?;
             let sep  = PredefinedMenuItem::separator(app)?;

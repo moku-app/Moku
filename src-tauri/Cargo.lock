@@ -2008,7 +2008,6 @@ name = "moku"
 version = "0.9.3"
 dependencies = [
  "dirs 5.0.1",
- "libc",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
