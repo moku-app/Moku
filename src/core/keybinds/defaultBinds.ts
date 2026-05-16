@@ -12,6 +12,7 @@ export interface Keybinds {
   openSettings:           string;
   toggleBookmark:         string;
   toggleMarker:           string;
+  toggleAutoScroll:       string;
 }
 
 export const DEFAULT_KEYBINDS: Keybinds = {
@@ -28,6 +29,7 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   openSettings:           "o",
   toggleBookmark:         "m",
   toggleMarker:           "n",
+  toggleAutoScroll:       "s",
 };
 
 export const KEYBIND_LABELS: Record<keyof Keybinds, string> = {
@@ -44,4 +46,5 @@ export const KEYBIND_LABELS: Record<keyof Keybinds, string> = {
   openSettings:           "Open settings",
   toggleBookmark:         "Toggle bookmark",
   toggleMarker:           "Toggle marker",
+  toggleAutoScroll:       "Toggle auto scroll",
 };

@@ -178,6 +178,32 @@
             aria-checked={store.settings.autoNextChapter ?? false}
           ><span class="toggle-knob"></span></button>
         </label>
+        <label class="toggle-row">
+          <span class="toggle-label">Auto scroll</span>
+          <button
+            class="toggle"
+            class:on={store.settings.autoScroll ?? false}
+            onclick={() => updateSettings({ autoScroll: !(store.settings.autoScroll ?? false) })}
+            role="switch"
+            aria-label="Auto scroll"
+            aria-checked={store.settings.autoScroll ?? false}
+          ><span class="toggle-knob"></span></button>
+        </label>
+        {#if store.settings.autoScroll}
+          <div class="speed-row">
+            <span class="speed-label">Speed</span>
+            <input
+              type="range"
+              class="zoom-slider"
+              min={1}
+              max={30}
+              step={1}
+              value={store.settings.autoScrollSpeed ?? 5}
+              oninput={(e) => updateSettings({ autoScrollSpeed: Number(e.currentTarget.value) })}
+            />
+            <span class="speed-val">{store.settings.autoScrollSpeed ?? 5}</span>
+          </div>
+        {/if}
       {/if}
     </section>
 
@@ -759,5 +785,29 @@
     margin: 0;
     padding: var(--sp-2) 0;
     text-align: center;
+  }
+
+  .speed-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-1) 0;
+  }
+
+  .speed-label {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    flex-shrink: 0;
+    min-width: 40px;
+  }
+
+  .speed-val {
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    letter-spacing: var(--tracking-wide);
+    min-width: 1.5ch;
+    text-align: right;
+    flex-shrink: 0;
   }
 </style>

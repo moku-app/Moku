@@ -225,6 +225,7 @@
     toggleDirection: () => applySettings({ readingDirection: rtl ? "ltr" : "rtl" }),
     openSettings:    () => setSettingsOpen(true),
     toggleBookmark:  () => toggleBookmark(displayChapter, store.pageNumber),
+    toggleAutoScroll: () => { if (style === "longstrip") updateSettings({ autoScroll: !(store.settings.autoScroll ?? false) }); },
     toggleMarker:    () => {
       if (currentPageMarkers.length > 0) {
         const first = currentPageMarkers[0];

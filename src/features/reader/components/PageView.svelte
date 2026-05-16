@@ -211,6 +211,26 @@
   let stripDragStartY  = 0;
   let stripScrollStart = 0;
 
+  let autoScrollPaused      = false;
+  let autoScrollPauseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function pauseAutoScroll() {
+    autoScrollPaused = true;
+    if (autoScrollPauseTimer) clearTimeout(autoScrollPauseTimer);
+    autoScrollPauseTimer = setTimeout(() => { autoScrollPaused = false; }, 2500);
+  }
+
+  $effect(() => {
+    if (style !== "longstrip" || !store.settings.autoScroll) return;
+    let rafId: number;
+    const tick = () => {
+      if (!autoScrollPaused && containerEl) containerEl.scrollTop += (store.settings.autoScrollSpeed ?? 5) * 0.5;
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  });
+
   let pinch: PinchTracker | null = null;
 
   $effect(() => {
@@ -235,6 +255,7 @@
       stripDragMoved   = false;
       stripDragStartY  = e.clientY;
       stripScrollStart = containerEl?.scrollTop ?? 0;
+      pauseAutoScroll();
       e.preventDefault();
       return;
     }
@@ -305,6 +326,7 @@
   export function handleWheel(e: WheelEvent) {
     if (style === "longstrip") {
       if (e.ctrlKey) { onWheel(e); }
+      else pauseAutoScroll();
       return;
     }
     if (!e.ctrlKey) { onWheel(e); return; }
@@ -328,7 +350,10 @@
   }
 
   function handleTap(e: MouseEvent) {
-    if (style === "longstrip") return;
+    if (style === "longstrip") {
+      if (stripDragMoved) { stripDragMoved = false; return; }
+      return;
+    }
     if (inspectDragMoved) { inspectDragMoved = false; return; }
     if (stripDragMoved)   { stripDragMoved   = false; return; }
     onTap(e);
@@ -359,12 +384,12 @@
   role="presentation"
   tabindex="-1"
   onclick={handleTap}
-  ondblclick={(e) => { if (tapToToggleBar) { const x = e.clientX / window.innerWidth; if (x >= 0.3 && x <= 0.7) onToggleUi(); } }}
+  ondblclick={() => { if (tapToToggleBar) onToggleUi(); }}
   onmousedown={onInspectMouseDown}
   onpointerdown={pinchZoomEnabled ? onPointerDown : undefined}
   onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
   style:cursor={style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
-  onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); containerEl?.scrollBy({ top: containerEl.clientHeight * 0.85, behavior: "smooth" }); } }}
+  onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); store.settings.autoScroll = !store.settings.autoScroll; } }}
 >
 
   {#if loading}

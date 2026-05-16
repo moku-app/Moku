@@ -14,6 +14,7 @@ export interface ReaderKeyActions {
   openSettings:         () => void;
   toggleBookmark:       () => void;
   toggleMarker:         () => void;
+  toggleAutoScroll:     () => void;
   chapterNext:          () => void;
   chapterPrev:          () => void;
   closePopovers:        () => boolean;
@@ -55,5 +56,6 @@ export function createReaderKeyHandler(actions: ReaderKeyActions): (e: KeyboardE
     else if (matchesKeybind(e, kb.openSettings))           { e.preventDefault(); actions.openSettings(); }
     else if (matchesKeybind(e, kb.toggleBookmark))         { e.preventDefault(); actions.toggleBookmark(); }
     else if (matchesKeybind(e, kb.toggleMarker))           { e.preventDefault(); actions.toggleMarker(); }
+    else if (matchesKeybind(e, kb.toggleAutoScroll))       { e.preventDefault(); actions.toggleAutoScroll(); }
   };
 }

@@ -128,6 +128,8 @@ export interface Settings {
   downloadAutoRetry: boolean;
   hiddenLibraryTabs: string[];
   libraryPinnedTabOrder: string[];
+  autoScroll?: boolean;
+  autoScrollSpeed?: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -171,4 +173,6 @@ export const DEFAULT_SETTINGS: Settings = {
   downloadAutoRetry: false,
   hiddenLibraryTabs: [],
   libraryPinnedTabOrder: [],
+  autoScroll: false,
+  autoScrollSpeed: 5,
 };
