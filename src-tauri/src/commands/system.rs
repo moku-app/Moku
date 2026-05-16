@@ -1,5 +1,7 @@
 #[cfg(target_os = "windows")]
 use crate::server::resolve::strip_unc;
+#[cfg(target_os = "windows")]
+use std::path::PathBuf;
 use tauri::Manager;
 
 #[tauri::command]
