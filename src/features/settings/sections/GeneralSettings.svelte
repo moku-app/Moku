@@ -77,6 +77,20 @@
   </div>
 
   <div class="s-section">
+    <p class="s-section-title">Window</p>
+    <div class="s-section-body">
+      <div class="s-row">
+        <div class="s-row-info"><span class="s-label">Close button behavior</span><span class="s-desc">What happens when you click the X button</span></div>
+        <div class="s-seg">
+          {#each [["ask","Ask"],["tray","Tray"],["quit","Quit"]] as [v, l]}
+            <button class="s-seg-btn" class:active={( store.settings.closeAction ?? "ask") === v} onclick={() => updateSettings({ closeAction: v as "ask" | "tray" | "quit" })}>{l}</button>
+          {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="s-section">
     <p class="s-section-title">Integrations</p>
     <div class="s-section-body">
       <label class="s-row">
@@ -113,3 +127,10 @@
   </div>
 
 </div>
+<style>
+  .s-seg { display: flex; border: 1px solid var(--border-strong); border-radius: var(--radius-md); overflow: hidden; }
+  .s-seg-btn { flex: 1; padding: var(--sp-1) var(--sp-3); font-family: var(--font-ui); font-size: var(--text-sm); color: var(--text-faint); background: transparent; cursor: pointer; transition: background var(--t-base), color var(--t-base); border: none; }
+  .s-seg-btn:not(:last-child) { border-right: 1px solid var(--border-strong); }
+  .s-seg-btn.active { background: var(--accent-muted); color: var(--accent-fg); }
+  .s-seg-btn:not(.active):hover { background: var(--bg-raised); color: var(--text-secondary); }
+</style>
