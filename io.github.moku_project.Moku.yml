@@ -180,7 +180,7 @@ modules:
       - type: git
         url: https://github.com/moku-project/Moku.git
         tag: v0.9.3
-        commit: 83711c155d3e60ab4e2411ea6e0098231d76f8b9
+        commit: 9f8bf6ffc11e0808acc735132e1aeff8b3bf1e09
       - type: file
         path: packaging/frontend-dist.tar.gz
         sha256: c690eb3cb24e89fec3f4e92f7a4a82d9a465b58f6680a332c1e44f1361ac96af
