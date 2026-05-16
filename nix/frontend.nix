@@ -10,7 +10,7 @@ stdenv.mkDerivation {
     pname = "moku-frontend";
     inherit version src;
     fetcherVersion = 1;
-    hash = "sha256-eRuSSRhNmJ09mp/uhbG+NFeiOZ5dTOdJ94OwdP6IkN0=";
+    hash = "sha256-vM//1/qe9nKDwwlmFbqvBFqF8cCjIIdNKEtktyzBFB8=";
   };
 
   buildPhase = "pnpm build";

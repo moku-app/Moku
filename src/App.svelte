@@ -3,9 +3,6 @@
   import { invoke }            from "@tauri-apps/api/core";
   import { listen }            from "@tauri-apps/api/event";
   import { getCurrentWindow }  from "@tauri-apps/api/window";
-  import { defaultWindowIcon } from "@tauri-apps/api/app";
-  import { TrayIcon }          from "@tauri-apps/api/tray";
-  import { Menu }              from "@tauri-apps/api/menu";
   import { platform }          from "@tauri-apps/plugin-os";
   import { store, updateSettings, setActiveDownloads } from "@store/state.svelte";
   import { downloadStore } from "@features/downloads/store/downloadState.svelte";
@@ -48,8 +45,13 @@
   }
 
   async function doQuit() {
-    if (store.settings.autoStartServer) await invoke("kill_server").catch(() => {});
-    await win.destroy();
+    if (store.settings.autoStartServer) {
+      await Promise.race([
+        invoke("kill_server").catch(() => {}),
+        new Promise(res => setTimeout(res, 2000)),
+      ]);
+    }
+    await invoke("exit_app");
   }
 
   async function doHide() {
@@ -123,36 +125,6 @@
       applyZoom();
     });
 
-    const menu = await Menu.new({
-      items: [
-        {
-          id: "show",
-          text: "Show Moku",
-          action: async () => {
-            await win.show();
-            await win.setFocus();
-          },
-        },
-        {
-          id: "quit",
-          text: "Quit",
-          action: doQuit,
-        },
-      ],
-    });
-
-    await TrayIcon.new({
-      icon: await defaultWindowIcon(),
-      menu,
-      menuOnLeftClick: false,
-      tooltip: "Moku",
-      action: async (e) => {
-        if (e.type === "Click") {
-          await win.show();
-          await win.setFocus();
-        }
-      },
-    });
 
     const unlistenClose = await win.listen("tauri://close-requested", handleCloseRequested);
 
@@ -215,7 +187,7 @@
   {/if}
 
   <div id="app-shell" class="root">
-    {#if !store.activeChapter}<TitleBar />{/if}
+    {#if !store.activeChapter}<TitleBar onClose={handleCloseRequested} />{/if}
     <div class="content">
       {#if store.activeChapter}<Reader />{:else}<Layout />{/if}
     </div>

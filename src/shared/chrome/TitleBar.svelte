@@ -3,6 +3,8 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { platform } from "@tauri-apps/plugin-os";
 
+  const { onClose }: { onClose: () => void } = $props();
+
   const win       = getCurrentWindow();
   const os        = platform();
   const isMac     = os === "macos";
@@ -31,7 +33,7 @@
         <button onclick={() => win.toggleMaximize()} title="Maximize" aria-label="Maximize">
           <svg width="9" height="9" viewBox="0 0 9 9"><rect x="0.75" y="0.75" width="7.5" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
         </button>
-        <button class="close" onclick={() => win.close()} title="Close" aria-label="Close">
+        <button class="close" onclick={onClose} title="Close" aria-label="Close">
           <svg width="10" height="10" viewBox="0 0 10 10">
             <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
             <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -50,7 +52,7 @@
         <polyline points="4,9 1,9 1,6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
-    <button class="close" onclick={() => win.close()} title="Close" aria-label="Close">
+    <button class="close" onclick={onClose} title="Close" aria-label="Close">
       <svg width="10" height="10" viewBox="0 0 10 10">
         <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
         <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
