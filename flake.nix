@@ -22,7 +22,7 @@
       perSystem =
         { system, lib, ... }:
         let
-          version = "0.9.3";
+          version = "0.9.4";
 
           pkgs = import inputs.nixpkgs {
             inherit system;
