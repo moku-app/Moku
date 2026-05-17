@@ -593,6 +593,7 @@
     fadingOut={readerState.fadingOut}
     {tapToToggleBar}
     {pinchZoomEnabled}
+    {barPosition}
     onGetZoom={() => zoom}
     onSetZoom={(z) => { captureZoomAnchor(containerEl, style, zoomAnchor); applySettings({ readerZoom: z }); restoreZoomAnchor(containerEl, zoomAnchor); }}
     resolveUrl={(url, priority) => resolveUrl(url, useBlob, priority)}

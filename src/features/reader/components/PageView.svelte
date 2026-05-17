@@ -20,6 +20,7 @@
     tapToToggleBar:  boolean;
     pinchZoomEnabled: boolean;
     chapterEpoch:    number;
+    barPosition:     "top" | "left" | "right";
     onGetZoom:       () => number;
     onSetZoom:       (z: number) => void;
     resolveUrl:      (url: string, priority?: number) => Promise<string>;
@@ -32,7 +33,7 @@
   const {
     style, imgCls, effectiveWidth, loading, error, pageReady,
     pageGroups, currentGroup, stripToRender, fadingOut,
-    tapToToggleBar, pinchZoomEnabled, chapterEpoch, onGetZoom, onSetZoom,
+    tapToToggleBar, pinchZoomEnabled, chapterEpoch, barPosition, onGetZoom, onSetZoom,
     resolveUrl, onTap, onWheel, onToggleUi, bindContainer,
   }: Props = $props();
 
@@ -214,20 +215,34 @@
   let autoScrollPaused      = false;
   let autoScrollPauseTimer: ReturnType<typeof setTimeout> | null = null;
 
-  let midScrollActive = $state(false);
-  let midScrollOriginY = 0;
+  let midScrollActive  = $state(false);
+  let midScrollOriginY = $state(0);
+  let midScrollOriginX = $state(0);
+  let midScrollCurrentY = 0;
   let midScrollRaf: number | null = null;
 
-  function startMidScroll(originY: number) {
+  // Speed level 0-5 for the indicator bar
+  const midScrollSpeedLevel = $derived.by(() => {
+    if (!midScrollActive) return 0;
+    // recomputes when midScrollOriginY changes; actual dy read in RAF so this is just for display
+    return 0; // will be updated imperatively
+  });
+  let midScrollDisplayLevel = $state(0);
+
+  function startMidScroll(originY: number, originX: number) {
     midScrollActive  = true;
     midScrollOriginY = originY;
+    midScrollOriginX = originX;
+    midScrollDisplayLevel = 0;
     if (midScrollRaf) cancelAnimationFrame(midScrollRaf);
     const tick = () => {
       if (!midScrollActive || !containerEl) return;
-      const dy       = (window as any)._midScrollCurrentY - midScrollOriginY;
+      const dy       = midScrollCurrentY - midScrollOriginY;
       const deadZone = 24;
-      const speed    = Math.sign(dy) * Math.max(0, Math.abs(dy) - deadZone) * 0.12;
+      const excess   = Math.max(0, Math.abs(dy) - deadZone);
+      const speed    = Math.sign(dy) * excess * 0.12;
       containerEl.scrollTop += speed;
+      midScrollDisplayLevel = Math.sign(dy) * Math.min(5, Math.floor(excess / 30));
       midScrollRaf = requestAnimationFrame(tick);
     };
     midScrollRaf = requestAnimationFrame(tick);
@@ -235,6 +250,7 @@
 
   function stopMidScroll() {
     midScrollActive = false;
+    midScrollDisplayLevel = 0;
     if (midScrollRaf) { cancelAnimationFrame(midScrollRaf); midScrollRaf = null; }
   }
 
@@ -276,7 +292,11 @@
     if ((e.target as Element).closest(".bar")) return;
     if (e.button === 1 && style === "longstrip") {
       e.preventDefault();
-      if (midScrollActive) { stopMidScroll(); } else { startMidScroll(e.clientY); }
+      if (midScrollActive) { stopMidScroll(); } else {
+        // pause regular auto-scroll while mid-scroll is active
+        store.settings.autoScroll = false;
+        startMidScroll(e.clientY, e.clientX);
+      }
       return;
     }
     if (style === "longstrip") {
@@ -299,7 +319,7 @@
   }
 
   export function onInspectMouseMove(e: MouseEvent) {
-    (window as any)._midScrollCurrentY = e.clientY;
+    midScrollCurrentY = e.clientY;
     if (stripDragging) {
       const dy = e.clientY - stripDragStartY;
       if (!stripDragMoved && Math.abs(dy) > 4) stripDragMoved = true;
@@ -404,10 +424,6 @@
       stopMidScroll();
     }
   });
-
-  $effect(() => {
-    (window as any)._midScrollCurrentY = 0;
-  });
 </script>
 
 <div
@@ -425,11 +441,24 @@
   onmousedown={onInspectMouseDown}
   onpointerdown={pinchZoomEnabled ? onPointerDown : undefined}
   onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
-  style:cursor={midScrollActive ? "none" : style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
+  style:cursor={style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
   onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); store.settings.autoScroll = !store.settings.autoScroll; } }}
 >
   {#if midScrollActive}
-    <div class="midscroll-cursor" style="top:{midScrollOriginY}px"></div>
+    <div class="midscroll-bar" class:midscroll-bar-right={barPosition !== "right"} class:midscroll-bar-left={barPosition === "right"}>
+      <div class="midscroll-segments">
+        {#each [5,4,3,2,1] as n}
+          <div class="midscroll-seg" class:midscroll-seg-lit={midScrollDisplayLevel < 0 && -midScrollDisplayLevel >= n}></div>
+        {/each}
+        <div class="midscroll-origin-dot"></div>
+        {#each [1,2,3,4,5] as n}
+          <div class="midscroll-seg" class:midscroll-seg-lit={midScrollDisplayLevel > 0 && midScrollDisplayLevel >= n}></div>
+        {/each}
+      </div>
+      <button class="midscroll-stop" onclick={stopMidScroll} title="Stop (middle click)">
+        <svg width="8" height="8" viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" rx="1" fill="currentColor"/></svg>
+      </button>
+    </div>
   {/if}
 
   {#if loading}
@@ -523,7 +552,7 @@
 </div>
 
 <style>
-  .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; touch-action: pan-x pan-y; }
+  .viewer { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; position: relative; touch-action: pan-x pan-y; zoom: calc(1 / var(--ui-zoom, 1)); }
   .viewer.strip { justify-content: flex-start; padding: var(--sp-4) 0; }
   .viewer:focus { outline: none; }
   .viewer.inspect-active { cursor: grab; overflow: hidden; }
@@ -579,34 +608,73 @@
   .center-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
   .error-msg      { color: var(--color-error); font-size: var(--text-base); }
 
-  .midscroll-cursor {
+  .midscroll-bar {
     position: fixed;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 6px;
+    background: color-mix(in srgb, var(--bg-raised) 92%, transparent);
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+    pointer-events: auto;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .midscroll-bar-right { right: 8px; }
+  .midscroll-bar-left  { left: 8px; }
+
+  .midscroll-segments {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .midscroll-origin-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent-fg);
+    opacity: 0.6;
+    flex-shrink: 0;
+    margin: 2px 0;
+  }
+
+  .midscroll-seg {
+    width: 4px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--border-strong);
+    transition: background 0.06s ease;
+    flex-shrink: 0;
+  }
+  .midscroll-seg-lit {
+    background: var(--accent-fg);
+  }
+
+  .midscroll-stop {
     width: 20px;
     height: 20px;
-    border-radius: 50%;
-    border: 2px solid var(--accent-fg);
-    background: transparent;
-    pointer-events: none;
-    z-index: 100;
-    opacity: 0.85;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-dim);
+    background: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+    flex-shrink: 0;
   }
-  .midscroll-cursor::before,
-  .midscroll-cursor::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-  }
-  .midscroll-cursor::before {
-    top: -10px;
-    border-bottom: 6px solid var(--accent-fg);
-  }
-  .midscroll-cursor::after {
-    bottom: -10px;
-    border-top: 6px solid var(--accent-fg);
+  .midscroll-stop:hover {
+    color: var(--text-primary);
+    background: var(--bg-overlay);
+    border-color: var(--border-strong);
   }
 </style>
