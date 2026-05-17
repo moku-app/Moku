@@ -99,28 +99,14 @@ pub async fn clear_moku_cache(app: tauri::AppHandle) -> Result<(), String> {
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
+    // Note: We intentionally skip the WebView2 COM-level ClearBrowsingDataAll call here.
+    // The webview2_com crate pulls in a different version of windows_core than Tauri's
+    // own windows dependency, causing irreconcilable trait-impl conflicts at compile time.
+    // The filesystem cache removal below (app_cache_dir) is sufficient for our purposes;
+    // WebView2 will rebuild its cache on next launch from a clean directory.
     window
-        .with_webview(move |wv| {
-            #[cfg(target_os = "windows")]
-            {
-                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
-                use windows::core::Interface;
-                let core = wv.controller().CoreWebView2().map_err(|e| e.to_string());
-                let result = core.and_then(|c| {
-                    c.cast::<ICoreWebView2_2>()
-                        .map_err(|e| e.to_string())
-                })
-                .and_then(|c2| {
-                    unsafe {
-                        c2.ClearBrowsingDataAll(None).map_err(|e| e.to_string())
-                    }
-                });
-                let _ = tx.send(result);
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = tx.send(Ok(()));
-            }
+        .with_webview(move |_wv| {
+            let _ = tx.send(Ok(()));
         })
         .map_err(|e| e.to_string())?;
 

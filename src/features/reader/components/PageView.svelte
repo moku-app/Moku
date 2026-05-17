@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { CircleNotch } from "phosphor-svelte";
   import { store }       from "@store/state.svelte";
   import { readerState } from "../store/readerState.svelte";
   import type { StripChapter } from "../lib/scrollHandler";
@@ -442,7 +441,10 @@
   onpointerdown={pinchZoomEnabled ? onPointerDown : undefined}
   onwheel={(e) => { if (e.ctrlKey || style !== "longstrip") e.preventDefault(); }}
   style:cursor={style === "longstrip" ? (stripDragging ? "grabbing" : "grab") : undefined}
-  onkeydown={(e) => { if (e.key === " " && style === "longstrip") { e.preventDefault(); store.settings.autoScroll = !store.settings.autoScroll; } }}
+  onkeydown={(e) => {
+    if (e.key === " " && style === "longstrip") { e.preventDefault(); store.settings.autoScroll = !store.settings.autoScroll; return; }
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown") && style !== "longstrip") e.preventDefault();
+  }}
 >
   {#if midScrollActive}
     <div class="midscroll-bar" class:midscroll-bar-right={barPosition !== "right"} class:midscroll-bar-left={barPosition === "right"}>
@@ -462,7 +464,9 @@
   {/if}
 
   {#if loading}
-    <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
+    <div class="center-overlay">
+      <div class="page-loader page-loader-single" aria-hidden="true"><svg class="panel-skeleton" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><rect class="ps-r ps-r1" x="2" y="2" width="62" height="88" rx="1"/><rect class="ps-r ps-r2" x="68" y="2" width="30" height="42" rx="1"/><rect class="ps-r ps-r3" x="68" y="48" width="30" height="42" rx="1"/><rect class="ps-r ps-r4" x="2" y="94" width="44" height="54" rx="1"/><rect class="ps-r ps-r5" x="50" y="94" width="48" height="54" rx="1"/></svg></div>
+    </div>
   {/if}
   {#if error}
     <div class="center-overlay"><p class="error-msg">{error}</p></div>
@@ -498,8 +502,8 @@
               }}
             />
           {:else}
-            <div class="strip-placeholder page-loader" aria-hidden="true">
-              <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+            <div class="strip-placeholder" aria-hidden="true">
+              <svg class="panel-skeleton" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><rect class="ps-r ps-r1" x="2" y="2" width="62" height="88" rx="1"/><rect class="ps-r ps-r2" x="68" y="2" width="30" height="42" rx="1"/><rect class="ps-r ps-r3" x="68" y="48" width="30" height="42" rx="1"/><rect class="ps-r ps-r4" x="2" y="94" width="44" height="54" rx="1"/><rect class="ps-r ps-r5" x="50" y="94" width="48" height="54" rx="1"/></svg>
             </div>
           {/if}
         </div>
@@ -510,7 +514,7 @@
       <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
         {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
           <div class="page-loader page-loader-single" aria-hidden="true">
-            <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+            <svg class="panel-skeleton" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><rect class="ps-r ps-r1" x="2" y="2" width="62" height="88" rx="1"/><rect class="ps-r ps-r2" x="68" y="2" width="30" height="42" rx="1"/><rect class="ps-r ps-r3" x="68" y="48" width="30" height="42" rx="1"/><rect class="ps-r ps-r4" x="2" y="94" width="44" height="54" rx="1"/><rect class="ps-r ps-r5" x="50" y="94" width="48" height="54" rx="1"/></svg>
           </div>
         {:then src}
           <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" style="opacity: {fadingOut ? 0 : 1}; transition: opacity 0.1s ease;" draggable="false" />
@@ -524,7 +528,7 @@
             {#each currentGroup as pg, i (pg)}
               {#await resolveUrl(store.pageUrls[pg - 1], 999)}
                 <div class="page-loader page-half {i === 0 ? 'gap-left' : 'gap-right'}" aria-hidden="true">
-                  <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+                  <svg class="panel-skeleton" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><rect class="ps-r ps-r1" x="2" y="2" width="62" height="88" rx="1"/><rect class="ps-r ps-r2" x="68" y="2" width="30" height="42" rx="1"/><rect class="ps-r ps-r3" x="68" y="48" width="30" height="42" rx="1"/><rect class="ps-r ps-r4" x="2" y="94" width="44" height="54" rx="1"/><rect class="ps-r ps-r5" x="50" y="94" width="48" height="54" rx="1"/></svg>
                 </div>
               {:then src}
                 <img {src} alt="Page {pg}" class="{imgCls} page-half {i === 0 ? 'gap-left' : 'gap-right'}" decoding="async" draggable="false" />
@@ -532,7 +536,11 @@
             {/each}
           </div>
         {:else}
-          <div class="center-overlay"><CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
+          <div class="center-overlay">
+            <div class="page-loader page-loader-single" aria-hidden="true">
+              <svg class="panel-skeleton" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><rect class="ps-r ps-r1" x="2" y="2" width="62" height="88" rx="1"/><rect class="ps-r ps-r2" x="68" y="2" width="30" height="42" rx="1"/><rect class="ps-r ps-r3" x="68" y="48" width="30" height="42" rx="1"/><rect class="ps-r ps-r4" x="2" y="94" width="44" height="54" rx="1"/><rect class="ps-r ps-r5" x="50" y="94" width="48" height="54" rx="1"/></svg>
+            </div>
+          </div>
         {/if}
       </div>
 
@@ -540,7 +548,7 @@
       <div class="inspect-wrap" style="transform:scale({readerState.inspectScale}) translate({readerState.inspectPanX / readerState.inspectScale}px,{readerState.inspectPanY / readerState.inspectScale}px)">
         {#await resolveUrl(store.pageUrls[store.pageNumber - 1], 999)}
           <div class="page-loader page-loader-single" aria-hidden="true">
-            <CircleNotch size={20} weight="light" class="anim-spin" style="color:var(--text-faint)" />
+            <svg class="panel-skeleton" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><rect class="ps-r ps-r1" x="2" y="2" width="62" height="88" rx="1"/><rect class="ps-r ps-r2" x="68" y="2" width="30" height="42" rx="1"/><rect class="ps-r ps-r3" x="68" y="48" width="30" height="42" rx="1"/><rect class="ps-r ps-r4" x="2" y="94" width="44" height="54" rx="1"/><rect class="ps-r ps-r5" x="50" y="94" width="48" height="54" rx="1"/></svg>
           </div>
         {:then src}
           <img {src} alt="Page {store.pageNumber}" class={imgCls} decoding="async" draggable="false" />
@@ -574,15 +582,14 @@
     max-width: var(--effective-width, 100%);
     aspect-ratio: var(--aspect, 0.667);
     border-radius: var(--radius-sm);
-    background: color-mix(in srgb, var(--bg-raised) 90%, transparent);
+    display: flex;
+    align-items: stretch;
   }
 
   .page-loader {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: color-mix(in srgb, var(--bg-raised) 90%, transparent);
     border-radius: var(--radius-sm);
+    display: flex;
+    align-items: stretch;
   }
 
   .page-loader-single {
@@ -590,6 +597,29 @@
     max-width: var(--effective-width, 100%);
     max-height: calc(var(--visual-vh, 100vh) - 80px);
     aspect-ratio: 2 / 3;
+  }
+
+  .panel-skeleton { width: 100%; height: 100%; }
+
+  .panel-skeleton :global(.ps-r) {
+    stroke: var(--border-strong);
+    stroke-width: 0.8;
+    fill: none;
+    stroke-dasharray: 400;
+    stroke-dashoffset: 400;
+    animation: ps-shimmer 2s ease-in-out infinite;
+  }
+  .panel-skeleton :global(.ps-r1) { animation-delay: 0s; }
+  .panel-skeleton :global(.ps-r2) { animation-delay: 0.15s; }
+  .panel-skeleton :global(.ps-r3) { animation-delay: 0.3s; }
+  .panel-skeleton :global(.ps-r4) { animation-delay: 0.1s; }
+  .panel-skeleton :global(.ps-r5) { animation-delay: 0.25s; }
+
+  @keyframes ps-shimmer {
+    0%   { stroke-dashoffset: 400; opacity: 0.25; }
+    40%  { stroke-dashoffset: 0;   opacity: 0.55; }
+    70%  { stroke-dashoffset: 0;   opacity: 0.55; }
+    100% { stroke-dashoffset: -400; opacity: 0.25; }
   }
 
   .img { display: block; user-select: none; image-rendering: auto; }
