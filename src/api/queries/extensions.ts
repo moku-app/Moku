@@ -22,7 +22,7 @@ export const GET_SOURCES = `
     sources {
       nodes {
         id name lang displayName iconUrl isNsfw
-        isConfigurable supportsLatest baseUrl
+        isConfigurable supportsLatest
         extension { pkgName }
       }
     }
@@ -92,7 +92,7 @@ export const GET_MIGRATABLE_SOURCES = `
       nodes {
         sourceId
         source {
-          id name lang displayName iconUrl isNsfw isConfigurable supportsLatest baseUrl
+          id name lang displayName iconUrl isNsfw isConfigurable supportsLatest
         }
       }
     }

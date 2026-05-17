@@ -58,12 +58,31 @@ pub fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+fn remove_dir_best_effort(path: &std::path::Path) {
+    if path.is_file() {
+        if let Err(e) = std::fs::remove_file(path) {
+            if e.raw_os_error() == Some(32) {
+                return;
+            }
+        }
+    } else if path.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                remove_dir_best_effort(&entry.path());
+            }
+        }
+        let _ = std::fs::remove_dir(path);
+    }
+}
+
 #[tauri::command]
-pub fn clear_moku_cache(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Manager;
+pub async fn clear_moku_cache(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("no main window")?;
+    window.clear_all_browsing_data().map_err(|e| e.to_string())?;
+
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     if cache_dir.exists() {
-        std::fs::remove_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+        remove_dir_best_effort(&cache_dir);
         std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
     }
     Ok(())
