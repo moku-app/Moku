@@ -118,7 +118,6 @@
   class:bar-left={barPosition === "left"}
   class:bar-right={barPosition === "right"}
   class:hidden={!uiVisible}
-  data-tauri-drag-region={barPosition === "top" ? true : undefined}
 >
   <div class="bar-start">
     <button class="icon-btn" onclick={closeReader} title="Close reader"><X size={15} weight="light" /></button>
@@ -177,7 +176,7 @@
     </button>
 
     {#if !isVertical}
-      <span class="bar-sep"></span>
+      <span class="bar-sep" data-tauri-drag-region></span>
     {/if}
   </div>
 
@@ -185,6 +184,10 @@
     <div class="bar-middle">
       {@render progressBar()}
     </div>
+  {/if}
+
+  {#if !isVertical}
+    <div class="bar-drag-gap" data-tauri-drag-region></div>
   {/if}
 
   <div class="bar-end">
@@ -393,12 +396,15 @@
   .bar-left  { left: 0;  border-right: 1px solid var(--border-dim); }
   .bar-right { right: 0; border-left:  1px solid var(--border-dim); }
 
+  .bar-drag-gap { flex: 1; height: 100%; cursor: grab; }
+  .bar-drag-gap:active { cursor: grabbing; }
+
   .bar-start, .bar-end {
     display: flex;
     align-items: center;
     gap: var(--sp-1);
   }
-  .bar-top .bar-start { flex: 1; overflow: hidden; }
+  .bar-top .bar-start { overflow: hidden; }
   .bar-left .bar-start,
   .bar-left .bar-end,
   .bar-right .bar-start,
