@@ -62,10 +62,7 @@ export function measureAspect(url: string, useBlob: boolean): Promise<number> {
 }
 
 export function preloadImage(url: string, useBlob: boolean): void {
-  if (useBlob) {
-    preloadBlobUrls([url], 0);
-    return;
-  }
+  if (useBlob) { preloadBlobUrls([url], 0); return; }
   resolveUrl(url, useBlob).then(src => { new Image().src = src; }).catch(() => {});
 }
 

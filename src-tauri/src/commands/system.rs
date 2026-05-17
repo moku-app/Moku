@@ -96,13 +96,43 @@ fn wait_until_deletable(path: &std::path::Path, timeout_secs: u64) -> bool {
 #[tauri::command]
 pub async fn clear_moku_cache(app: tauri::AppHandle) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or("no main window")?;
-    window.clear_all_browsing_data().map_err(|e| e.to_string())?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+
+    window
+        .with_webview(move |wv| {
+            #[cfg(target_os = "windows")]
+            {
+                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
+                use windows::core::Interface;
+                let core = wv.controller().CoreWebView2().map_err(|e| e.to_string());
+                let result = core.and_then(|c| {
+                    c.cast::<ICoreWebView2_2>()
+                        .map_err(|e| e.to_string())
+                })
+                .and_then(|c2| {
+                    unsafe {
+                        c2.ClearBrowsingDataAll(None).map_err(|e| e.to_string())
+                    }
+                });
+                let _ = tx.send(result);
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = tx.send(Ok(()));
+            }
+        })
+        .map_err(|e| e.to_string())?;
+
+    rx.await.map_err(|e| e.to_string())??;
 
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     if cache_dir.exists() {
+        wait_until_deletable(&cache_dir, 3);
         remove_dir_best_effort(&cache_dir);
         std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
     }
+
     Ok(())
 }
 
@@ -135,7 +165,6 @@ pub fn reset_suwayomi_data(app: tauri::AppHandle) -> Result<(), String> {
     let data_dir = suwayomi_data_dir();
     let targets = ["database.mv.db", "extensions", "settings", "logs", "local"];
 
-    // Wait up to 10s for the JVM to release file locks
     for entry_name in &targets {
         let p = data_dir.join(entry_name);
         if p.exists() {

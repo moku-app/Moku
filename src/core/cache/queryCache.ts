@@ -1,11 +1,14 @@
 interface Entry<T> {
   promise:   Promise<T>;
   fetchedAt: number;
+  fetcher?:  () => Promise<T>;
+  ttl?:      number;
 }
 
 const store  = new Map<string, Entry<unknown>>();
 const subs   = new Map<string, Set<() => void>>();
-const groups = new Map<string, Set<string>>();
+const keyToGroups = new Map<string, Set<string>>();
+const groups      = new Map<string, Set<string>>();
 
 export const DEFAULT_TTL_MS = 5 * 60 * 1_000;
 
@@ -16,6 +19,16 @@ function registerGroups(key: string, group?: string | string[]) {
   for (const tag of Array.isArray(group) ? group : [group]) {
     if (!groups.has(tag)) groups.set(tag, new Set());
     groups.get(tag)!.add(key);
+    if (!keyToGroups.has(key)) keyToGroups.set(key, new Set());
+    keyToGroups.get(key)!.add(tag);
+  }
+}
+
+function unregisterKey(key: string) {
+  const tags = keyToGroups.get(key);
+  if (tags) {
+    for (const tag of tags) groups.get(tag)?.delete(key);
+    keyToGroups.delete(key);
   }
 }
 
@@ -27,14 +40,20 @@ export const cache = {
       if (err?.name !== "AbortError") store.delete(key);
       return Promise.reject(err);
     }) as Promise<T>;
-    store.set(key, { promise, fetchedAt: Date.now() });
+    store.set(key, { promise, fetchedAt: Date.now(), fetcher: fetcher as () => Promise<unknown>, ttl });
     registerGroups(key, group);
     promise.then(() => notify(key)).catch(() => {});
     return promise;
   },
 
   set<T>(key: string, value: T, group?: string | string[]) {
-    store.set(key, { promise: Promise.resolve(value), fetchedAt: Date.now() });
+    const existing = store.get(key) as Entry<T> | undefined;
+    store.set(key, {
+      promise: Promise.resolve(value),
+      fetchedAt: Date.now(),
+      fetcher: existing?.fetcher,
+      ttl: existing?.ttl,
+    });
     registerGroups(key, group);
     notify(key);
   },
@@ -43,8 +62,36 @@ export const cache = {
     const existing = store.get(key) as Entry<T> | undefined;
     if (!existing) return;
     const next = existing.promise.then(fn);
-    store.set(key, { promise: next, fetchedAt: Date.now() });
+    store.set(key, { ...existing, promise: next, fetchedAt: Date.now() });
     next.then(() => notify(key)).catch(() => {});
+  },
+
+  refresh<T>(key: string): Promise<T> | undefined {
+    const existing = store.get(key) as Entry<T> | undefined;
+    if (!existing?.fetcher) return undefined;
+    const promise = (existing.fetcher as () => Promise<T>)().catch(err => {
+      if (err?.name !== "AbortError") store.delete(key);
+      return Promise.reject(err);
+    });
+    store.set(key, { ...existing, promise: promise as Promise<unknown>, fetchedAt: Date.now() });
+    promise.then(() => notify(key)).catch(() => {});
+    return promise;
+  },
+
+  refreshGroup(tag: string): void {
+    const keys = groups.get(tag);
+    if (!keys) return;
+    for (const key of [...keys]) {
+      const existing = store.get(key);
+      if (existing?.fetcher) {
+        const promise = existing.fetcher().catch(err => {
+          if (err?.name !== "AbortError") store.delete(key);
+          return Promise.reject(err);
+        });
+        store.set(key, { ...existing, promise, fetchedAt: Date.now() });
+        promise.then(() => notify(key)).catch(() => {});
+      }
+    }
   },
 
   has(key: string): boolean { return store.has(key); },
@@ -54,18 +101,35 @@ export const cache = {
     return e ? Date.now() - e.fetchedAt : undefined;
   },
 
-  clear(key: string) { store.delete(key); notify(key); },
+  isStale(key: string): boolean {
+    const e = store.get(key);
+    if (!e) return true;
+    return Date.now() - e.fetchedAt >= (e.ttl ?? DEFAULT_TTL_MS);
+  },
+
+  clear(key: string) {
+    unregisterKey(key);
+    store.delete(key);
+    notify(key);
+  },
 
   clearGroup(tag: string) {
     const keys = groups.get(tag);
     if (!keys) return;
-    for (const key of keys) { store.delete(key); notify(key); }
+    for (const key of [...keys]) {
+      keyToGroups.get(key)?.delete(tag);
+      if (keyToGroups.get(key)?.size === 0) keyToGroups.delete(key);
+      store.delete(key);
+      notify(key);
+    }
     groups.delete(tag);
   },
 
   clearAll() {
     const allKeys = [...store.keys()];
-    store.clear(); groups.clear();
+    store.clear();
+    groups.clear();
+    keyToGroups.clear();
     allKeys.forEach(notify);
   },
 
@@ -161,7 +225,9 @@ export function getTopSources<T extends { id: string }>(sources: T[]): T[] {
 }
 
 export async function refreshMangaCache(mangaId: number, thumbnailUrl?: string): Promise<void> {
-  cache.clear(CACHE_KEYS.MANGA(mangaId));
+  const didRefresh = cache.refresh(CACHE_KEYS.MANGA(mangaId));
+  if (!didRefresh) cache.clear(CACHE_KEYS.MANGA(mangaId));
+
   cache.clear(CACHE_KEYS.CHAPTERS(mangaId));
   cache.clear(CACHE_KEYS.LIBRARY);
   cache.clear(CACHE_KEYS.ALL_MANGA);

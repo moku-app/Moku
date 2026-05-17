@@ -13,17 +13,18 @@
   import type { BackupEntry } from "@core/persistence/persist";
   import { DEFAULT_SETTINGS } from "@types/settings";
   import { DEFAULT_READING_STATS } from "@types/history";
+  import { clearBlobCache } from "@core/cache/imageCache";
+  import { clearPageCache } from "@core/cache/pageCache";
+  import { cache as queryCache } from "@core/cache/queryCache";
 
   type ResetState = "idle" | "busy" | "done" | "error";
   interface ResetItem { key: string; label: string; desc: string; state: ResetState; error: string | null; confirm: boolean; }
 
   let resetItems = $state<ResetItem[]>([
-    { key: "moku-cache",      label: "Clear Moku cache",         desc: "Removes image cache and temporary files stored by Moku.",                                                          state: "idle", error: null, confirm: false },
-    { key: "suwayomi-cache",  label: "Clear Suwayomi cache",     desc: "Deletes the Suwayomi cache and KCEF directories inside the data folder.",                                          state: "idle", error: null, confirm: false },
-    { key: "server-cache",    label: "Clear server image cache", desc: "Removes cached chapter pages and thumbnails stored on the Suwayomi server.",                                       state: "idle", error: null, confirm: false },
-    { key: "reading-history", label: "Clear reading history",  desc: "Erases chapter history, read log, reading stats, and daily read counts.",                                            state: "idle", error: null, confirm: true  },
-    { key: "moku-settings",   label: "Reset Moku settings",    desc: "Restores all app settings to their defaults. Does not affect library data.",                                         state: "idle", error: null, confirm: true  },
-    { key: "suwayomi-data",   label: "Reset Suwayomi data",    desc: "Deletes the database, extensions, settings, and logs. Downloads and backups are preserved.",                         state: "idle", error: null, confirm: true  },
+    { key: "all-cache",      label: "Clear all caches",      desc: "Flushes the image blob cache, page cache, query cache, Moku disk cache, Suwayomi disk cache, and server image/thumbnail cache in one pass.", state: "idle", error: null, confirm: false },
+    { key: "reading-history", label: "Clear reading history", desc: "Erases chapter history, read log, reading stats, and daily read counts.",                                                                   state: "idle", error: null, confirm: true  },
+    { key: "moku-settings",   label: "Reset Moku settings",   desc: "Restores all app settings to their defaults. Does not affect library data.",                                                                  state: "idle", error: null, confirm: true  },
+    { key: "suwayomi-data",   label: "Reset Suwayomi data",   desc: "Deletes the database, extensions, settings, and logs. Downloads and backups are preserved.",                                                  state: "idle", error: null, confirm: true  },
   ]);
 
   let confirming = $state<string | null>(null);
@@ -73,19 +74,24 @@
     });
   }
 
+  async function clearAllCaches(): Promise<void> {
+    clearBlobCache();
+    clearPageCache();
+    queryCache.clearAll();
+    await Promise.all([
+      invoke("clear_moku_cache"),
+      invoke("clear_suwayomi_cache"),
+      gql(CLEAR_CACHED_IMAGES, { cachedPages: true, cachedThumbnails: true, downloadedThumbnails: false }),
+    ]);
+  }
+
   async function runReset(key: string) {
     confirming = null;
     patchReset(key, { state: "busy", error: null });
     try {
       switch (key) {
-        case "moku-cache":
-          await invoke("clear_moku_cache");
-          break;
-        case "suwayomi-cache":
-          await invoke("clear_suwayomi_cache");
-          break;
-        case "server-cache":
-          await gql(CLEAR_CACHED_IMAGES, { cachedPages: true, cachedThumbnails: true, downloadedThumbnails: false });
+        case "all-cache":
+          await clearAllCaches();
           break;
         case "reading-history":
           store.clearHistory();

@@ -5,8 +5,9 @@ import { uiAuth } from "@core/auth";
 const cache    = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
 const MAX_CONCURRENT = 6;
-let   active = 0;
+let   active   = 0;
 let   drainScheduled = false;
+let   clearing = false;
 
 interface QueueEntry {
   url:      string;
@@ -34,7 +35,9 @@ function getAuthHeaders(): Record<string, string> {
 async function doFetch(url: string): Promise<string> {
   const res = await tauriFetch(url, { method: "GET", headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`${res.status}`);
-  const blobUrl = URL.createObjectURL(await res.blob());
+  const blob = await res.blob();
+  if (clearing) throw new DOMException("Cancelled", "AbortError");
+  const blobUrl = URL.createObjectURL(blob);
   cache.set(url, blobUrl);
   return blobUrl;
 }
@@ -121,8 +124,10 @@ export function cancelQueuedFetches(): void {
 }
 
 export function clearBlobCache(): void {
+  clearing = true;
   cancelQueuedFetches();
   cache.forEach(blob => URL.revokeObjectURL(blob));
   cache.clear();
   inflight.clear();
+  clearing = false;
 }
