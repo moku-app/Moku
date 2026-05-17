@@ -4,7 +4,8 @@ import { trackingState }                   from "@features/tracking/store/tracki
 import { loadAllStores }                   from "@core/persistence/persist";
 import { notifyReauthSuccess }             from "@api/client";
 
-const MAX_ATTEMPTS = 40;
+const MAX_ATTEMPTS    = 15;
+const BG_MAX_ATTEMPTS = 60;
 
 export const boot = $state({
   serverProbeOk:  false,
@@ -26,6 +27,44 @@ export async function initStore() {
   store.hydrate(saved);
 }
 
+function handleProbeSuccess(gen: number) {
+  if (gen !== probeGeneration) return;
+  boot.serverProbeOk = true;
+  boot.failed        = false;
+  boot.skipped       = false;
+  trackingState.bootSync().catch(() => {});
+}
+
+function handleAuthRequired(gen: number) {
+  if (gen !== probeGeneration) return;
+  boot.serverProbeOk = true;
+  boot.failed        = false;
+  const mode = store.settings.serverAuthMode ?? "NONE";
+  if (mode === "BASIC_AUTH") {
+    const user = store.settings.serverAuthUser?.trim() ?? "";
+    const pass = store.settings.serverAuthPass?.trim() ?? "";
+    if (user && pass) {
+      loginBasic(user, pass)
+        .then(() => { if (gen === probeGeneration) trackingState.bootSync().catch(() => {}); })
+        .catch(() => {
+          if (gen !== probeGeneration) return;
+          boot.loginUser     = store.settings.serverAuthUser ?? "";
+          boot.loginRequired = true;
+        });
+      return;
+    }
+    boot.loginUser     = store.settings.serverAuthUser ?? "";
+    boot.loginRequired = true;
+    return;
+  }
+  if (mode === "UI_LOGIN") {
+    boot.loginUser     = store.settings.serverAuthUser ?? "";
+    boot.loginRequired = true;
+    return;
+  }
+  trackingState.bootSync().catch(() => {});
+}
+
 export function startProbe() {
   const gen = ++probeGeneration;
   boot.failed        = false;
@@ -36,51 +75,36 @@ export function startProbe() {
   async function probe() {
     if (gen !== probeGeneration) return;
     tries++;
-
     const result = await probeServer();
     if (gen !== probeGeneration) return;
 
-    if (result === "ok") {
-      boot.serverProbeOk = true;
-      trackingState.bootSync().catch(() => {});
-      return;
-    }
+    if (result === "ok")            { handleProbeSuccess(gen); return; }
+    if (result === "auth_required") { handleAuthRequired(gen); return; }
+    if (tries >= MAX_ATTEMPTS)      { boot.failed = true; startBackgroundProbe(gen); return; }
 
-    if (result === "auth_required") {
-      boot.serverProbeOk = true;
-      const mode = store.settings.serverAuthMode ?? "NONE";
-
-      if (mode === "BASIC_AUTH") {
-        const user = store.settings.serverAuthUser?.trim() ?? "";
-        const pass = store.settings.serverAuthPass?.trim() ?? "";
-        if (user && pass) {
-          try {
-            await loginBasic(user, pass);
-            if (gen !== probeGeneration) return;
-            trackingState.bootSync().catch(() => {});
-            return;
-          } catch {}
-        }
-        boot.loginUser     = store.settings.serverAuthUser ?? "";
-        boot.loginRequired = true;
-        return;
-      }
-
-      if (mode === "UI_LOGIN") {
-        boot.loginUser     = store.settings.serverAuthUser ?? "";
-        boot.loginRequired = true;
-        return;
-      }
-
-      trackingState.bootSync().catch(() => {});
-      return;
-    }
-
-    if (tries >= MAX_ATTEMPTS) { boot.failed = true; return; }
-    setTimeout(probe, Math.min(750 + tries * 250, 3000));
+    setTimeout(probe, Math.min(300 + tries * 150, 1500));
   }
 
-  setTimeout(probe, 2000);
+  setTimeout(probe, 100);
+}
+
+function startBackgroundProbe(gen: number) {
+  let bgTries = 0;
+
+  async function bgProbe() {
+    if (gen !== probeGeneration) return;
+    bgTries++;
+    const result = await probeServer();
+    if (gen !== probeGeneration) return;
+
+    if (result === "ok")            { handleProbeSuccess(gen); return; }
+    if (result === "auth_required") { handleAuthRequired(gen); return; }
+    if (bgTries >= BG_MAX_ATTEMPTS) return;
+
+    setTimeout(bgProbe, 2000);
+  }
+
+  setTimeout(bgProbe, 2000);
 }
 
 export function stopProbe() {
@@ -94,7 +118,6 @@ export async function submitLogin(onSuccess: () => void): Promise<void> {
   }
   boot.loginBusy  = true;
   boot.loginError = null;
-
   try {
     const mode = store.settings.serverAuthMode ?? "NONE";
     if (mode === "UI_LOGIN") {
@@ -102,7 +125,6 @@ export async function submitLogin(onSuccess: () => void): Promise<void> {
     } else {
       await loginBasic(boot.loginUser.trim(), boot.loginPass.trim());
     }
-
     boot.loginRequired  = false;
     boot.sessionExpired = false;
     boot.skipped        = false;
@@ -128,10 +150,11 @@ export function retryBoot() {
 }
 
 export function bypassBoot(onReady: () => void) {
-  probeGeneration++;
+  const gen = probeGeneration;
   boot.serverProbeOk  = true;
   boot.loginRequired  = false;
   boot.sessionExpired = false;
   boot.skipped        = true;
   onReady();
+  startBackgroundProbe(gen);
 }

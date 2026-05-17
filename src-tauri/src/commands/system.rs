@@ -75,6 +75,24 @@ fn remove_dir_best_effort(path: &std::path::Path) {
     }
 }
 
+fn wait_until_deletable(path: &std::path::Path, timeout_secs: u64) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    while std::time::Instant::now() < deadline {
+        let locked = if path.is_file() {
+            std::fs::OpenOptions::new().write(true).open(path).is_err()
+        } else if path.is_dir() {
+            std::fs::read_dir(path).is_err()
+        } else {
+            return true;
+        };
+        if !locked {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    false
+}
+
 #[tauri::command]
 pub async fn clear_moku_cache(app: tauri::AppHandle) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or("no main window")?;
@@ -92,10 +110,17 @@ pub async fn clear_moku_cache(app: tauri::AppHandle) -> Result<(), String> {
 pub fn clear_suwayomi_cache() -> Result<(), String> {
     use crate::server::resolve::suwayomi_data_dir;
     let data_dir = suwayomi_data_dir();
-    for dir in &["cache", "bin/kcef", "cache/kcef"] {
+    for dir in &["cache/kcef", "logs"] {
         let p = data_dir.join(dir);
         if p.exists() {
-            std::fs::remove_dir_all(&p).map_err(|e| e.to_string())?;
+            remove_dir_best_effort(&p);
+        }
+    }
+    for dir in &["downloads/thumbnails"] {
+        let p = data_dir.join(dir);
+        if p.exists() {
+            remove_dir_best_effort(&p);
+            let _ = std::fs::create_dir_all(&p);
         }
     }
     Ok(())
@@ -106,10 +131,19 @@ pub fn reset_suwayomi_data(app: tauri::AppHandle) -> Result<(), String> {
     use crate::server::resolve::suwayomi_data_dir;
 
     crate::server::kill_tachidesk(&app);
-    std::thread::sleep(std::time::Duration::from_millis(500));
 
     let data_dir = suwayomi_data_dir();
-    for entry_name in &["database.mv.db", "extensions", "settings", "logs", "local"] {
+    let targets = ["database.mv.db", "extensions", "settings", "logs", "local"];
+
+    // Wait up to 10s for the JVM to release file locks
+    for entry_name in &targets {
+        let p = data_dir.join(entry_name);
+        if p.exists() {
+            wait_until_deletable(&p, 10);
+        }
+    }
+
+    for entry_name in &targets {
         let p = data_dir.join(entry_name);
         if p.is_dir() {
             std::fs::remove_dir_all(&p).map_err(|e| format!("{entry_name}: {e}"))?;

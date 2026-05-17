@@ -559,15 +559,15 @@
   .page-loader-single {
     width: min(100%, var(--effective-width, 100%));
     max-width: var(--effective-width, 100%);
-    max-height: calc(100vh - 80px);
+    max-height: calc(var(--visual-vh, 100vh) - 80px);
     aspect-ratio: 2 / 3;
   }
 
   .img { display: block; user-select: none; image-rendering: auto; }
   .img:global(.optimize-contrast) { image-rendering: -webkit-optimize-contrast; }
   :global(.fit-width)    { max-width: var(--effective-width, 100%); width: 100%; height: auto; }
-  :global(.fit-height)   { max-height: calc(100vh - 80px); width: auto; max-width: var(--effective-width, 100%); height: auto; }
-  :global(.fit-screen)   { max-width: var(--effective-width, 100%); max-height: calc(100vh - 80px); object-fit: contain; height: auto; }
+  :global(.fit-height)   { max-height: calc(var(--visual-vh, 100vh) - 80px); width: auto; max-width: var(--effective-width, 100%); height: auto; }
+  :global(.fit-screen)   { max-width: var(--effective-width, 100%); max-height: calc(var(--visual-vh, 100vh) - 80px); object-fit: contain; height: auto; }
   :global(.fit-original) { max-width: 100%; width: auto; height: auto; }
   :global(.strip-gap)    { margin-bottom: 8px; }
 

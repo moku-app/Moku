@@ -92,6 +92,13 @@
   });
 
   $effect(() => {
+    if (!appReady) return;
+    downloadStore.poll();
+    const dlInterval = setInterval(() => downloadStore.poll(), 2000);
+    return () => clearInterval(dlInterval);
+  });
+
+  $effect(() => {
     if (store.settings.discordRpc) {
       initRpc();
     } else {
@@ -125,8 +132,10 @@
       applyZoom();
     });
 
-
     const unlistenClose = await win.listen("tauri://close-requested", handleCloseRequested);
+
+    await initStore();
+    startProbe();
 
     if (store.settings.autoStartServer) {
       invoke<void>("spawn_server", { binary: store.settings.serverBinary }).catch((err: any) => {
@@ -135,20 +144,13 @@
       });
     }
 
-    await initStore();
-    startProbe();
-
     const unlistenDownload = await listen<{ chapterId: number; mangaId: number; progress: number }[]>(
       "download-progress",
       e => setActiveDownloads(e.payload),
     );
 
-    await downloadStore.poll();
-    const dlInterval = setInterval(() => downloadStore.poll(), 2000);
-
     return () => {
       stopProbe();
-      clearInterval(dlInterval);
       unlistenResize();
       unlistenScale();
       unlistenDownload();
